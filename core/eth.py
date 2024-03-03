@@ -382,7 +382,7 @@ def event_stream_ether(params):
         query = f"SELECT * FROM t_tags WHERE tag = 'central'"
         cursor.execute(query)
         central = cursor.fetchall()
-        print(central)
+        logger.debug(f"Central address: {central}")
         if (central):
             update = f"UPDATE t_tags SET blockChain = 'eth', address = '{address}' WHERE tag = 'central'"
             connection.execute(update)
@@ -664,11 +664,11 @@ def event_stream_ether(params):
                     contract_tagging = []
                     # contract_tagging.append(('blockChain': 'eth', 'address': address, 'tag': 'contract'})
                     contract_tagging.append(('eth', address, 'contract'))
-                    print(f"Contract creation: {contract_creation}")
-                    print(f"Contract creator: {contract_creation['result'][0]['contractCreator']}")
+                    # print(f"Contract creation: {contract_creation}")
+                    # print(f"Contract creator: {contract_creation['result'][0]['contractCreator']}")
                     # contract_tagging.append({'blockChain': 'eth', 'address': contract_creation['result'][0]['contractCreator'], 'tag': 'contract creator'})
                     contract_tagging.append(('eth', contract_creation['result'][0]['contractCreator'], 'contract creator'))
-                    print(f"Contract tagging: {contract_tagging}")
+                    # print(f"Contract tagging: {contract_tagging}")
                     # Insert tags in SQLite
                     cursor = connection.cursor()
                     insert_tag = 'INSERT OR IGNORE INTO t_tags (blockChain, address, tag) VALUES (?, ?, ?)'
@@ -1664,10 +1664,10 @@ def get_balance_and_gas(conn, address_central, type, key):
     else:
         # INFO: Get balance of contract
         url = f"https://api.etherscan.io/api?module=account&action=balance&address={address_central}&tag=latest&apikey={key}"
-        print(f"KEY: {key}")
+        # print(f"KEY: {key}")
         response = requests.get(url)
         json_object = response.json()['result']
-        print(f"BALANCE: {json_object}")
+        # print(f"BALANCE: {json_object}")
         balance  = [{"blockChain": "eth", "balance": int(json_object) / 1e18, "token": "ETH", "tokenName": "Ether"}]
         # TODO: Use scrapping to get all of tokens balance
 

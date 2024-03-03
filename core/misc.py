@@ -356,7 +356,6 @@ def event_stream_checking(config):
         query = f"SELECT * FROM t_tags WHERE tag = 'central'"
         cursor.execute(query)
         address = cursor.fetchone()
-        # print(f"ADDRESS: {address}")
 
         if (address):
             query = "SELECT address FROM t_tags WHERE tag = 'path' AND blockChain = 'eth';"
