@@ -12,7 +12,6 @@
 ---
 
 <div align="center">
-    <!-- <img alt="Logo" src="https://raw.githubusercontent.com/kennbroorg/trackenn/main/front/assets/Logo-color.png"> -->
     <img alt="Logo" src="front/assets/Logo-color.png">
 </div>
 
@@ -23,9 +22,10 @@
 <h1 id="description">Description</h1>
 Traceability project in blockchain. Ethereum for now. Transactions, internals, ERC-20 transfers, contracts, internal tagging, labeling, etc
 
+---
 
 <div align="center">
-    <a href="https://vimeo.com/917133268?share=copy"><img width="640" height="360" src="front/assets/trackenn.gif"></a>
+    <a href="https://vimeo.com/917133268?share=copy"><img width="480" height="270" src="front/assets/trackenn.gif"></a>
 </div>
 <div align="center">
     <a href="https://vimeo.com/917133268?share=copy">Video Demo</a>
