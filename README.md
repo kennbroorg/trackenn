@@ -23,14 +23,13 @@
 <h1 id="description">Description</h1>
 Traceability project in blockchain. Ethereum for now. Transactions, internals, ERC-20 transfers, contracts, internal tagging, labeling, etc
 
+
 <div align="center">
-    <a href="https://vimeo.com/917133268?share=copy"><img src="front/assets/trackenn.gif"></a>
+    <a href="https://vimeo.com/917133268?share=copy"><img width="640" height="360" src="front/assets/trackenn.gif"></a>
 </div>
 <div align="center">
     <a href="https://vimeo.com/917133268?share=copy">Video Demo</a>
 </div>
-
-<iframe src="https://player.vimeo.com/video/917133268?h=5858ae7bd1" width="640" height="564" frameborder="0" allow="autoplay; fullscreen" allowfullscreen></iframe>
 
 <h1 id="installation">Installation</h1>
 
