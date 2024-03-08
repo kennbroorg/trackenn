@@ -32,7 +32,7 @@ jobs:
         run: Copy-Item -Path data -Destination trackenn/ -Recurse
       
       - name: Copy config Directory
-        run: Copy-Item -Path config.yml -Destination trackenn/
+        run: Copy-Item -Path config.yml -Destination trackenn/config.yml
       
       - name: Zip Distribution Directory
         run: Compress-Archive -Path trackenn/* -DestinationPath trackenn-windows.zip
