@@ -13,7 +13,7 @@ __status__ = "Development"
 import sys
 import yaml
 
-from flask import Flask, render_template, request, Response
+from flask import Flask, render_template, request, Response, send_file
 from flask_cors import CORS, cross_origin
 from flask import current_app
 
@@ -94,6 +94,14 @@ def get_data_ether():
     params['config'] = config 
 
     return Response(eth.event_stream_ether(params), mimetype='text/event-stream')
+
+
+@app.route('/download_db')
+def descargar_archivo():
+    # TODO: Get from config file
+    # HACK: Multiuser?
+    file_path = './default.db'  # Change for the path
+    return send_file(file_path, as_attachment=True)
 
 
 if __name__ == '__main__':

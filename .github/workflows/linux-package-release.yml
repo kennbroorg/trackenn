@@ -1,0 +1,60 @@
+name: Linux Package Release
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.10.12'
+      
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      
+      - name: Install cx_Freeze
+        run: pip install cx_Freeze
+      
+      - name: Freeze Python Script
+        run: cxfreeze -c app.py --target-dir trackenn --target-name trackenn
+      
+      - name: Copy front Directory
+        run: cp -r front/* trackenn/
+      
+      - name: Copy data Directory
+        run: cp -r data/* trackenn/
+      
+      - name: Copy config file
+        run: cp config.yaml trackenn/
+      
+      - name: Zip Distribution Directory
+        run: zip -r trackenn-linux.zip trackenn/
+      
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+      
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./trackenn-linux.zip
+          asset_name: trackenn-linux.zip
+          asset_content_type: application/zip
+
