@@ -100,7 +100,7 @@ def get_data_ether():
 def descargar_archivo():
     # TODO: Get from config file
     # HACK: Multiuser?
-    file_path = './default.db'  # Cambia esto por la ruta a tu archivo
+    file_path = './default.db'  # Change for the path
     return send_file(file_path, as_attachment=True)
 
 
