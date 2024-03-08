@@ -26,10 +26,10 @@ jobs:
         run: cxfreeze -c app.py --target-dir trackenn --target-name trackenn
       
       - name: Copy front Directory
-        run: cp -r front/* trackenn/
+        run: cp -r front trackenn/
       
       - name: Copy data Directory
-        run: cp -r data/* trackenn/
+        run: cp -r data trackenn/
       
       - name: Copy config file
         run: cp config.yaml trackenn/
