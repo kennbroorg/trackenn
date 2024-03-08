@@ -84,6 +84,9 @@ jobs:
       - name: Download Artifacts
         uses: actions/download-artifact@v2
 
+      - name: List files in the current directory
+        run: ls -la
+
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
