@@ -1,0 +1,60 @@
+name: Windows Package Release
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.10.12'
+      
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      
+      - name: Install cx_Freeze
+        run: pip install cx_Freeze
+      
+      - name: Freeze Python Script
+        run: cxfreeze -c app.py --target-dir trackenn --target-name trackenn
+      
+      - name: Copy front Directory
+        run: Copy-Item -Path front -Destination trackenn/ -Recurse
+      
+      - name: Copy data Directory
+        run: Copy-Item -Path data -Destination trackenn/ -Recurse
+      
+      - name: Copy config Directory
+        run: Copy-Item -Path config.yml -Destination trackenn/
+      
+      - name: Zip Distribution Directory
+        run: Compress-Archive -Path trackenn/* -DestinationPath trackenn-windows.zip
+      
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+      
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./trackenn-windows.zip
+          asset_name: trackenn-windows.zip
+          asset_content_type: application/zip
+
