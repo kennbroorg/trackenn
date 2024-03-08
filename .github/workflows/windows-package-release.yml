@@ -1,4 +1,4 @@
-name: Linux Package Release
+name: Windows Package Release
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v2
       
@@ -26,16 +26,16 @@ jobs:
         run: cxfreeze -c app.py --target-dir trackenn --target-name trackenn
       
       - name: Copy front Directory
-        run: cp -r front trackenn/
+        run: Copy-Item -Path front -Destination trackenn/ -Recurse
       
       - name: Copy data Directory
-        run: cp -r data trackenn/
+        run: Copy-Item -Path data -Destination trackenn/ -Recurse
       
-      - name: Copy config file
-        run: cp config.yaml trackenn/
+      - name: Copy config Directory
+        run: Copy-Item -Path config.yml -Destination trackenn/
       
       - name: Zip Distribution Directory
-        run: zip -r trackenn-linux.zip trackenn/
+        run: Compress-Archive -Path trackenn/* -DestinationPath trackenn-windows.zip
       
       - name: Create Release
         id: create_release
@@ -54,7 +54,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./trackenn-linux.zip
-          asset_name: trackenn-linux.zip
+          asset_path: ./trackenn-windows.zip
+          asset_name: trackenn-windows.zip
           asset_content_type: application/zip
 
