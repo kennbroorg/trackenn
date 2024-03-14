@@ -106,6 +106,10 @@ def descargar_archivo():
 
 if __name__ == '__main__':
 
+    # INFO: For Windows platform
+    if sys.platform == 'win32':
+        multiprocessing.freeze_support()
+
     # INFO: Read config and keys
     with open(r'./config.yaml') as file:
         config = yaml.load(file, Loader=yaml.FullLoader)
