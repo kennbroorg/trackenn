@@ -169,6 +169,63 @@ def event_stream_checking(config):
                                             );"""
             connection.execute(sql_create_internals_table)
 
+            message = f"Creating table t_nfts"
+            logger.info(f"{message}")
+            data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+            yield f"data:{data}\n\n"
+            sql_create_nfts_table = """CREATE TABLE IF NOT EXISTS t_nfts (
+                                       blockChain text NOT NULL,
+                                       blockNumber integer NOT NULL,
+                                       timeStamp datetime NOT NULL,
+                                       hash text NOT NULL,
+                                       nonce integer NOT NULL,
+                                       blockHash text NOT NULL,
+                                       `from` text NOT NULL,
+                                       contractAddress text NOT NULL,
+                                       `to` text NOT NULL,
+                                       tokenID text NOT NULL,
+                                       tokenName text NOT NULL,
+                                       tokenSymbol text NOT NULL,
+                                       tokenDecimal integer NOT NULL,
+                                       transactionIndex integer NOT NULL,
+                                       gas integer NOT NULL,
+                                       gasPrice integer NOT NULL,
+                                       gasUsed integer NOT NULL,
+                                       cumulativeGasUsed integer NOT NULL,
+                                       input text NOT NULL,
+                                       confirmations integer NOT NULL,
+                                       UNIQUE(blockChain, blockNumber, timeStamp, hash, `from`, `to`, tokenID)
+                                       );"""
+            connection.execute(sql_create_nfts_table)
+            
+            message = f"Creating table t_multitoken"
+            logger.info(f"{message}")
+            data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+            yield f"data:{data}\n\n"
+            sql_create_mt_table = """CREATE TABLE IF NOT EXISTS t_multitoken (
+                                     blockChain text NOT NULL,
+                                     blockNumber integer NOT NULL,
+                                     timeStamp datetime NOT NULL,
+                                     hash text NOT NULL,
+                                     nonce integer NOT NULL,
+                                     blockHash text NOT NULL,
+                                     transactionIndex integer NOT NULL,
+                                     gas integer NOT NULL,
+                                     gasPrice integer NOT NULL,
+                                     gasUsed integer NOT NULL,
+                                     cumulativeGasUsed integer NOT NULL,
+                                     input text NOT NULL,
+                                     contractAddress text NOT NULL,
+                                     `from` text NOT NULL,
+                                     `to` text NOT NULL,
+                                     tokenID text NOT NULL,
+                                     tokenValue integer NOT NULL,
+                                     tokenName text NOT NULL,
+                                     tokenSymbol text NOT NULL,
+                                     confirmations integer NOT NULL,
+                                     UNIQUE(blockChain, blockNumber, timeStamp, hash, `from`, `to`, tokenID)
+                                     );"""
+            connection.execute(sql_create_mt_table)
             
             # PERF: This table will be eliminated
             # message = "Creating Table t_contract"
