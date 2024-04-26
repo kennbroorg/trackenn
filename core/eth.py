@@ -432,6 +432,7 @@ def event_stream_ether(params):
         else:
             source = params.get('source', '')
 
+        # FIX: Eliminate chunks
         if (params.get('chunk', '') == ''):
             chunk = 100000  # TODO: Control the chunk size
         else:
@@ -1038,10 +1039,11 @@ def event_stream_ether(params):
                     yield f"data:{data}\n\n"
 
                     # Get first trx
-                    first = json_object[0]
+                    first = json_object[0].copy()
                     logger.debug(f"First trx :\n{first}")
                     # Determine type of address   # TODO: NFT
                     first['type'] = 'wallet'
+
                     if (first['to'] == '' and first['contractAddress'] != ''):
                         first['type'] = 'contract'
                     # Get last block collected
@@ -1092,7 +1094,12 @@ def event_stream_ether(params):
                     # TODO:
                     # HACK: Here is the crux of it all, because I have to transfer the methodID and funcname to the rest!!!!
                     tic = time.perf_counter()
-                    db_store_transactions_optimized(connection, json_object)
+                    # PERF: Con esta forma de guardarlo tarda 0.0172
+                    # db_store_transactions_optimized(connection, json_object)
+                    # PERF: 
+                    df_trx_store = pd.DataFrame(json_object)
+                    df_trx_store['blockChain'] = 'eth'
+                    df_trx_store.to_sql('t_transactions', connection, if_exists='append', index=False)
                     toc = time.perf_counter()
                     message = f"<strong>STORE</strong> - Transactions...<strong>{toc - tic:0.4f}</strong> seconds"
                     logger.info(message.replace('<strong>', '').replace('</strong>', ''))
@@ -1101,6 +1108,14 @@ def event_stream_ether(params):
 
                     tic = toc
                     db_store_internals_optimized(connection, json_internals)
+                    df_internals_store = pd.DataFrame(json_internals)
+                    df_internals_store['blockChain'] = 'eth'
+                    df_internals_merged = df_internals_store.merge(df_trx_store[['hash', 'methodId', 'functionName']], on='hash', how='left')
+                    df_internals_merged.fillna('', inplace=True)
+
+                    print(df_internals_merged.info())
+                    print(df_internals_merged.head())
+
                     toc = time.perf_counter()
                     message = f"<strong>STORE</strong> - Internals...<strong>{toc - tic:0.4f}</strong> seconds"
                     logger.info(message.replace('<strong>', '').replace('</strong>', ''))
