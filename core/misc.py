@@ -142,6 +142,8 @@ def event_stream_checking(config):
                                             cumulativeGasUsed integer NOT NULL,
                                             input text NOT NULL,
                                             confirmations integer NOT NULL,
+                                            methodId text NOT NULL,
+                                            functionName text NOT NULL,
                                             UNIQUE(blockChain, blockNumber, timeStamp, hash, `from`, `to`, value)
                                             );"""
             connection.execute(sql_create_transfers_table)
@@ -163,8 +165,11 @@ def event_stream_checking(config):
                                             type text NOT NULL,
                                             gas integer NOT NULL,
                                             gasUsed integer NOT NULL,
+                                            traceId integer NOT NULL,
                                             isError integer NOT NULL,
                                             errCode text NOT NULL,
+                                            methodId text NOT NULL,
+                                            functionName text NOT NULL,
                                             UNIQUE(blockChain, blockNumber, timeStamp, hash, `from`, `to`, value)
                                             );"""
             connection.execute(sql_create_internals_table)
@@ -194,6 +199,8 @@ def event_stream_checking(config):
                                        cumulativeGasUsed integer NOT NULL,
                                        input text NOT NULL,
                                        confirmations integer NOT NULL,
+                                       methodId text NOT NULL,
+                                       functionName text NOT NULL,
                                        UNIQUE(blockChain, blockNumber, timeStamp, hash, `from`, `to`, tokenID)
                                        );"""
             connection.execute(sql_create_nfts_table)
@@ -223,6 +230,8 @@ def event_stream_checking(config):
                                      tokenName text NOT NULL,
                                      tokenSymbol text NOT NULL,
                                      confirmations integer NOT NULL,
+                                     methodId text NOT NULL,
+                                     functionName text NOT NULL,
                                      UNIQUE(blockChain, blockNumber, timeStamp, hash, `from`, `to`, tokenID)
                                      );"""
             connection.execute(sql_create_mt_table)
