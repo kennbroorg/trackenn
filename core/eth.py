@@ -18,6 +18,7 @@ import requests
 import sqlite3
 import traceback
 import pandas as pd
+from sqlalchemy import text
 from datetime import datetime
 from flask import jsonify
 
@@ -29,6 +30,19 @@ logger.setLevel(logging.DEBUG)
 log_format = '%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s'
 coloredlogs.install(level='DEBUG', fmt=log_format, logger=logger)
 logger.propagate = False  # INFO: To prevent duplicates with flask
+
+
+def insert_with_ignore(table, conn, keys, data_iter):
+    # INFO: This escape is for reserved words
+    escaped_keys = [f'"{k}"' if (k.lower() == 'from') or (k.lower() == 'to') else k for k in keys]
+
+    columns = ','.join(escaped_keys)
+    placeholders = ','.join([f":{k}" for k in keys])
+    stmt = f"INSERT INTO {table.name} ({columns}) VALUES ({placeholders}) ON CONFLICT DO NOTHING"
+    data_dicts = (dict(zip(keys, data)) for data in data_iter)
+    
+    for data in data_dicts:
+        conn.execute(stmt, data)
 
 
 def db_store_wallet_detail(conn, data):    
@@ -81,309 +95,10 @@ def db_store_address_block(conn, data):
     conn.commit()
 
 
-def db_store_transactions_optimized(conn, datas):
-    """Store transactions in DB in massive way"""
-    transactions = [(data.get('blockChain', 'eth'),
-                     data.get('blockNumber'),
-                     data.get('timeStamp'),
-                     data.get('hash'),
-                     data.get('nonce'),
-                     data.get('blockHash'),
-                     data.get('transactionIndex'),
-                     data.get('from'),
-                     data.get('to'),
-                     data.get('value'),
-                     data.get('gas'),
-                     data.get('gasPrice'),
-                     data.get('isError'),
-                     data.get('txreceipt_status'),
-                     data.get('input'),
-                     data.get('contractAddress'),
-                     data.get('cumulativeGasUsed'),
-                     data.get('gasUsed'),
-                     data.get('confirmations'),
-                     data.get('methodId'),
-                     data.get('functionName')) for data in datas]
-
-    sql_insert_query = """INSERT OR IGNORE INTO t_transactions (
-                          blockChain, blockNumber, timeStamp, hash, nonce, blockHash, 
-                          transactionIndex, `from`, `to`, value, gas, gasPrice, isError, 
-                          txreceipt_status, input, contractAddress, cumulativeGasUsed, 
-                          gasUsed, confirmations, methodId, functionName) 
-                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
-
-    try:
-        conn.executemany(sql_insert_query, transactions)
-        conn.commit()
-    except Exception as e:
-        logger.error("Error during data insertion:", e)
-        conn.rollback()
-
-
-def db_store_transactions(conn, datas):
-
-    for data in datas:
-        conn.execute(f"""INSERT INTO t_transactions VALUES 
-                       (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                       ?)
-                       """,
-            ('eth',
-             data['blockNumber'],
-             data['timeStamp'],
-             data['hash'],
-             data['nonce'],
-             data['blockHash'],
-             data['transactionIndex'],
-             data['from'],
-             data['to'],
-             data['value'],
-             data['gas'],
-             data['gasPrice'],
-             data['isError'],
-             data['txreceipt_status'],
-             data['input'],
-             data['contractAddress'],
-             data['cumulativeGasUsed'],
-             data['gasUsed'],
-             data['confirmations'],
-             data['methodId'],
-             data['functionName']))
-
-    conn.commit()
-
-
-def db_store_transfers_optimized(conn, datas):
-    """Store transfers ERC20 in DB in massive way"""
-    transactions = [(data.get('blockChain', 'eth'),
-                     data.get('blockNumber'),
-                     data.get('timeStamp'),
-                     data.get('hash'),
-                     data.get('nonce'),
-                     data.get('blockHash'),
-                     data.get('from'),
-                     data.get('contractAddress'),
-                     data.get('to'),
-                     data.get('value'),
-                     data.get('tokenName'),
-                     data.get('tokenSymbol'),
-                     data.get('tokenDecimal'),
-                     data.get('transactionIndex'),
-                     data.get('gas'),
-                     data.get('gasPrice'),
-                     data.get('gasUsed'),
-                     data.get('cumulativeGasUsed'),
-                     data.get('input'),
-                     data.get('confirmations'))
-                    for data in datas]
-
-    sql_insert_query = """INSERT OR IGNORE INTO t_transfers (
-                          blockChain, blockNumber, timeStamp, hash, nonce, blockHash, `from`, 
-                          contractAddress, `to`, value, tokenName, tokenSymbol, tokenDecimal,
-                          transactionIndex, gas, gasPrice, gasUsed, cumulativeGasUsed, input, 
-                          confirmations) 
-                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
-
-    try:
-        conn.executemany(sql_insert_query, transactions)
-        conn.commit()
-    except Exception as e:
-        logger.error("Error during data insertion:", e)
-        conn.rollback()
-
-
-def db_store_transfers(conn, datas):
-
-    for data in datas:
-        try: 
-            conn.execute(f"""INSERT INTO t_transfers VALUES 
-                           (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                           ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                           """,
-                ('eth',
-                 data['blockNumber'],
-                 data['timeStamp'],
-                 data['hash'],
-                 data['nonce'],
-                 data['blockHash'],
-                 data['from'],
-                 data['contractAddress'],
-                 data['to'],
-                 data['value'],
-                 data['tokenName'],
-                 data['tokenSymbol'],
-                 data['tokenDecimal'],
-                 data['transactionIndex'],
-                 data['gas'],
-                 data['gasPrice'],
-                 data['gasUsed'],
-                 data['cumulativeGasUsed'],
-                 data['input'],
-                 data['confirmations']))
-
-        except Exception as e:
-            print(e)
-
-        conn.commit()
-
-def db_store_internals_optimized(conn, datas):
-    """Store internals in DB in massive way"""
-    transactions = [(data.get('blockChain', 'eth'),
-                     data.get('blockNumber'),
-                     data.get('timeStamp'),
-                     data.get('hash'),
-                     data.get('from'),
-                     data.get('to'),
-                     data.get('value'),
-                     data.get('contractAddress'),
-                     data.get('input'),
-                     data.get('type'),
-                     data.get('gas'),
-                     data.get('gasUsed'),
-                     data.get('isError'),
-                     data.get('errCode'))
-                    for data in datas]
-
-    sql_insert_query = """INSERT OR IGNORE INTO t_internals (
-                          blockChain, blockNumber, timeStamp, hash, `from`, `to`, value, contractAddress,
-                          input, type, gas, gasUsed, isError, errCode) 
-                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
-
-    try:
-        conn.executemany(sql_insert_query, transactions)
-        conn.commit()
-    except Exception as e:
-        logger.error("Error during data insertion:", e)
-        conn.rollback()
-
-
-def db_store_internals(conn, datas):
-
-    for data in datas:
-        try: 
-            conn.execute(f"""INSERT INTO t_internals VALUES 
-                           (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                           ?, ?, ?, ?)
-                           """,
-                ('eth',
-                 data['blockNumber'],
-                 data['timeStamp'],
-                 data['hash'],
-                 data['from'],
-                 data['to'],
-                 data['value'],
-                 data['contractAddress'],
-                 data['input'],
-                 data['type'],
-                 data['gas'],
-                 data['gasUsed'],
-                 data['isError'],
-                 data['errCode']))
-        except Exception as e:
-            print(e)
-
-    conn.commit()
-
-
-def db_store_nfts_optimized(conn, datas):
-    """Store transfers ERC721 in DB in massive way"""
-    transactions = [(data.get('blockChain', 'eth'),
-                     data.get('blockNumber'),
-                     data.get('timeStamp'),
-                     data.get('hash'),
-                     data.get('nonce'),
-                     data.get('blockHash'),
-                     data.get('from'),
-                     data.get('contractAddress'),
-                     data.get('to'),
-                     data.get('tokenID'),
-                     data.get('tokenName'),
-                     data.get('tokenSymbol'),
-                     data.get('tokenDecimal'),
-                     data.get('transactionIndex'),
-                     data.get('gas'),
-                     data.get('gasPrice'),
-                     data.get('gasUsed'),
-                     data.get('cumulativeGasUsed'),
-                     data.get('input'),
-                     data.get('confirmations'))
-                    for data in datas]
-
-    sql_insert_query = """INSERT OR IGNORE INTO t_nfts (
-                          blockChain, blockNumber, timeStamp, hash, nonce, blockHash, `from`, 
-                          contractAddress, `to`, tokenID, tokenName, tokenSymbol, tokenDecimal,
-                          transactionIndex, gas, gasPrice, gasUsed, cumulativeGasUsed, input, 
-                          confirmations) 
-                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
-
-    try:
-        conn.executemany(sql_insert_query, transactions)
-        conn.commit()
-    except Exception as e:
-        logger.error("Error during data insertion:", e)
-        conn.rollback()
-
-
-def db_store_multitoken_optimized(conn, datas):
-    """Store transfers ERC1551 in DB in massive way"""
-    transactions = [(data.get('blockChain', 'eth'),
-                     data.get('blockNumber'),
-                     data.get('timeStamp'),
-                     data.get('hash'),
-                     data.get('nonce'),
-                     data.get('blockHash'),
-                     data.get('from'),
-                     data.get('contractAddress'),
-                     data.get('to'),
-                     data.get('tokenID'),
-                     data.get('tokenName'),
-                     data.get('tokenSymbol'),
-                     data.get('tokenValue'),
-                     data.get('transactionIndex'),
-                     data.get('gas'),
-                     data.get('gasPrice'),
-                     data.get('gasUsed'),
-                     data.get('cumulativeGasUsed'),
-                     data.get('input'),
-                     data.get('confirmations'))
-                    for data in datas]
-
-    sql_insert_query = """INSERT OR IGNORE INTO t_multitoken (
-                          blockChain, blockNumber, timeStamp, hash, nonce, blockHash, `from`, 
-                          contractAddress, `to`, tokenID, tokenName, tokenSymbol, tokenValue,
-                          transactionIndex, gas, gasPrice, gasUsed, cumulativeGasUsed, input, 
-                          confirmations) 
-                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
-
-    try:
-        conn.executemany(sql_insert_query, transactions)
-        conn.commit()
-    except Exception as e:
-        logger.error("Error during data insertion:", e)
-        conn.rollback()
-
-
 def db_store_contracts(conn, datas):
 
     for data in datas:
         try: 
-            sql_create_contract_table = """CREATE TABLE IF NOT EXISTS t_contract (
-                                             blockChain text NOT NULL,
-                                             contract text NOT NULL,
-                                             SourceCode text NOT NULL,
-                                             ABI text NOT NULL,
-                                             ContractName text NOT NULL,
-                                             CompilerVersion text NOT NULL,
-                                             OptimizationUsed text NOT NULL,
-                                             Runs text NOT NULL,
-                                             ConstructorArguments text NOT NULL,
-                                             EVMVersion text NOT NULL,
-                                             Library text NOT NULL,
-                                             LicenseType text NOT NULL,
-                                             Proxy text NOT NULL,
-                                             Implementation text NOT NULL,
-                                             SwarmSource text NOT NULL
-                                           );"""
             conn.execute(f"""INSERT INTO t_contract VALUES 
                            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                            ?, ?, ?, ?, ?)
@@ -709,7 +424,10 @@ def event_stream_ether(params):
                     yield f"data:{data}\n\n"
 
                     tic = time.perf_counter()
-                    db_store_transactions_optimized(connection, json_object)
+                    # db_store_transactions_optimized(connection, json_object)
+                    df_trx_store = pd.DataFrame(json_object)
+                    df_trx_store['blockChain'] = 'eth'
+                    df_trx_store.to_sql('t_transactions', connection, if_exists='append', index=False, method=insert_with_ignore)
                     toc = time.perf_counter()
                     message = f"<strong>STORE</strong> - Transactions of contract creation...<strong>{toc - tic:0.4f}</strong> seconds"
                     logger.info(message.replace('<strong>', '').replace('</strong>', ''))
@@ -1091,55 +809,74 @@ def event_stream_ether(params):
                     data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
-                    # TODO:
                     # HACK: Here is the crux of it all, because I have to transfer the methodID and funcname to the rest!!!!
+                    # TODO: Register in internals, transfers, nfts and multitoken the trxs neccesary to complete methodIs and functionName
+                    # INFO: transactions
                     tic = time.perf_counter()
-                    # PERF: Con esta forma de guardarlo tarda 0.0172
                     # db_store_transactions_optimized(connection, json_object)
-                    # PERF: 
                     df_trx_store = pd.DataFrame(json_object)
                     df_trx_store['blockChain'] = 'eth'
-                    df_trx_store.to_sql('t_transactions', connection, if_exists='append', index=False)
+                    df_trx_store.to_sql('t_transactions', connection, if_exists='append', index=False, method=insert_with_ignore)
                     toc = time.perf_counter()
                     message = f"<strong>STORE</strong> - Transactions...<strong>{toc - tic:0.4f}</strong> seconds"
                     logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                     data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
+                    # INFO: internals
                     tic = toc
-                    db_store_internals_optimized(connection, json_internals)
-                    df_internals_store = pd.DataFrame(json_internals)
-                    df_internals_store['blockChain'] = 'eth'
-                    df_internals_merged = df_internals_store.merge(df_trx_store[['hash', 'methodId', 'functionName']], on='hash', how='left')
-                    df_internals_merged.fillna('', inplace=True)
-
-                    print(df_internals_merged.info())
-                    print(df_internals_merged.head())
-
+                    # db_store_internals_optimized(connection, json_internals)
+                    if (json_internals != []):
+                        df_internals_store = pd.DataFrame(json_internals)
+                        df_internals_store['blockChain'] = 'eth'
+                        df_internals_merged = df_internals_store.merge(df_trx_store[['hash', 'methodId', 'functionName']], on='hash', how='left')
+                        df_internals_merged.fillna('', inplace=True)
+                        df_internals_merged.to_sql('t_internals', connection, if_exists='append', index=False, method=insert_with_ignore)
                     toc = time.perf_counter()
                     message = f"<strong>STORE</strong> - Internals...<strong>{toc - tic:0.4f}</strong> seconds"
                     logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                     data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
+                    # INFO: transfers
                     tic = toc
-                    db_store_transfers_optimized(connection, json_transfers)
+                    # db_store_transfers_optimized(connection, json_transfers)
+                    if (json_transfers != []):
+                        df_transfers_store = pd.DataFrame(json_transfers)
+                        df_transfers_store['blockChain'] = 'eth'
+                        df_transfers_merged = df_transfers_store.merge(df_trx_store[['hash', 'methodId', 'functionName']], on='hash', how='left')
+                        df_transfers_merged.fillna('', inplace=True)
+                        df_transfers_merged.to_sql('t_transfers', connection, if_exists='append', index=False, method=insert_with_ignore)
                     toc = time.perf_counter()
                     message = f"<strong>STORE</strong> - Transfers ERC20...<strong>{toc - tic:0.4f}</strong> seconds"
                     logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                     data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
+                    # INFO: NFTs
                     tic = toc
-                    db_store_nfts_optimized(connection, json_nfts)
+                    # db_store_nfts_optimized(connection, json_nfts)
+                    if (json_nfts != []):
+                        df_nfts_store = pd.DataFrame(json_nfts)
+                        df_nfts_store['blockChain'] = 'eth'
+                        df_nfts_merged = df_nfts_store.merge(df_trx_store[['hash', 'methodId', 'functionName']], on='hash', how='left')
+                        df_nfts_merged.fillna('', inplace=True)
+                        df_nfts_merged.to_sql('t_nfts', connection, if_exists='append', index=False, method=insert_with_ignore)
                     toc = time.perf_counter()
                     message = f"<strong>STORE</strong> - Transfers ERC721...<strong>{toc - tic:0.4f}</strong> seconds"
                     logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                     data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
+                    # INFO: Multitokens
                     tic = toc
-                    db_store_multitoken_optimized(connection, json_multitokens)
+                    # db_store_multitoken_optimized(connection, json_multitokens)
+                    if (json_multitokens != []):
+                        df_multitoken_store = pd.DataFrame(json_multitokens)
+                        df_multitoken_store['blockChain'] = 'eth'
+                        df_multitoken_merged = df_multitoken_store.merge(df_trx_store[['hash', 'methodId', 'functionName']], on='hash', how='left')
+                        df_multitoken_merged.fillna('', inplace=True)
+                        df_multitoken_merged.to_sql('t_multitoken', connection, if_exists='append', index=False, method=insert_with_ignore)
                     toc = time.perf_counter()
                     message = f"<strong>STORE</strong> - Transfers ERC1155...<strong>{toc - tic:0.4f}</strong> seconds"
                     logger.info(message.replace('<strong>', '').replace('</strong>', ''))
