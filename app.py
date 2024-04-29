@@ -27,6 +27,7 @@ import coloredlogs, logging
 
 from core import misc
 from core import eth
+from core import bsc
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "http://127.0.0.1:4200"}})  # TODO: Move in API_Server
@@ -86,14 +87,18 @@ def get_data_checking():
     return Response(misc.event_stream_checking(config), mimetype='text/event-stream')
 
 
-@app.route('/stream-data-ether', methods=['GET'])
-def get_data_ether():
+@app.route('/stream-data-info', methods=['GET'])
+def get_data_info():
    
     params = request.args.to_dict()
+    print(params)
     config = current_app.config['config']
     params['config'] = config 
 
-    return Response(eth.event_stream_ether(params), mimetype='text/event-stream')
+    if (params['network'] == 'bsc'):
+        return Response(bsc.event_stream_bsc(params), mimetype='text/event-stream')
+    else: 
+        return Response(eth.event_stream_ether(params), mimetype='text/event-stream')
 
 
 @app.route('/download_db')
