@@ -18,7 +18,7 @@ import requests
 import sqlite3
 import traceback
 import pandas as pd
-from sqlalchemy import text
+# from sqlalchemy import text
 from datetime import datetime
 from flask import jsonify
 
@@ -147,21 +147,21 @@ def event_stream_ether(params):
         else:
             source = params.get('source', '')
 
-        # FIX: Eliminate chunks
-        if (params.get('chunk', '') == ''):
-            chunk = 100000  # TODO: Control the chunk size
-        else:
-            chunk = params.get('chunk', '')
+        # FIX: Eliminate chunks and block_to
+        # if (params.get('chunk', '') == ''):
+        #     chunk = 100000  # TODO: Control the chunk size
+        # else:
+        #     chunk = params.get('chunk', '')
 
-        if (params.get('block_from', '') == ''):
-            block_from = 0
-        else:
-            block_from = params.get('block_from', '')
+        # if (params.get('block_from', '') == ''):
+        #     block_from = 0
+        # else:
+        #     block_from = params.get('block_from', '')
 
-        if (params.get('block_to', '') == ''):
-            block_to = block_from + chunk
-        else:
-            block_to = params.get('block_to', '')
+        # if (params.get('block_to', '') == ''):
+        #     block_to = block_from + chunk
+        # else:
+        #     block_to = params.get('block_to', '')
 
         # TODO: Validate if user send trx reference
 
@@ -1417,137 +1417,6 @@ def get_trx_from_addresses_opt(conn, address_central):
             "stat_err": int(stat_err), "stat_coo": int(stat_con)}  # FIX: repeating stat_con in stat_coo
 
     return {"transactions": transactions, "list": list_trans, "stat": stat}
-
-
-# TODO: REMOVE
-# def get_trx_from_addresses_opt_bkp(conn, address_central):
-
-#     # INFO: address_central is
-#     # ('eth', '0x7f3acf451e372f517b45f9d2ee0e42e31bc5e53e', 'central')
-#     # For future Multichain (?)
-
-#     address_central = address_central[1]
-
-#     nodes = []
-#     nodes_list = []
-#     links = []
-#     stat_tot = 0
-#     stat_trx = 0
-#     stat_int = 0
-#     stat_tra = 0
-#     stat_err = 0
-#     stat_con = 0
-#     stat_wal = 0
-#     # stat_coo = 0  # TODO: Contract owned
-#     # max_qty = 0
-
-#     # INFO: Tagging
-#     df_tags = pd.read_sql_query("SELECT address, tag FROM t_tags", conn)
-#     tags_grouped = df_tags.groupby('address')['tag'].apply(list).reset_index(name='tags')
-#     tags_dict = pd.Series(tags_grouped.tags.values,index=tags_grouped.address).to_dict()
-
-#     # INFO: Labels
-#     df_labels = pd.read_sql_query("SELECT * FROM t_labels WHERE blockChain = 'ethereum'", conn)  # TODO: Multichain
-#     labels_dict = df_labels.set_index('address').apply(lambda row: row.to_dict(), axis=1).to_dict()
-
-#     # stat_coo = 
-#     # stat_con = len(json_tags) - stat_coo
-
-#     # TODO: 
-#     # - Isolate contract creation trx
-#     # - Join query with labels
-#     # - More info in links
-
-#     # INFO: Get all Trx, Transfers and internals
-#     query = """
-#         SELECT blockChain, type, hash, `from`, `to`, value, contractAddress, symbol, name, decimal, valConv, timeStamp, isError
-#         FROM (
-#             SELECT blockChain, 'transaction' as 'type', hash, `from`, `to`, value, 
-#                 contractAddress, 'ETH' as 'symbol', 'Ether' as 'name', 18 as 'decimal', value / POWER(10, 18) as valConv, timeStamp, isError
-#             FROM t_transactions
-#             UNION ALL
-#             SELECT blockChain, 'internals', hash, `from`, `to`, value, 
-#                 contractAddress, 'ETH', 'Ether', 18, value / POWER(10, 18), timeStamp, isError
-#             FROM t_internals
-#             UNION ALL
-#             SELECT blockChain, 'transfers', hash, `from`, `to`, value, 
-#                 contractAddress, tokenSymbol, tokenName, tokenDecimal, value / POWER(10, tokenDecimal), timeStamp, 0
-#             FROM t_transfers
-#         ) AS combined
-#         ORDER BY timeStamp ASC
-#     """
-#     df_all = pd.read_sql_query(query, conn)
-
-#     # INFO: Convert to datetime
-#     df_all['timeStamp'] = pd.to_datetime(df_all['timeStamp'], unit='s')
-#     stat_err = len(df_all[df_all['isError'] != 0])
-#     df_all = df_all[df_all['isError'] == 0]
-
-#     nodes = {}
-#     links = {}
-
-#     for _, row in df_all.iterrows():
-#         from_address = row['from']
-#         to_address = row['to']
-
-#         for address in [from_address, to_address]:
-#             if address not in nodes:
-#                 tag = tags_dict.get(address, [])  # Get tag
-#                 label = labels_dict.get(address, [])  # Get label
-#                 nodes[address] = {
-#                     "id": address, 
-#                     "address": address,
-#                     # "tag": [tag] if tag else [],
-#                     "tag": tag,
-#                     "label": label,
-#                     "token": "ETH",  # TODO: Multichain
-#                     "trx_in": 0,
-#                     "qty_in": 0,
-#                     "trx_out": 0,
-#                     "qty_out": 0
-#                 }
-
-#         # Update trx_out and qty_out to 'from', trx_in and qty_in to 'to'
-#         nodes[from_address]['trx_out'] += float(row['value'])
-#         nodes[from_address]['qty_out'] += 1
-#         nodes[to_address]['trx_in'] += float(row['value'])
-#         nodes[to_address]['qty_in'] += 1
-
-#         # Links
-#         link_key = f"{from_address}->{to_address}"
-#         if link_key in links:
-#             links[link_key]["value"] += float(row["value"])
-#             links[link_key]["qty"] += 1
-#         else:
-#             links[link_key] = {"source": from_address, "target": to_address, "value": float(row["value"]), "qty": 1}
-
-#     nodes_list = list(nodes.values())
-#     links_list = list(links.values())
-
-#     transactions = {"nodes": nodes_list, "links": links_list}
-
-#     # print(df_all.info())
-#     # print(df_all)
-#     # print("=================================================================")
-#     # print(address_central)
-#     # list_trans = df_all[(df_all['from'] == address_central) | (df_all['to'] == address_central)].to_json(orient = "records")  # FIX: Add contractAddress ??
-#     list_trans = df_all.loc[(df_all["from"] == address_central) | (df_all["to"] == address_central)].to_json(orient = "records")
-#     # print(list_trans)
-
-#     stat_trx = len(df_all[df_all['type'] == 'transaction'])
-#     stat_int = len(df_all[df_all['type'] == 'internals'])
-#     stat_tra = len(df_all[df_all['type'] == 'transfers'])
-#     stat_tot = len(df_all)
-#     stat_wal = len(df_tags[df_tags['tag'] == 'wallet'])
-#     stat_con = len(df_tags[df_tags['tag'] == 'contract'])
-#     # TODO: Stat of wallets and contracts
-
-#     stat = {"stat_trx": int(stat_trx), "stat_int": int(stat_int), 
-#             "stat_tra": int(stat_tra), "stat_wal": int(stat_wal),
-#             "stat_tot": int(stat_tot), "stat_con": int(stat_con), 
-#             "stat_err": int(stat_err), "stat_coo": int(stat_con)}  # FIX: repeating stat_con in stat_coo
-
-#     return {"transactions": transactions, "list": list_trans, "stat": stat}
 
 
 def get_balance_and_gas(conn, address_central, type, key):
