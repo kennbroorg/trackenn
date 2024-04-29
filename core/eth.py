@@ -129,6 +129,11 @@ def event_stream_ether(params):
     data = json.dumps({"msg": f"Getting information", "end": False, "error": False, "content": {}})
     yield f"data:{data}\n\n"
 
+    message = f"<strong>Blockchain</strong> - Ethereum"
+    logger.info(message.replace('<strong>', '').replace('</strong>', ''))
+    data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
+    yield f"data:{data}\n\n"
+
     # Checking params
     logger.info(f"Checking params")
     data = json.dumps({"msg": f"Checking params", "end": False, "error": False, "content": {}})
@@ -172,30 +177,38 @@ def event_stream_ether(params):
         connection = sqlite3.connect(dbname)
         cursor = connection.cursor()
 
+        # INFO: Get blockchain param
+        if (params.get('network', '') == ''):
+            blockchain = 'eth'
+        else:
+            blockchain = params['network']
+        logger.debug(f"Blockchain: {blockchain}")
+
         # INFO: Update central address
         query = f"SELECT * FROM t_tags WHERE tag = 'central'"
         cursor.execute(query)
         central = cursor.fetchall()
         logger.debug(f"Central address: {central}")
         if (central):
-            update = f"UPDATE t_tags SET blockChain = 'eth', address = '{address}' WHERE tag = 'central'"
+            update = f"UPDATE t_tags SET blockChain = '{blockchain}', address = '{address}' WHERE tag = 'central'"
             connection.execute(update)
             logger.debug(f"UPDATE Central: {update}")
             connection.commit()
         else:
-            insert = f"INSERT INTO t_tags (blockChain, address, tag) VALUES ('eth', '{address}', 'central')"
+            insert = f"INSERT INTO t_tags (blockChain, address, tag) VALUES ('{blockchain}', '{address}', 'central')"
             connection.execute(insert)
             logger.debug(f"INSERT Central: {insert}")
             connection.commit()
         
         # INFO: Update path address
-        insert = f"INSERT OR IGNORE INTO t_tags (blockChain, address, tag) VALUES ('eth', '{address}', 'path')"
+        insert = f"INSERT OR IGNORE INTO t_tags (blockChain, address, tag) VALUES ('{blockchain}', '{address}', 'path')"
         connection.execute(insert)
         logger.debug(f"INSERT Path: {insert}")
         connection.commit()
 
         # INFO: Verify info of address
-        query = f"SELECT * FROM t_address_detail WHERE address = '{address}'"
+        query = f"SELECT * FROM t_address_detail WHERE address = '{address}' AND BlockChain = '{blockchain}'"
+        logger.debug(f"SELECT address_detail: {query}")
         cursor.execute(query)
         wallet_detail = cursor.fetchall()
         json_object = []
@@ -204,7 +217,11 @@ def event_stream_ether(params):
         json_nfts = []
         json_multitokens = []
 
-        # INFO: Get infoamtion 
+        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        logger.debug(f" Wallet detail: {wallet_detail}")
+        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+
+        # INFO: Get information 
         if (wallet_detail == []):
             # INFO: Verify if address is contract
             type = 'wallet'
@@ -426,7 +443,7 @@ def event_stream_ether(params):
                     tic = time.perf_counter()
                     # db_store_transactions_optimized(connection, json_object)
                     df_trx_store = pd.DataFrame(json_object)
-                    df_trx_store['blockChain'] = 'eth'
+                    df_trx_store['blockChain'] = blockchain
                     df_trx_store.to_sql('t_transactions', connection, if_exists='append', index=False, method=insert_with_ignore)
                     toc = time.perf_counter()
                     message = f"<strong>STORE</strong> - Transactions of contract creation...<strong>{toc - tic:0.4f}</strong> seconds"
@@ -462,11 +479,11 @@ def event_stream_ether(params):
 
                     contract_tagging = []
                     # contract_tagging.append(('blockChain': 'eth', 'address': address, 'tag': 'contract'})
-                    contract_tagging.append(('eth', address, 'contract'))
+                    contract_tagging.append((blockchain, address, 'contract'))
                     # print(f"Contract creation: {contract_creation}")
                     # print(f"Contract creator: {contract_creation['result'][0]['contractCreator']}")
                     # contract_tagging.append({'blockChain': 'eth', 'address': contract_creation['result'][0]['contractCreator'], 'tag': 'contract creator'})
-                    contract_tagging.append(('eth', contract_creation['result'][0]['contractCreator'], 'contract creator'))
+                    contract_tagging.append((blockchain, contract_creation['result'][0]['contractCreator'], 'contract creator'))
                     # print(f"Contract tagging: {contract_tagging}")
                     # Insert tags in SQLite
                     cursor = connection.cursor()
@@ -513,7 +530,7 @@ def event_stream_ether(params):
                     insert_creator = """INSERT OR IGNORE INTO t_founders_creators 
                         (blockChain, blockNumber, type, timeStamp, hash, `from`, `to`, value, input, contractAddress, tokenDecimal, tokenSymbol, tokenName) 
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
-                    creator_row = [("eth",
+                    creator_row = [(blockchain,
                                     json_object[0]['blockNumber'], 
                                     "creation",
                                     json_object[0]['timeStamp'],
@@ -815,7 +832,7 @@ def event_stream_ether(params):
                     tic = time.perf_counter()
                     # db_store_transactions_optimized(connection, json_object)
                     df_trx_store = pd.DataFrame(json_object)
-                    df_trx_store['blockChain'] = 'eth'
+                    df_trx_store['blockChain'] = blockchain
                     df_trx_store.to_sql('t_transactions', connection, if_exists='append', index=False, method=insert_with_ignore)
                     toc = time.perf_counter()
                     message = f"<strong>STORE</strong> - Transactions...<strong>{toc - tic:0.4f}</strong> seconds"
@@ -828,7 +845,7 @@ def event_stream_ether(params):
                     # db_store_internals_optimized(connection, json_internals)
                     if (json_internals != []):
                         df_internals_store = pd.DataFrame(json_internals)
-                        df_internals_store['blockChain'] = 'eth'
+                        df_internals_store['blockChain'] = blockchain
                         df_internals_merged = df_internals_store.merge(df_trx_store[['hash', 'methodId', 'functionName']], on='hash', how='left')
                         df_internals_merged.fillna('', inplace=True)
                         df_internals_merged.to_sql('t_internals', connection, if_exists='append', index=False, method=insert_with_ignore)
@@ -843,7 +860,7 @@ def event_stream_ether(params):
                     # db_store_transfers_optimized(connection, json_transfers)
                     if (json_transfers != []):
                         df_transfers_store = pd.DataFrame(json_transfers)
-                        df_transfers_store['blockChain'] = 'eth'
+                        df_transfers_store['blockChain'] = blockchain
                         df_transfers_merged = df_transfers_store.merge(df_trx_store[['hash', 'methodId', 'functionName']], on='hash', how='left')
                         df_transfers_merged.fillna('', inplace=True)
                         df_transfers_merged.to_sql('t_transfers', connection, if_exists='append', index=False, method=insert_with_ignore)
@@ -858,7 +875,7 @@ def event_stream_ether(params):
                     # db_store_nfts_optimized(connection, json_nfts)
                     if (json_nfts != []):
                         df_nfts_store = pd.DataFrame(json_nfts)
-                        df_nfts_store['blockChain'] = 'eth'
+                        df_nfts_store['blockChain'] = blockchain
                         df_nfts_merged = df_nfts_store.merge(df_trx_store[['hash', 'methodId', 'functionName']], on='hash', how='left')
                         df_nfts_merged.fillna('', inplace=True)
                         df_nfts_merged.to_sql('t_nfts', connection, if_exists='append', index=False, method=insert_with_ignore)
@@ -873,7 +890,7 @@ def event_stream_ether(params):
                     # db_store_multitoken_optimized(connection, json_multitokens)
                     if (json_multitokens != []):
                         df_multitoken_store = pd.DataFrame(json_multitokens)
-                        df_multitoken_store['blockChain'] = 'eth'
+                        df_multitoken_store['blockChain'] = blockchain
                         df_multitoken_merged = df_multitoken_store.merge(df_trx_store[['hash', 'methodId', 'functionName']], on='hash', how='left')
                         df_multitoken_merged.fillna('', inplace=True)
                         df_multitoken_merged.to_sql('t_multitoken', connection, if_exists='append', index=False, method=insert_with_ignore)
@@ -917,6 +934,9 @@ def event_stream_ether(params):
         # INFO: Exist information in db
         else:
             # FIX: Do better
+            logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+            logger.debug(f"+ DANGER                                           +")
+            logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
             # TODO: Add contract validation
 
