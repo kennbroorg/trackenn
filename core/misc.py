@@ -422,16 +422,22 @@ def event_stream_checking(config):
         query = f"SELECT * FROM t_tags WHERE tag = 'central'"
         cursor.execute(query)
         address = cursor.fetchone()
+        logger.debug(f"ADDRESS: {address}")
+
+        # TODO: Determine here the blockchain and the central address
 
         if (address):
             query = "SELECT address FROM t_tags WHERE tag = 'path' AND blockChain = 'eth';"
             cursor.execute(query)
             rows = cursor.fetchall()
+            logger.debug(f"ROWS: {rows}")
 
             # Get addresses in path
             addresses = [row[0] for row in rows]
+            logger.debug(f"ADDRESSES: {addresses}")
 
             # INFO: Getting address and addresses
+            # TODO: Send blockchain
             message = f"<strong>DATA</strong> - Received central and path addresses cached data..."
             logger.info(message.replace('<strong>', '').replace('</strong>', ''))
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {"address": address[1], "addresses": addresses}})
