@@ -406,6 +406,28 @@ def event_stream_checking(config):
 
             df_labels.to_sql('t_labels', connection, if_exists='replace', index=False)
 
+            # Load JSON bscscan
+            message = "Loading Table t_labels with bscscan labels"
+            logger.info(f"{message}")
+            data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+            yield f"data:{data}\n\n"
+            with open('data/bscscanCombinedAllLabels.json', 'r') as file:
+                bscscan = json.load(file)
+            
+            rows = []
+            for address, info in bscscan.items():
+                row = {'blockChain': 'binance',
+                       'source': 'bscscan_label', 
+                       'address': address, 
+                       'name': info['name'], 
+                       'labels': info['labels']}
+                rows.append(row)
+
+            df_labels = pd.DataFrame(rows)
+            df_labels['labels'] = df_labels['labels'].apply(json.dumps)
+
+            df_labels.to_sql('t_labels', connection, if_exists='append', index=False)
+
             end_time = time.time()
             elapsed_time = end_time - start_time
 
