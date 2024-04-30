@@ -178,8 +178,25 @@ def event_stream_ether(params):
         cursor = connection.cursor()
 
         # INFO: Get blockchain param
-        if (params.get('network', '') == ''):
-            blockchain = 'eth'
+        if (params.get('network', '') == '') or (params.get('network', '') == 'undefined'):
+            # INFO: ERROR
+            blockchain = ''
+            connection.close()
+            message = f"<strong>Error...</strong>"
+            logger.error(f"{message}")
+            data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+            yield f"data:{data}\n\n"
+
+            message = f"<strong>Blockchain must be informed</strong>"
+            logger.error(f"{message}")
+            data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+            yield f"data:{data}\n\n"
+
+            message = f" "
+            logger.error(f"{message}")
+            data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
+            yield f"data:{data}\n\n"
+            raise Exception("Blockchain must be informed")
         else:
             blockchain = params['network']
         logger.debug(f"Blockchain: {blockchain}")
@@ -210,7 +227,7 @@ def event_stream_ether(params):
         query = f"SELECT * FROM t_address_detail WHERE address = '{address}' AND BlockChain = '{blockchain}'"
         logger.debug(f"SELECT address_detail: {query}")
         cursor.execute(query)
-        wallet_detail = cursor.fetchall()
+        wallet_detail = cursor.fetchone()
         json_object = []
         json_internals = []
         json_transfers = []
@@ -933,12 +950,12 @@ def event_stream_ether(params):
 
         # INFO: Exist information in db
         else:
-            # FIX: Do better
+            # HACK: This is not a good place to continue collecting information if it is not complete
             logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
-            logger.debug(f"+ DANGER                                           +")
+            logger.debug(f"+ Already collected                                +")
             logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
-            # TODO: Add contract validation
+            # TODO: Add contract validation (Read the HACK comment)
 
             # Validate if all trxs are collected
             query = f"SELECT all_data FROM t_blocks WHERE address = '{address}';"
@@ -946,102 +963,103 @@ def event_stream_ether(params):
             all_data_collected = cursor.fetchone()
 
             # INFO: No more info to collect
-            if (not all_data_collected[0]): 
 
-                # Get last block number
-                query = f"SELECT rowid, * FROM t_blocks WHERE address = '{address}' ORDER BY block_to DESC LIMIT 1;"
-                cursor.execute(query)
-                row = cursor.fetchone()
-                last_block = int(row[4]) + 1
-                rowid = int(row[0])
+            # if (not all_data_collected[0]): 
 
-                logger.debug(f"Last block: {last_block}")
-                
-                # Get more blocks from last block
-                try:
-                    url = f"https://api.etherscan.io/api?module=account&action=txlist&address={address}&startblock={last_block}&endblock=99999999&sort=asc&apikey={key}"
-                    # print(url)
-                    response = requests.get(url)
-                    json_object = response.json()['result']
+            #     # Get last block number
+            #     query = f"SELECT rowid, * FROM t_blocks WHERE address = '{address}' ORDER BY block_to DESC LIMIT 1;"
+            #     cursor.execute(query)
+            #     row = cursor.fetchone()
+            #     last_block = int(row[4]) + 1
+            #     rowid = int(row[0])
 
-                    if (len(json_object) > 0):
-                        message = f"<strong>TRANSACTIONS</strong> - Get more transactions"
-                        logger.info(message.replace('<strong>', '').replace('</strong>', ''))
-                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
-                        yield f"data:{data}\n\n"
-                    else:
-                        message = f"<strong>TRANSACTIONS<strong> - More transactions <strong>NOT FOUND</strong>"
-                        logger.info(message.replace('<strong>', '').replace('</strong>', ''))
-                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
-                        yield f"data:{data}\n\n"
+            #     logger.debug(f"Last block: {last_block}")
+            #     
+            #     # Get more blocks from last block
+            #     try:
+            #         url = f"https://api.etherscan.io/api?module=account&action=txlist&address={address}&startblock={last_block}&endblock=99999999&sort=asc&apikey={key}"
+            #         # print(url)
+            #         response = requests.get(url)
+            #         json_object = response.json()['result']
 
-                except Exception:
-                    traceback.print_exc()
-                    traceback_text = traceback.format_exc()
+            #         if (len(json_object) > 0):
+            #             message = f"<strong>TRANSACTIONS</strong> - Get more transactions"
+            #             logger.info(message.replace('<strong>', '').replace('</strong>', ''))
+            #             data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
+            #             yield f"data:{data}\n\n"
+            #         else:
+            #             message = f"<strong>TRANSACTIONS<strong> - More transactions <strong>NOT FOUND</strong>"
+            #             logger.info(message.replace('<strong>', '').replace('</strong>', ''))
+            #             data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
+            #             yield f"data:{data}\n\n"
 
-                    connection.close()
-                    message = f"<strong>Error...</strong>"
-                    logger.warning(f"{message}")
-                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
-                    yield f"data:{data}\n\n"
+            #     except Exception:
+            #         traceback.print_exc()
+            #         traceback_text = traceback.format_exc()
 
-                    for line in traceback_text.splitlines():
-                        message = f"{line}"
-                        logger.warning(f"{message}")
-                        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
-                        yield f"data:{data}\n\n"
+            #         connection.close()
+            #         message = f"<strong>Error...</strong>"
+            #         logger.warning(f"{message}")
+            #         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+            #         yield f"data:{data}\n\n"
 
-                    message = f" "
-                    logger.warning(f"{message}")
-                    data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
-                    yield f"data:{data}\n\n"
+            #         for line in traceback_text.splitlines():
+            #             message = f"{line}"
+            #             logger.warning(f"{message}")
+            #             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+            #             yield f"data:{data}\n\n"
 
-                # Store transaction in DB
-                try:
-                    message = f"<strong>TRANSACTIONS</strong> - Storing..."
-                    logger.info(message.replace('<strong>', '').replace('</strong>', ''))
-                    data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
-                    yield f"data:{data}\n\n"
+            #         message = f" "
+            #         logger.warning(f"{message}")
+            #         data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
+            #         yield f"data:{data}\n\n"
 
-                    db_store_transactions(connection, json_object)
-                except Exception:
-                    traceback.print_exc()
-                    traceback_text = traceback.format_exc()
+            #     # Store transaction in DB
+            #     try:
+            #         message = f"<strong>TRANSACTIONS</strong> - Storing..."
+            #         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
+            #         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
+            #         yield f"data:{data}\n\n"
 
-                    connection.close()
-                    message = f"<strong>Error...</strong>"
-                    logger.error(message.replace('<strong>', '').replace('</strong>', ''))
-                    logger.warning(f"{message}")
-                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
-                    yield f"data:{data}\n\n"
+            #         db_store_transactions(connection, json_object)
+            #     except Exception:
+            #         traceback.print_exc()
+            #         traceback_text = traceback.format_exc()
 
-                    for line in traceback_text.splitlines():
-                        message = f"{line}"
-                        logger.warning(f"{message}")
-                        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
-                        yield f"data:{data}\n\n"
+            #         connection.close()
+            #         message = f"<strong>Error...</strong>"
+            #         logger.error(message.replace('<strong>', '').replace('</strong>', ''))
+            #         logger.warning(f"{message}")
+            #         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+            #         yield f"data:{data}\n\n"
 
-                    message = f" "
-                    logger.warning(f"{message}")
-                    data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
-                    yield f"data:{data}\n\n"
+            #         for line in traceback_text.splitlines():
+            #             message = f"{line}"
+            #             logger.warning(f"{message}")
+            #             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+            #             yield f"data:{data}\n\n"
 
-                # Get new last block and date
-                new_last_block = json_object[-1]['blockNumber']
-                new_timeStamp_to = json_object[-1]['timeStamp']
+            #         message = f" "
+            #         logger.warning(f"{message}")
+            #         data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
+            #         yield f"data:{data}\n\n"
 
-                logger.debug(f"New Last block: {json_object[-1]}")
-                logger.debug(f"New Last block number: {new_last_block}")
+            #     # Get new last block and date
+            #     new_last_block = json_object[-1]['blockNumber']
+            #     new_timeStamp_to = json_object[-1]['timeStamp']
 
-                # Update last block
-                update = f"UPDATE t_blocks SET block_to = {new_last_block}, date_to = {new_timeStamp_to} WHERE rowid = {rowid}"
-                cursor.execute(update)
-                logger.debug(f"UPDATE: {update}")
-                connection.commit()
+            #     logger.debug(f"New Last block: {json_object[-1]}")
+            #     logger.debug(f"New Last block number: {new_last_block}")
 
-                # TODO: Store transfer in DB
-                # TODO: Store internal in DB
-                # TODO: Generating internals tags
+            #     # Update last block
+            #     update = f"UPDATE t_blocks SET block_to = {new_last_block}, date_to = {new_timeStamp_to} WHERE rowid = {rowid}"
+            #     cursor.execute(update)
+            #     logger.debug(f"UPDATE: {update}")
+            #     connection.commit()
+
+            #     # TODO: Store transfer in DB
+            #     # TODO: Store internal in DB
+            #     # TODO: Generating internals tags
 
         # INFO: Send wallet detail information
         query = f"SELECT * FROM t_address_detail WHERE address = '{address}'"
