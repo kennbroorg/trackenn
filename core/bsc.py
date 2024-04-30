@@ -181,10 +181,29 @@ def event_stream_bsc(params):
         cursor = connection.cursor()
 
         # INFO: Get blockchain param
-        if (params.get('network', '') == ''):
-            blockchain = 'bsc'
+        if (params.get('network', '') == '') or (params.get('network', '') == 'undefined'):
+            blockchain = ''
+            # INFO: ERROR
+            blockchain = ''
+            connection.close()
+            message = f"<strong>Error...</strong>"
+            logger.error(f"{message}")
+            data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+            yield f"data:{data}\n\n"
+
+            message = f"<strong>Blockchain must be informed</strong>"
+            logger.error(f"{message}")
+            data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+            yield f"data:{data}\n\n"
+
+            message = f" "
+            logger.error(f"{message}")
+            data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
+            yield f"data:{data}\n\n"
+            raise Exception("Blockchain must be informed")
         else:
             blockchain = params['network']
+        logger.debug(f"Blockchain: {blockchain}")
 
         # INFO: Update central address
         query = f"SELECT * FROM t_tags WHERE tag = 'central'"
@@ -211,7 +230,7 @@ def event_stream_bsc(params):
         # INFO: Verify info of address
         query = f"SELECT * FROM t_address_detail WHERE address = '{address}' AND BlockChain = '{blockchain}'"
         cursor.execute(query)
-        wallet_detail = cursor.fetchall()
+        wallet_detail = cursor.fetchone()
         json_object = []
         json_internals = []
         json_transfers = []
