@@ -224,7 +224,7 @@ def event_stream_ether(params):
         connection.commit()
 
         # INFO: Verify info of address
-        query = f"SELECT * FROM t_address_detail WHERE address = '{address}' AND BlockChain = '{blockchain}'"
+        query = f"SELECT * FROM t_address_detail WHERE address = '{address}' AND blockChain = '{blockchain}'"
         logger.debug(f"SELECT address_detail: {query}")
         cursor.execute(query)
         wallet_detail = cursor.fetchone()
@@ -239,7 +239,7 @@ def event_stream_ether(params):
         logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
         # INFO: Get information 
-        if (wallet_detail == []):
+        if (wallet_detail == []) or (wallet_detail == None):
             # INFO: Verify if address is contract
             type = 'wallet'
             contract_creation = {}
@@ -1062,9 +1062,13 @@ def event_stream_ether(params):
             #     # TODO: Generating internals tags
 
         # INFO: Send wallet detail information
-        query = f"SELECT * FROM t_address_detail WHERE address = '{address}'"
+        query = f"SELECT * FROM t_address_detail WHERE address = '{address}' AND blockChain = '{blockchain}'"
         cursor.execute(query)
         wallet_detail = cursor.fetchall()
+
+        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        logger.debug(f" !!!!!! Wallet detail: {wallet_detail}")
+        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
         message = f"<strong>TRANSACTIONS</strong> - Receiving wallet detail information..."
         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
@@ -1072,13 +1076,14 @@ def event_stream_ether(params):
         yield f"data:{data}\n\n"
 
         # INFO: Get address and path
-        query = f"SELECT * FROM t_tags WHERE tag = 'central'"
+        query = f"SELECT * FROM t_tags WHERE tag = 'central'" # INFO: Here no need blockchain, only one central must exist
         cursor.execute(query)
         address = cursor.fetchone()
         # print(f"ADDRESS: {address}")
         type = wallet_detail[0][12]
 
-        query = "SELECT address FROM t_tags WHERE tag = 'path' AND blockChain = 'eth'"
+        # TODO: Path must support multichain in the future
+        query = f"SELECT address FROM t_tags WHERE tag = 'path' AND blockChain = '{blockchain}'"
         cursor.execute(query)
         rows = cursor.fetchall()
 
@@ -1214,7 +1219,7 @@ def db_store_tagging_opt(connection, address, trxs, transfers, internals, nfts, 
 
 
     df_addresses = pd.DataFrame(addresses.unique(), columns=['address'])
-    df_addresses['blockChain'] = 'eth'  # TODO: Multichain
+    df_addresses['blockChain'] = 'eth'
     df_addresses['tag'] = 'wallet'
 
     # Detect contracts
