@@ -237,8 +237,12 @@ def event_stream_bsc(params):
         json_nfts = []
         json_multitokens = []
 
+        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        logger.debug(f" Wallet detail: {wallet_detail}")
+        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+
         # INFO: Get information 
-        if (wallet_detail == []):
+        if (wallet_detail == []) or (wallet_detail == None):
             # INFO: Verify if address is contract
             type = 'wallet'
             contract_creation = {}
@@ -961,9 +965,13 @@ def event_stream_bsc(params):
             logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
         # INFO: Send wallet detail information
-        query = f"SELECT * FROM t_address_detail WHERE address = '{address}' and blockChain = {blockchain}"
+        query = f"SELECT * FROM t_address_detail WHERE address = '{address}' and blockChain = '{blockchain}'"
         cursor.execute(query)
         wallet_detail = cursor.fetchall()
+
+        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        logger.debug(f" !!!!!! Wallet detail: {wallet_detail}")
+        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
         message = f"<strong>TRANSACTIONS</strong> - Receiving wallet detail information..."
         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
@@ -975,6 +983,9 @@ def event_stream_bsc(params):
         cursor.execute(query)
         address = cursor.fetchone()
         # print(f"ADDRESS: {address}")
+        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        logger.debug(f"+ wallet detail: {wallet_detail}")
+        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
         type = wallet_detail[0][12]
 
         # TODO: Path must support multichain in the future
@@ -1206,6 +1217,10 @@ def get_trx_from_addresses_opt(conn, address_central):
     # INFO: address_central is
     # ('bsc', '0x7f3acf451e372f517b45f9d2ee0e42e31bc5e53e', 'central')
     # For future Multichain (?)
+    
+    logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+    logger.debug(f"+ Address: {address_central}")
+    logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
     address_central = address_central[1]
 

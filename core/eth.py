@@ -1313,6 +1313,10 @@ def get_trx_from_addresses_opt(conn, address_central):
     # ('eth', '0x7f3acf451e372f517b45f9d2ee0e42e31bc5e53e', 'central')
     # For future Multichain (?)
 
+    logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+    logger.debug(f"+ Address: {address_central}")
+    logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+
     address_central = address_central[1]
 
     nodes = []
