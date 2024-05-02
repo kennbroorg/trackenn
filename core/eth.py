@@ -409,7 +409,7 @@ def event_stream_ether(params):
                     yield f"data:{data}\n\n"
 
                     # Get first trx
-                    first = json_object[0]
+                    first = json_object[0].copy()
                     logger.debug(f"First trx :\n{first}")
                     # Determine type of address   # TODO: NFT
                     first['type'] = 'contract'
