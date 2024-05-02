@@ -41,6 +41,9 @@ def insert_with_ignore(table, conn, keys, data_iter):
     placeholders = ','.join([f":{k}" for k in keys])
     stmt = f"INSERT INTO {table.name} ({columns}) VALUES ({placeholders}) ON CONFLICT DO NOTHING"
     data_dicts = (dict(zip(keys, data)) for data in data_iter)
+
+    logger.debug(f"Columns: {columns}")
+    logger.debug(f"Placeholders: {placeholders}")
     
     for data in data_dicts:
         conn.execute(stmt, data)
@@ -412,7 +415,7 @@ def event_stream_bsc(params):
                     yield f"data:{data}\n\n"
 
                     # Get first trx
-                    first = json_object[0]
+                    first = json_object[0].copy()
                     logger.debug(f"First trx :\n{first}")
                     # Determine type of address   # TODO: NFT
                     first['type'] = 'contract'
@@ -1448,7 +1451,7 @@ def get_balance_and_gas(conn, address_central, type, key):
 
     else:
         # INFO: Get balance of contract
-        url = f"https://api.etherscan.io/api?module=account&action=balance&address={address_central}&tag=latest&apikey={key}"
+        url = f"https://api.bscscan.com/api?module=account&action=balance&address={address_central}&tag=latest&apikey={key}"
         # print(f"KEY: {key}")
         response = requests.get(url)
         json_object = response.json()['result']
