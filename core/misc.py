@@ -11,6 +11,7 @@ __email__ = "kennbro <at> protonmail <dot> com"
 __status__ = "Development"
 
 
+import os
 import time
 import json
 import logging
@@ -33,6 +34,10 @@ logger.propagate = False  # INFO: To prevent duplicates with flask
 
 
 def event_stream_checking(config):
+    logger.debug(f"PARAM checking: {config}")
+    if (config['action'] == "reset"):
+        os.remove(config['dbname'])
+
     try:
         logger.info(f"Initializing project")
         data = json.dumps({"msg": f"Initializing project", "end": False, "error": False, "content": {}})
@@ -585,3 +590,4 @@ def event_stream_checking(config):
         logger.warning(f"{message}")
         data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
         yield f"data:{data}\n\n"
+        

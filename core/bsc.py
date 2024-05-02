@@ -1452,9 +1452,10 @@ def get_balance_and_gas(conn, address_central, type, key):
     else:
         # INFO: Get balance of contract
         url = f"https://api.bscscan.com/api?module=account&action=balance&address={address_central}&tag=latest&apikey={key}"
-        # print(f"KEY: {key}")
+        logger.debug(f"BALANCE BSC URL: {url}")
         response = requests.get(url)
         json_object = response.json()['result']
+        logger.debug(f"BALANCE: {json_object}")
         # print(f"BALANCE: {json_object}")
         balance  = [{"blockChain": "eth", "balance": int(json_object) / 1e18, "token": "ETH", "tokenName": "Ether"}]
         # TODO: Use scrapping to get all of tokens balance
