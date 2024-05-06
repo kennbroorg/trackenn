@@ -1262,11 +1262,11 @@ def get_trx_from_addresses_opt(conn, address_central):
         SELECT blockChain, type, hash, `from`, `to`, value, contractAddress, symbol, name, decimal, valConv, timeStamp, isError
         FROM (
             SELECT blockChain, 'transaction' as 'type', hash, `from`, `to`, value, 
-                contractAddress, 'ETH' as 'symbol', 'Ether' as 'name', 18 as 'decimal', value / POWER(10, 18) as valConv, timeStamp, isError
+                contractAddress, 'BNB' as 'symbol', 'BNB' as 'name', 18 as 'decimal', value / POWER(10, 18) as valConv, timeStamp, isError
             FROM t_transactions
             UNION ALL
             SELECT blockChain, 'internals', hash, `from`, `to`, value, 
-                contractAddress, 'ETH', 'Ether', 18, value / POWER(10, 18), timeStamp, isError
+                contractAddress, 'BNB', 'BNB', 18, value / POWER(10, 18), timeStamp, isError
             FROM t_internals
             UNION ALL
             SELECT blockChain, 'transfers', hash, `from`, `to`, value, 
@@ -1375,10 +1375,6 @@ def get_trx_from_addresses_opt(conn, address_central):
 
 
 def get_balance_and_gas(conn, address_central, type, key):
-    # INFO: address_central is
-    # ('eth', '0x7f3acf451e372f517b45f9d2ee0e42e31bc5e53e', 'central')
-    # For future Multichain (?)
-
     address_central = address_central[1]
 
     if (type == 'wallet'):
@@ -1398,10 +1394,10 @@ def get_balance_and_gas(conn, address_central, type, key):
                 ) AS balance
             FROM 
                 (
-                SELECT blockChain, 'transaction', hash, `from`, `to`, value, contractAddress, 'ETH' as 'token', 'Ether' as 'tokenName', 18 as 'SymbolDecimal', timeStamp, isError
+                SELECT blockChain, 'transaction', hash, `from`, `to`, value, contractAddress, 'BNB' as 'token', 'BNB' as 'tokenName', 18 as 'SymbolDecimal', timeStamp, isError
                 FROM t_transactions
                 UNION 
-                SELECT blockChain, 'internals', hash, `from`, `to`, value, contractAddress, 'ETH',  'Ether', 18 as 'SymbolDecimal', timeStamp, isError
+                SELECT blockChain, 'internals', hash, `from`, `to`, value, contractAddress, 'BNB',  'BNB', 18 as 'SymbolDecimal', timeStamp, isError
                 FROM t_internals
                 UNION 
                 SELECT blockChain, 'transfers', hash, `from`, `to`, value, contractAddress, tokenSymbol, tokenName, tokenDecimal, timeStamp, 0
@@ -1409,6 +1405,7 @@ def get_balance_and_gas(conn, address_central, type, key):
                 ) AS balance_temp
             WHERE 
                 "isError" = 0 AND
+                "blockChain" = 'bsc' AND
                 ("From" = '{address_central}' OR "To" = '{address_central}')
             GROUP BY 
                 token;
@@ -1423,6 +1420,7 @@ def get_balance_and_gas(conn, address_central, type, key):
             FROM t_transactions
             WHERE 
                 "isError" = 0 AND
+                "blockChain" = 'bsc' AND
                 "From" = '{address_central}'
         """
         cursor = conn.cursor()
@@ -1430,8 +1428,12 @@ def get_balance_and_gas(conn, address_central, type, key):
         gas = cursor.fetchone()[0]
 
         # Get index of ETH row
-        index = df_balance.index[df_balance['token'] == 'ETH'].tolist()
-        balance = df_balance[df_balance['token'] == 'ETH']
+        index = df_balance.index[df_balance['token'] == 'BNB'].tolist()
+        balance = df_balance[df_balance['token'] == 'BNB']
+
+        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        logger.debug(f"+ Balance: {balance}")
+        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
         if (balance.loc[index[0], 'balance'] - gas) >= 0:
             balance.loc[index[0], 'balance'] -= gas
@@ -1441,7 +1443,7 @@ def get_balance_and_gas(conn, address_central, type, key):
         # balance.loc[index, 'balance'] -= gas
         # if (balance.loc[index, 'balance'] < 0):
         #     balance.loc[index, 'balance'] = 0.0
-        balance = json.loads(balance[balance['token'] == 'ETH'].to_json(orient = "records"))
+        balance = json.loads(balance[balance['token'] == 'BNB'].to_json(orient = "records"))
 
         # Remove row from tokens
         df_balance.drop(index, inplace=True)
@@ -1457,7 +1459,7 @@ def get_balance_and_gas(conn, address_central, type, key):
         json_object = response.json()['result']
         logger.debug(f"BALANCE: {json_object}")
         # print(f"BALANCE: {json_object}")
-        balance  = [{"blockChain": "eth", "balance": int(json_object) / 1e18, "token": "ETH", "tokenName": "Ether"}]
+        balance  = [{"blockChain": "bsc", "balance": int(json_object) / 1e18, "token": "BNB", "tokenName": "BNB"}]
         # TODO: Use scrapping to get all of tokens balance
 
         return {"balance": balance, "tokens": [], "gas": []}
@@ -1467,7 +1469,7 @@ def get_founders_creators(conn, address_central):
     address_central = address_central[1]
 
     # INFO: Get Founders
-    query = f"SELECT * FROM t_founders_creators WHERE `to` = '{address_central}';"
+    query = f"SELECT * FROM t_founders_creators WHERE blockChain = 'bsc' AND `to` = '{address_central}';"
     df_founders_creators = pd.read_sql_query(query, conn).to_json(orient = "records")
 
     return {"founders": df_founders_creators}
@@ -1479,11 +1481,11 @@ def get_tags_labels(conn, address_central):
     # PERF: I think that need to remove the blockchain condition
 
     # INFO: Get Tags
-    query = f"SELECT * FROM t_tags WHERE blockChain = 'eth' and address = '{address_central}';"
+    query = f"SELECT * FROM t_tags WHERE blockChain = 'bsc' and address = '{address_central}';"
     df_tags = json.loads(pd.read_sql_query(query, conn).to_json(orient = "records"))
 
     # INFO: Get Labels
-    query = f"SELECT * FROM t_labels WHERE blockChain = 'ethereum' and address = '{address_central}';"
+    query = f"SELECT * FROM t_labels WHERE blockChain = 'binance' and address = '{address_central}';"
     df_labels = json.loads(pd.read_sql_query(query, conn).to_json(orient = "records"))
 
     return {"tags": df_tags, "labels": df_labels}
