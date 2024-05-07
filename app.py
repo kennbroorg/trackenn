@@ -27,6 +27,7 @@ import coloredlogs, logging
 
 from core import misc
 from core import eth
+from core import bsc
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "http://127.0.0.1:4200"}})  # TODO: Move in API_Server
@@ -82,26 +83,42 @@ def internal_test_2():
 
 @app.route('/stream-data-checking', methods=['GET'])
 def get_data_checking():
+    params = request.args.to_dict()
+    logger.debug(f"PARAM: {params}")
     config = current_app.config['config']
+    config['action'] = params['action'] 
+
     return Response(misc.event_stream_checking(config), mimetype='text/event-stream')
 
 
-@app.route('/stream-data-ether', methods=['GET'])
-def get_data_ether():
+@app.route('/stream-data-info', methods=['GET'])
+def get_data_info():
    
     params = request.args.to_dict()
+    logger.debug(f"PARAM: {params}")
     config = current_app.config['config']
     params['config'] = config 
 
-    return Response(eth.event_stream_ether(params), mimetype='text/event-stream')
+    if (params['network'] == 'bsc'):
+        return Response(bsc.event_stream_bsc(params), mimetype='text/event-stream')
+    else: 
+        return Response(eth.event_stream_ether(params), mimetype='text/event-stream')
 
 
 @app.route('/download_db')
-def descargar_archivo():
+def download_investigation():
     # TODO: Get from config file
     # HACK: Multiuser?
     file_path = './default.db'  # Change for the path
     return send_file(file_path, as_attachment=True)
+
+
+@app.route('/reset_db')
+def reset_investigation():
+    # TODO: Get from config file
+    # HACK: Multiuser?
+    file_path = './default.db'  # Change for the path
+    return Response(misc.event_reset_investigation(file_path), mimetype='text/event-stream')
 
 
 if __name__ == '__main__':

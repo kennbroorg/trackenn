@@ -11,6 +11,7 @@ __email__ = "kennbro <at> protonmail <dot> com"
 __status__ = "Development"
 
 
+import os
 import time
 import json
 import logging
@@ -21,8 +22,9 @@ import pandas as pd
 from termcolor import colored
 import coloredlogs, logging
 
-# from core.eth import get_trx_from_addresses, get_trx_from_addresses_opt
-from core.eth import get_trx_from_addresses_opt, get_founders_creators, get_balance_and_gas, get_tags_labels
+# from core.eth import get_trx_from_addresses_opt, get_founders_creators, get_balance_and_gas, get_tags_labels
+from core import eth
+from core import bsc
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -32,6 +34,10 @@ logger.propagate = False  # INFO: To prevent duplicates with flask
 
 
 def event_stream_checking(config):
+    logger.debug(f"PARAM checking: {config}")
+    if (config['action'] == "reset"):
+        os.remove(config['dbname'])
+
     try:
         logger.info(f"Initializing project")
         data = json.dumps({"msg": f"Initializing project", "end": False, "error": False, "content": {}})
@@ -405,6 +411,28 @@ def event_stream_checking(config):
 
             df_labels.to_sql('t_labels', connection, if_exists='replace', index=False)
 
+            # Load JSON bscscan
+            message = "Loading Table t_labels with bscscan labels"
+            logger.info(f"{message}")
+            data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+            yield f"data:{data}\n\n"
+            with open('data/bscscanCombinedAllLabels.json', 'r') as file:
+                bscscan = json.load(file)
+            
+            rows = []
+            for address, info in bscscan.items():
+                row = {'blockChain': 'binance',
+                       'source': 'bscscan_label', 
+                       'address': address, 
+                       'name': info['name'], 
+                       'labels': info['labels']}
+                rows.append(row)
+
+            df_labels = pd.DataFrame(rows)
+            df_labels['labels'] = df_labels['labels'].apply(json.dumps)
+
+            df_labels.to_sql('t_labels', connection, if_exists='append', index=False)
+
             end_time = time.time()
             elapsed_time = end_time - start_time
 
@@ -424,24 +452,35 @@ def event_stream_checking(config):
         address = cursor.fetchone()
 
         if (address):
-            query = "SELECT address FROM t_tags WHERE tag = 'path' AND blockChain = 'eth';"
+            address_central = address[1]
+            blockchain = address[0]
+            logger.debug(f"ADDRESS: {address}")
+            query = f"SELECT address FROM t_tags WHERE tag = 'path' AND blockChain = '{blockchain}';"
             cursor.execute(query)
             rows = cursor.fetchall()
+            logger.debug(f"ROWS: {rows}")
 
             # Get addresses in path
             addresses = [row[0] for row in rows]
+            logger.debug(f"ADDRESSES: {addresses}")
 
-            # INFO: Getting address and addresses
-            message = f"<strong>DATA</strong> - Received central and path addresses cached data..."
-            logger.info(message.replace('<strong>', '').replace('</strong>', ''))
-            data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {"address": address[1], "addresses": addresses}})
-            yield f"data:{data}\n\n"
-
-            # # INFO: Send wallet detail information
-            query = f"SELECT * FROM t_address_detail WHERE address = '{address[1]}'"
+            # INFO: Send wallet detail information
+            query = f"SELECT * FROM t_address_detail WHERE address = '{address_central}'"
             cursor.execute(query)
             wallet_detail = cursor.fetchall()
             type = wallet_detail[0][12]
+
+            # INFO: Getting address and addresses and blockchain
+            message = f"<strong>DATA</strong> - Received central and path addresses cached data..."
+            logger.info(message.replace('<strong>', '').replace('</strong>', ''))
+            # TODO: Pass source, trx and type
+            # data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {"address": address[1], 
+            data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {"address": address, 
+                                                                                              "addresses": addresses, 
+                                                                                              "source": "central", 
+                                                                                              "type": type, 
+                                                                                              "network": blockchain}})
+            yield f"data:{data}\n\n"
 
             message = f"<strong>TRANSACTIONS</strong> - Receiving wallet detail information..."
             logger.info(message.replace('<strong>', '').replace('</strong>', ''))
@@ -455,8 +494,30 @@ def event_stream_checking(config):
 
             # INFO: Getting trxs, internals and transfers
             tic = time.perf_counter()
-            # trxs = get_trx_from_address(connection, address)
-            trxs = get_trx_from_addresses_opt(connection, address)
+
+            if (blockchain == "bsc"):
+                trxs = bsc.get_trx_from_addresses_opt(connection, address)
+            elif (blockchain == "eth"):
+                trxs = eth.get_trx_from_addresses_opt(connection, address)
+            else:
+                # INFO: ERROR handle. Not in the followings
+                connection.close()
+                message = f"<strong>Error...</strong>"
+                logger.error(f"{message}")
+                data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+                yield f"data:{data}\n\n"
+
+                message = f"<strong>Blockchain must be informed</strong>"
+                logger.error(f"{message}")
+                data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+                yield f"data:{data}\n\n"
+
+                message = f" "
+                logger.error(f"{message}")
+                data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
+                yield f"data:{data}\n\n"
+                raise Exception("Blockchain must be informed")
+
             toc = time.perf_counter()
             message = f"<strong>DATA</strong> - Proccesed...<strong>{toc - tic:0.4f}</strong> seconds"
             logger.info(message.replace('<strong>', '').replace('</strong>', ''))
@@ -466,7 +527,10 @@ def event_stream_checking(config):
 
             # INFO: Get Founders and creators
             tic = time.perf_counter()
-            founders = get_founders_creators(connection, address)
+            if (blockchain == "bsc"):
+                founders = bsc.get_founders_creators(connection, address)
+            else: # INFO: ETH
+                founders = eth.get_founders_creators(connection, address)
             toc = time.perf_counter()
             message = f"<strong>DATA</strong> - Founders and creators...<strong>{toc - tic:0.4f}</strong> seconds"
             logger.info(message.replace('<strong>', '').replace('</strong>', ''))
@@ -475,7 +539,10 @@ def event_stream_checking(config):
 
             # INFO: Get Balance and Gas
             tic = time.perf_counter()
-            balance = get_balance_and_gas(connection, address, type, key)
+            if (blockchain == "bsc"):
+                balance = bsc.get_balance_and_gas(connection, address, type, key)
+            else: # INFO: ETH
+                balance = eth.get_balance_and_gas(connection, address, type, key)
             toc = time.perf_counter()
             message = f"<strong>DATA</strong> - Balance and Gas...<strong>{toc - tic:0.4f}</strong> seconds"
             logger.info(message.replace('<strong>', '').replace('</strong>', ''))
@@ -485,7 +552,10 @@ def event_stream_checking(config):
 
             # INFO: Get tags and labels
             tic = time.perf_counter()
-            tags = get_tags_labels(connection, address)
+            if (blockchain == "bsc"):
+                tags = bsc.get_tags_labels(connection, address)
+            else: # INFO: ETH
+                tags = eth.get_tags_labels(connection, address)
             toc = time.perf_counter()
             message = f"<strong>DATA</strong> - Tags and Labels...<strong>{toc - tic:0.4f}</strong> seconds"
             logger.info(message.replace('<strong>', '').replace('</strong>', ''))
@@ -520,3 +590,4 @@ def event_stream_checking(config):
         logger.warning(f"{message}")
         data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
         yield f"data:{data}\n\n"
+        

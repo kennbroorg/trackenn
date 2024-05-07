@@ -1,3 +1,4 @@
 ethscan: XXX
+bscscan: XXX
 level: INFO
 dbname: default.db
