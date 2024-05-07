@@ -40,7 +40,7 @@ for handler in app.logger.handlers:
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 coloredlogs.install(level='DEBUG', fmt=log_format, logger=logger)
-logger.propagate = False  # INFO: To prevent duplicates with flask
+# logger.propagate = False  # INFO: To prevent duplicates with flask
 
 def API_Server(ip='127.0.0.1', port=5000, config=None, env="prod"):
     app.config['config'] = config
@@ -58,7 +58,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 def httpServer():
     PORT = 4200
-    logger.info("HTTPD ready... Data Visualization Web on http://127.0.0.1:4200")
+    logger.info("HTTPD ready...")
+    logger.info("")
+    logger.info("===================================================")
+    logger.info("  Data Visualization Web on http://127.0.0.1:4200")
+    logger.info("===================================================\n")
     with socketserver.TCPServer(("", PORT), Handler) as httpd_server:
         httpd_server.serve_forever()
 
@@ -132,12 +136,15 @@ if __name__ == '__main__':
         config = yaml.load(file, Loader=yaml.FullLoader)
 
     # INFO: Define loglevel
-    coloredlogs.install(level='INFO')
-    try:
-        coloredlogs.install(level=config['level'])
-    except Exception:
-        logger.error("The level parameter is wrong, set to INFO by default")
-        coloredlogs.install(level='INFO')
+    log_format = '%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s'
+    coloredlogs.install(level=config['level'], fmt=log_format, logger=logger)
+
+    # coloredlogs.install(level='INFO')
+    # try:
+    #     coloredlogs.install(level=config['level'])
+    # except Exception:
+    #     logger.error("The level parameter is wrong, set to INFO by default")
+    #     coloredlogs.install(level='INFO')
 
     # app.config['config'] = config
     # app.run(host='127.0.0.1', port=5000, debug=True)
