@@ -26,9 +26,6 @@ from termcolor import colored
 import coloredlogs, logging
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-log_format = '%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s'
-coloredlogs.install(level='DEBUG', fmt=log_format, logger=logger)
 logger.propagate = False  # INFO: To prevent duplicates with flask
 
 
@@ -125,6 +122,11 @@ def db_store_contracts(conn, datas):
 
 
 def event_stream_ether(params):
+
+    # INFO: Config Log Level
+    log_format = '%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s'
+    coloredlogs.install(level=params['config']['level'], fmt=log_format, logger=logger)
+
     logger.info(f"Getting information")
     data = json.dumps({"msg": f"Getting information", "end": False, "error": False, "content": {}})
     yield f"data:{data}\n\n"

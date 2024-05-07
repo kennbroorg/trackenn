@@ -27,14 +27,18 @@ from core import eth
 from core import bsc
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-log_format = '%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s'
-coloredlogs.install(level='DEBUG', fmt=log_format, logger=logger)
+# logger.setLevel(logging.DEBUG)
+# log_format = '%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s'
+# coloredlogs.install(level='DEBUG', fmt=log_format, logger=logger)
 logger.propagate = False  # INFO: To prevent duplicates with flask
 
 
 def event_stream_checking(config):
-    logger.debug(f"PARAM checking: {config}")
+
+    # INFO: Config Log Level
+    log_format = '%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s'
+    coloredlogs.install(level=config['level'], fmt=log_format, logger=logger)
+
     if (config['action'] == "reset"):
         os.remove(config['dbname'])
 
@@ -61,6 +65,7 @@ def event_stream_checking(config):
         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
         yield f"data:{data}\n\n"
 
+        # WARN: This isn't the best check
         if (config['ethscan'] == '') or (config['ethscan'] == 'XXX'):
             message = f"<strong>Etherscan.io api key possibly unconfigured</strong>"
             logger.error(message.replace('<strong>', '').replace('</strong>', ''))
