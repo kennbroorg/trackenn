@@ -23,7 +23,8 @@ jobs:
         run: pip install cx_Freeze
 
       - name: Freeze Python Script
-        run: cxfreeze -c app.py --target-dir trackenn --target-name trackenn
+        run: python setup.py build
+          # run: cxfreeze -c app.py --target-dir trackenn --target-name trackenn
 
       - name: Copy directories and files
         run: |
@@ -58,7 +59,8 @@ jobs:
         run: pip install cx_Freeze
 
       - name: Freeze Python Script
-        run: cxfreeze -c app.py --target-dir trackenn --target-name trackenn
+        run: python setup.py build
+          # run: cxfreeze -c app.py --target-dir trackenn --target-name trackenn
 
       - name: Copy directories and files
         run: |
