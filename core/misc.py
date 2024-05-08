@@ -504,6 +504,7 @@ def event_stream_checking(config):
                 trxs = bsc.get_trx_from_addresses_opt(connection, address)
             elif (blockchain == "eth"):
                 trxs = eth.get_trx_from_addresses_opt(connection, address)
+                # trxs = eth.get_trx_from_addresses_experimental(connection, address)
             else:
                 # INFO: ERROR handle. Not in the followings
                 connection.close()

@@ -130,6 +130,7 @@ def event_stream_bsc(params):
     # INFO: Config Log Level
     log_format = '%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s'
     coloredlogs.install(level=params['config']['level'], fmt=log_format, logger=logger)
+    logger.propagate = False  # INFO: To prevent duplicates with flask
 
     logger.info(f"Getting information")
     data = json.dumps({"msg": f"Getting information", "end": False, "error": False, "content": {}})
@@ -210,6 +211,13 @@ def event_stream_bsc(params):
             blockchain = params['network']
         logger.debug(f"Blockchain: {blockchain}")
 
+        # INFO: Warning message about API
+        if (params['config']['bscscan'] == '') or (params['config']['bscscan'] == 'XXX'):
+            message = f"<strong>Bscscan.com api key possibly unconfigured</strong>"
+            logger.error(message.replace('<strong>', '').replace('</strong>', ''))
+            data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+            yield f"data:{data}\n\n"
+
         # INFO: Update central address
         query = f"SELECT * FROM t_tags WHERE tag = 'central'"
         cursor.execute(query)
@@ -256,8 +264,26 @@ def event_stream_bsc(params):
                 response = requests.get(url)
                 contract_creation = response.json()
                 json_status = response.json()['status']
+                json_message = response.json()['message']
+                json_result = response.json()['result']
 
-                if (json_status == "1"):
+                if (json_message == "NOTOK"):
+                    message = f"<strong>Error...</strong>"
+                    logger.error(f"{message}")
+                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+                    yield f"data:{data}\n\n"
+
+                    message = f"<strong>{json_result}</strong>"
+                    logger.error(f"{message}")
+                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+                    yield f"data:{data}\n\n"
+
+                    message = f" "
+                    logger.error(f"{message}")
+                    data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
+                    yield f"data:{data}\n\n"
+                    raise Exception(json_result)
+                elif (json_status == "1"):
                     type = 'contract'
                     message = f"<strong>ADDRESS</strong> - Contract"
                     logger.info(message.replace('<strong>', '').replace('</strong>', ''))
@@ -1304,6 +1330,7 @@ def get_trx_from_addresses_opt(conn, address_central):
                     # "tag": [tag] if tag else [],
                     "tag": tag,
                     "label": label,
+                    "blockchain": "bsc",
                     "token": "ETH"
                     # "trx_in": {},
                     # "qty_in": 0,

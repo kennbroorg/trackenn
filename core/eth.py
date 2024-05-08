@@ -126,6 +126,7 @@ def event_stream_ether(params):
     # INFO: Config Log Level
     log_format = '%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s'
     coloredlogs.install(level=params['config']['level'], fmt=log_format, logger=logger)
+    logger.propagate = False  # INFO: To prevent duplicates with flask
 
     logger.info(f"Getting information")
     data = json.dumps({"msg": f"Getting information", "end": False, "error": False, "content": {}})
@@ -203,6 +204,13 @@ def event_stream_ether(params):
             blockchain = params['network']
         logger.debug(f"Blockchain: {blockchain}")
 
+        # INFO: Warning message about API
+        if (params['config']['ethscan'] == '') or (params['config']['ethscan'] == 'XXX'):
+            message = f"<strong>Etherscan.io api key possibly unconfigured</strong>"
+            logger.error(message.replace('<strong>', '').replace('</strong>', ''))
+            data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+            yield f"data:{data}\n\n"
+
         # INFO: Update central address
         query = f"SELECT * FROM t_tags WHERE tag = 'central'"
         cursor.execute(query)
@@ -250,8 +258,26 @@ def event_stream_ether(params):
                 response = requests.get(url)
                 contract_creation = response.json()
                 json_status = response.json()['status']
+                json_message = response.json()['message']
+                json_result = response.json()['result']
 
-                if (json_status == "1"):
+                if (json_message == "NOTOK"):
+                    message = f"<strong>Error...</strong>"
+                    logger.error(f"{message}")
+                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+                    yield f"data:{data}\n\n"
+
+                    message = f"<strong>{json_result}</strong>"
+                    logger.error(f"{message}")
+                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+                    yield f"data:{data}\n\n"
+
+                    message = f" "
+                    logger.error(f"{message}")
+                    data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
+                    yield f"data:{data}\n\n"
+                    raise Exception(json_result)
+                elif (json_status == "1"):
                     type = 'contract'
                     message = f"<strong>ADDRESS</strong> - Contract"
                     logger.info(message.replace('<strong>', '').replace('</strong>', ''))
@@ -1104,8 +1130,8 @@ def event_stream_ether(params):
         yield f"data:{data}\n\n"
 
         tic = time.perf_counter()
-        # trxs = get_trx_from_address(connection, address)
         trxs = get_trx_from_addresses_opt(connection, address)
+        # trxs = get_trx_from_addresses_experimental(connection, address, params)
         toc = time.perf_counter()
         message = f"<strong>DATA</strong> - Proccesed...<strong>{toc - tic:0.4f}</strong> seconds"
         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
@@ -1157,7 +1183,7 @@ def test_function_1(params):
     # trxs = get_trx_from_address(connection, address)
 
     tic = time.perf_counter()
-    data = get_trx_from_addresses_opt(connection, address)
+    data = get_trx_from_addresses_experimental(connection, address, params=params)
     # data = get_balance_and_gas(connection, address, 'wallet', '')
     toc = time.perf_counter()
     logger.info(f"Execute test_1 in {toc - tic:0.4f} seconds")
@@ -1389,6 +1415,8 @@ def get_trx_from_addresses_opt(conn, address_central):
         for address in [from_address, to_address]:
             if address not in nodes:
                 tag = tags_dict.get(address, [])  # Get tag
+                stat_wal += 'wallet' in tag
+                stat_con += 'contract' in tag
                 label = labels_dict.get(address, [])  # Get label
                 nodes[address] = {
                     "id": address, 
@@ -1396,6 +1424,7 @@ def get_trx_from_addresses_opt(conn, address_central):
                     # "tag": [tag] if tag else [],
                     "tag": tag,
                     "label": label,
+                    "blockchain": "eth",
                     "token": "ETH"
                     # "trx_in": {},
                     # "qty_in": 0,
@@ -1456,8 +1485,8 @@ def get_trx_from_addresses_opt(conn, address_central):
     stat_int = len(df_all[df_all['type'] == 'internals'])
     stat_tra = len(df_all[df_all['type'] == 'transfers'])
     stat_tot = len(df_all)
-    stat_wal = len(df_tags[df_tags['tag'] == 'wallet'])
-    stat_con = len(df_tags[df_tags['tag'] == 'contract'])
+    # stat_wal = len(df_tags[df_tags['tag'] == 'wallet'])
+    # stat_con = len(df_tags[df_tags['tag'] == 'contract'])
     # TODO: Stat of wallets and contracts
 
     stat = {"stat_trx": int(stat_trx), "stat_int": int(stat_int), 
@@ -1567,6 +1596,7 @@ def get_founders_creators(conn, address_central):
 
 
 def get_tags_labels(conn, address_central):
+
     address_central = address_central[1]
 
     # PERF: I think that need to remove the blockchain condition
