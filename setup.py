@@ -2,7 +2,9 @@ from cx_Freeze import setup, Executable
 
 # Dependencies are automatically detected, but it might need
 # fine tuning.
-build_options = {'packages': ['core'], 'excludes': []}
+output_directory = "trackenn"
+
+build_options = {'packages': ['core'], 'excludes': [], 'build_exe': output_directory}
 
 base = 'console'
 
