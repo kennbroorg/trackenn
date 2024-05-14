@@ -91,6 +91,10 @@ def get_data_checking():
     logger.debug(f"PARAM: {params}")
     config = current_app.config['config']
     config['action'] = params['action'] 
+    if ("graph" in params.keys()):
+        config['graph'] = params['graph'] 
+    else:
+        config['graph'] = "Star"
 
     return Response(misc.event_stream_checking(config), mimetype='text/event-stream')
 
