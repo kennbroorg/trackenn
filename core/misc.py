@@ -501,10 +501,15 @@ def event_stream_checking(config):
             tic = time.perf_counter()
 
             if (blockchain == "bsc"):
-                trxs = bsc.get_trx_from_addresses_opt(connection, address)
+                if (config['graph'] == "Complex"):
+                    trxs = bsc.get_trx_from_addresses_opt(connection, address) # TODO: Add experimental 
+                else:
+                    trxs = bsc.get_trx_from_addresses_opt(connection, address)
             elif (blockchain == "eth"):
-                trxs = eth.get_trx_from_addresses_opt(connection, address)
-                # trxs = eth.get_trx_from_addresses_experimental(connection, address)
+                if (config['graph'] == "Complex"):
+                    trxs = eth.get_trx_from_addresses_experimental(connection, address)
+                else:
+                    trxs = eth.get_trx_from_addresses_opt(connection, address)
             else:
                 # INFO: ERROR handle. Not in the followings
                 connection.close()
