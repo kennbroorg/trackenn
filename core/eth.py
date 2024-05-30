@@ -3216,9 +3216,9 @@ def get_trx_from_addresses_experimental(conn, address_central, params=[]):
     list_trans = df_all.loc[(df_all["from"] == address_central) | (df_all["to"] == address_central)].to_json(orient = "records")
 
     type_counts = df_all['type'].value_counts()
-    stat_trx = type_counts['transaction']
-    stat_int = type_counts['internals']
-    stat_tra = type_counts['transfers']
+    stat_trx = type_counts.get('transaction', 0)
+    stat_int = type_counts.get('internals', 0)
+    stat_tra = type_counts.get('transfers', 0)
     # TODO: Add nfts and multitoken
     stat_tot = stat_trx + \
                stat_int + \
