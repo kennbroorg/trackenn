@@ -14,7 +14,6 @@ __status__ = "Development"
 import time
 import json
 import logging
-from numpy import block
 import requests
 import sqlite3
 import traceback
@@ -27,6 +26,9 @@ from termcolor import colored
 import coloredlogs, logging
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+log_format = '%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s'
+coloredlogs.install(level='DEBUG', fmt=log_format, logger=logger)
 logger.propagate = False  # INFO: To prevent duplicates with flask
 
 
@@ -38,9 +40,6 @@ def insert_with_ignore(table, conn, keys, data_iter):
     placeholders = ','.join([f":{k}" for k in keys])
     stmt = f"INSERT INTO {table.name} ({columns}) VALUES ({placeholders}) ON CONFLICT DO NOTHING"
     data_dicts = (dict(zip(keys, data)) for data in data_iter)
-
-    logger.debug(f"Columns: {columns}")
-    logger.debug(f"Placeholders: {placeholders}")
     
     for data in data_dicts:
         conn.execute(stmt, data)
@@ -53,7 +52,7 @@ def db_store_wallet_detail(conn, data):
                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 
                 ?, ?, ?)
                    """,
-         ('bsc',
+         ('eth',  # TODO: Manage multiple blockchain
          data['address'],
          data['blockNumber'],
          data['last_block'],
@@ -85,7 +84,7 @@ def db_store_address_block(conn, data):
     conn.execute(f"""INSERT INTO t_blocks VALUES 
                    (?, ?, ?, ?, ?, ?, ?)
                    """,
-         ('bsc',
+         ('eth',  # TODO: Manage multiple blockchain
          data['address'],
          data['blockNumber'],
          data['last_block'],
@@ -104,7 +103,7 @@ def db_store_contracts(conn, datas):
                            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                            ?, ?, ?, ?, ?)
                            """,
-                ('bsc',
+                ('eth',
                  data['contract'],
                  data['SourceCode'],
                  data['ABI'],
@@ -125,18 +124,12 @@ def db_store_contracts(conn, datas):
     conn.commit()
 
 
-def event_stream_bsc(params):
-
-    # INFO: Config Log Level
-    log_format = '%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s'
-    coloredlogs.install(level=params['config']['level'], fmt=log_format, logger=logger)
-    logger.propagate = False  # INFO: To prevent duplicates with flask
-
+def event_stream_ether(params):
     logger.info(f"Getting information")
     data = json.dumps({"msg": f"Getting information", "end": False, "error": False, "content": {}})
     yield f"data:{data}\n\n"
 
-    message = f"<strong>Blockchain</strong> - Binance Smart Chain"
+    message = f"<strong>Blockchain</strong> - Ethereum"
     logger.info(message.replace('<strong>', '').replace('</strong>', ''))
     data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
     yield f"data:{data}\n\n"
@@ -145,7 +138,6 @@ def event_stream_bsc(params):
     logger.info(f"Checking params")
     data = json.dumps({"msg": f"Checking params", "end": False, "error": False, "content": {}})
     yield f"data:{data}\n\n"
-
     if (params.get('address', '') == ''):
         message = f"<strong>Param address is mandatory</strong>"
         logger.error(message.replace('<strong>', '').replace('</strong>', ''))
@@ -177,10 +169,9 @@ def event_stream_bsc(params):
         #     block_to = params.get('block_to', '')
 
         # TODO: Validate if user send trx reference
-        # TODO: Validate if user send configs
 
         # Checking wallet and first trx
-        key = params['config']['bscscan']
+        key = params['config']['ethscan']
         dbname = params['config']['dbname']
 
         connection = sqlite3.connect(dbname)
@@ -188,7 +179,6 @@ def event_stream_bsc(params):
 
         # INFO: Get blockchain param
         if (params.get('network', '') == '') or (params.get('network', '') == 'undefined'):
-            blockchain = ''
             # INFO: ERROR
             blockchain = ''
             connection.close()
@@ -210,13 +200,6 @@ def event_stream_bsc(params):
         else:
             blockchain = params['network']
         logger.debug(f"Blockchain: {blockchain}")
-
-        # INFO: Warning message about API
-        if (params['config']['bscscan'] == '') or (params['config']['bscscan'] == 'XXX'):
-            message = f"<strong>Bscscan.com api key possibly unconfigured</strong>"
-            logger.error(message.replace('<strong>', '').replace('</strong>', ''))
-            data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
-            yield f"data:{data}\n\n"
 
         # INFO: Update central address
         query = f"SELECT * FROM t_tags WHERE tag = 'central'"
@@ -241,7 +224,8 @@ def event_stream_bsc(params):
         connection.commit()
 
         # INFO: Verify info of address
-        query = f"SELECT * FROM t_address_detail WHERE address = '{address}' AND BlockChain = '{blockchain}'"
+        query = f"SELECT * FROM t_address_detail WHERE address = '{address}' AND blockChain = '{blockchain}'"
+        logger.debug(f"SELECT address_detail: {query}")
         cursor.execute(query)
         wallet_detail = cursor.fetchone()
         json_object = []
@@ -260,30 +244,12 @@ def event_stream_bsc(params):
             type = 'wallet'
             contract_creation = {}
             try:
-                url = f"https://api.bscscan.com/api?module=contract&action=getcontractcreation&contractaddresses={address}&apikey={key}"
+                url = f"https://api.etherscan.io/api?module=contract&action=getcontractcreation&contractaddresses={address}&apikey={key}"
                 response = requests.get(url)
                 contract_creation = response.json()
                 json_status = response.json()['status']
-                json_message = response.json()['message']
-                json_result = response.json()['result']
 
-                if (json_message == "NOTOK"):
-                    message = f"<strong>Error...</strong>"
-                    logger.error(f"{message}")
-                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
-                    yield f"data:{data}\n\n"
-
-                    message = f"<strong>{json_result}</strong>"
-                    logger.error(f"{message}")
-                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
-                    yield f"data:{data}\n\n"
-
-                    message = f" "
-                    logger.error(f"{message}")
-                    data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
-                    yield f"data:{data}\n\n"
-                    raise Exception(json_result)
-                elif (json_status == "1"):
+                if (json_status == "1"):
                     type = 'contract'
                     message = f"<strong>ADDRESS</strong> - Contract"
                     logger.info(message.replace('<strong>', '').replace('</strong>', ''))
@@ -329,7 +295,7 @@ def event_stream_bsc(params):
                 # INFO: Get contract information
                 json_contract = []
                 try:
-                    url = f"https://api.bscscan.com/api?module=contract&action=getsourcecode&address={address}&apikey={key}"
+                    url = f"https://api.etherscan.io/api?module=contract&action=getsourcecode&address={address}&apikey={key}"
                     response = requests.get(url)
                     json_contract = response.json()['result']
 
@@ -397,7 +363,7 @@ def event_stream_bsc(params):
 
                 # INFO: Get trx creation
                 try:
-                    url = f"https://api.bscscan.com/api?module=account&action=txlist&address={address}&startblock=0&endblock=99999999&page=1&offset=1&sort=asc&apikey={key}"
+                    url = f"https://api.etherscan.io/api?module=account&action=txlist&address={address}&startblock=0&endblock=99999999&page=1&offset=1&sort=asc&apikey={key}"
                     response = requests.get(url)
                     json_object = response.json()['result']
 
@@ -529,17 +495,13 @@ def event_stream_bsc(params):
                     tic = time.perf_counter()
 
                     contract_tagging = []
-                    # TODO: Remove
                     # contract_tagging.append(('blockChain': 'eth', 'address': address, 'tag': 'contract'})
                     contract_tagging.append((blockchain, address, 'contract'))
-                    # TODO: Remove
                     # print(f"Contract creation: {contract_creation}")
                     # print(f"Contract creator: {contract_creation['result'][0]['contractCreator']}")
                     # contract_tagging.append({'blockChain': 'eth', 'address': contract_creation['result'][0]['contractCreator'], 'tag': 'contract creator'})
                     contract_tagging.append((blockchain, contract_creation['result'][0]['contractCreator'], 'contract creator'))
-                    # TODO: Remove
                     # print(f"Contract tagging: {contract_tagging}")
-
                     # Insert tags in SQLite
                     cursor = connection.cursor()
                     insert_tag = 'INSERT OR IGNORE INTO t_tags (blockChain, address, tag) VALUES (?, ?, ?)'
@@ -562,9 +524,9 @@ def event_stream_bsc(params):
                     if (len(label) == 0) and (len(json_contract) > 0):
                         # INFO: Store internal label
                         if (json_contract[0]['ContractName'] == ''):
-                            contract_label = [('binance', 'internal_label', address, 'Contract without name', '["caution", "noName"]')]
+                            contract_label = [('ethereum', 'internal_label', address, 'Contract without name', '["caution", "noName"]')]
                         else:
-                            contract_label = [('binance', 'internal_label', address, 
+                            contract_label = [('ethereum', 'internal_label', address, 
                                                json_contract[0]['ContractName'], 
                                                '["' + json_contract[0]['ContractName'][:10] + '"]')]
                         # Insert tags in SQLite
@@ -582,7 +544,7 @@ def event_stream_bsc(params):
 
                     # INFO: Store contract creation info
                     cursor = connection.cursor()
-                    insert_creator = """INSERT OR IGNORE INTO t_funders_creators 
+                    insert_creator = """INSERT OR IGNORE INTO t_founders_creators 
                         (blockChain, blockNumber, type, timeStamp, hash, `from`, `to`, value, input, contractAddress, tokenDecimal, tokenSymbol, tokenName) 
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
                     creator_row = [(blockchain,
@@ -627,7 +589,7 @@ def event_stream_bsc(params):
             elif (type == "wallet"):
                 # INFO: Get trx
                 try:
-                    url = f"https://api.bscscan.com/api?module=account&action=txlist&address={address}&startblock=0&endblock=99999999&sort=asc&apikey={key}"
+                    url = f"https://api.etherscan.io/api?module=account&action=txlist&address={address}&startblock=0&endblock=99999999&sort=asc&apikey={key}"
                     response = requests.get(url)
                     json_object = response.json()['result']
 
@@ -665,7 +627,7 @@ def event_stream_bsc(params):
 
                 # INFO: Get internals
                 try:
-                    url = f"https://api.bscscan.com/api?module=account&action=txlistinternal&address={address}&startblock=0&endblock=99999999&sort=asc&apikey={key}"
+                    url = f"https://api.etherscan.io/api?module=account&action=txlistinternal&address={address}&startblock=0&endblock=99999999&sort=asc&apikey={key}"
 
                     response = requests.get(url)
                     json_internals = response.json()['result']
@@ -704,7 +666,7 @@ def event_stream_bsc(params):
 
                 # INFO: Get transfers
                 try:
-                    url = f"https://api.bscscan.com/api?module=account&action=tokentx&address={address}&startblock=0&endblock=99999999&sort=asc&apikey={key}"
+                    url = f"https://api.etherscan.io/api?module=account&action=tokentx&address={address}&startblock=0&endblock=99999999&sort=asc&apikey={key}"
 
                     response = requests.get(url)
                     json_transfers = response.json()['result']
@@ -743,7 +705,7 @@ def event_stream_bsc(params):
 
                 # INFO: Get NFTs (ERC-721)
                 try:
-                    url = f"https://api.bscscan.com/api?module=account&action=tokennfttx&address={address}&sort=asc&apikey={key}"
+                    url = f"https://api.etherscan.io/api?module=account&action=tokennfttx&address={address}&sort=asc&apikey={key}"
 
                     response = requests.get(url)
                     json_nfts = response.json()['result']
@@ -780,45 +742,44 @@ def event_stream_bsc(params):
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
 
-                # INFO: Get Multitoken trx (ERC-1551) (NOT IN BSC)
+                # INFO: Get Multitoken trx (ERC-1551)
+                try:
+                    url = f"https://api.etherscan.io/api?module=account&action=token1155tx&address={address}&sort=asc&apikey={key}"
 
-                # try:
-                #     url = f"https://api.bscscan.com/api?module=account&action=token1155tx&address={address}&sort=asc&apikey={key}"
+                    response = requests.get(url)
+                    json_multitokens = response.json()['result']
 
-                #     response = requests.get(url)
-                #     json_multitokens = response.json()['result']
+                    if (len(json_multitokens) > 0):
+                        message = f"<strong>MULTITOKENS</strong> - Found Multi Token Standard"
+                        logger.info(message.replace('<strong>', '').replace('</strong>', ''))
+                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
+                        yield f"data:{data}\n\n"
+                    else:
+                        message = f"<strong>MULTITOKENS<strong> - Transfers <strong>NOT FOUND</strong>"
+                        logger.info(message.replace('<strong>', '').replace('</strong>', ''))
+                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
+                        yield f"data:{data}\n\n"
 
-                #     if (len(json_multitokens) > 0):
-                #         message = f"<strong>MULTITOKENS</strong> - Found Multi Token Standard"
-                #         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
-                #         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
-                #         yield f"data:{data}\n\n"
-                #     else:
-                #         message = f"<strong>MULTITOKENS<strong> - Transfers <strong>NOT FOUND</strong>"
-                #         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
-                #         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
-                #         yield f"data:{data}\n\n"
+                except Exception:
+                    traceback.print_exc()
+                    traceback_text = traceback.format_exc()
 
-                # except Exception:
-                #     traceback.print_exc()
-                #     traceback_text = traceback.format_exc()
+                    connection.close()
+                    message = f"<strong>Error...</strong>"
+                    logger.warning(f"{message}")
+                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+                    yield f"data:{data}\n\n"
 
-                #     connection.close()
-                #     message = f"<strong>Error...</strong>"
-                #     logger.warning(f"{message}")
-                #     data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
-                #     yield f"data:{data}\n\n"
+                    for line in traceback_text.splitlines():
+                        message = f"{line}"
+                        logger.warning(f"{message}")
+                        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+                        yield f"data:{data}\n\n"
 
-                #     for line in traceback_text.splitlines():
-                #         message = f"{line}"
-                #         logger.warning(f"{message}")
-                #         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
-                #         yield f"data:{data}\n\n"
-
-                #     message = f" "
-                #     logger.warning(f"{message}")
-                #     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
-                #     yield f"data:{data}\n\n"
+                    message = f" "
+                    logger.warning(f"{message}")
+                    data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
+                    yield f"data:{data}\n\n"
 
                 # TODO: If wallet is a contract, get and store contract information
 
@@ -941,21 +902,20 @@ def event_stream_bsc(params):
                     data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
-                    # INFO: Multitokens (NOT IN BSC)
-
-                    # tic = toc
-                    # # db_store_multitoken_optimized(connection, json_multitokens)
-                    # if (json_multitokens != []):
-                    #     df_multitoken_store = pd.DataFrame(json_multitokens)
-                    #     df_multitoken_store['blockChain'] = blockchain
-                    #     df_multitoken_merged = df_multitoken_store.merge(df_trx_store[['hash', 'methodId', 'functionName']], on='hash', how='left')
-                    #     df_multitoken_merged.fillna('', inplace=True)
-                    #     df_multitoken_merged.to_sql('t_multitoken', connection, if_exists='append', index=False, method=insert_with_ignore)
-                    # toc = time.perf_counter()
-                    # message = f"<strong>STORE</strong> - Transfers ERC1155...<strong>{toc - tic:0.4f}</strong> seconds"
-                    # logger.info(message.replace('<strong>', '').replace('</strong>', ''))
-                    # data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
-                    # yield f"data:{data}\n\n"
+                    # INFO: Multitokens
+                    tic = toc
+                    # db_store_multitoken_optimized(connection, json_multitokens)
+                    if (json_multitokens != []):
+                        df_multitoken_store = pd.DataFrame(json_multitokens)
+                        df_multitoken_store['blockChain'] = blockchain
+                        df_multitoken_merged = df_multitoken_store.merge(df_trx_store[['hash', 'methodId', 'functionName']], on='hash', how='left')
+                        df_multitoken_merged.fillna('', inplace=True)
+                        df_multitoken_merged.to_sql('t_multitoken', connection, if_exists='append', index=False, method=insert_with_ignore)
+                    toc = time.perf_counter()
+                    message = f"<strong>STORE</strong> - Transfers ERC1155...<strong>{toc - tic:0.4f}</strong> seconds"
+                    logger.info(message.replace('<strong>', '').replace('</strong>', ''))
+                    data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
+                    yield f"data:{data}\n\n"
                 except Exception:
                     traceback.print_exc()
                     traceback_text = traceback.format_exc()
@@ -995,8 +955,114 @@ def event_stream_bsc(params):
             logger.debug(f"+ Already collected                                +")
             logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
+            # TODO: Add contract validation (Read the HACK comment)
+
+            # Validate if all trxs are collected
+            query = f"SELECT all_data FROM t_blocks WHERE address = '{address}';"
+            cursor.execute(query)
+            all_data_collected = cursor.fetchone()
+
+            # INFO: No more info to collect
+
+            # if (not all_data_collected[0]): 
+
+            #     # Get last block number
+            #     query = f"SELECT rowid, * FROM t_blocks WHERE address = '{address}' ORDER BY block_to DESC LIMIT 1;"
+            #     cursor.execute(query)
+            #     row = cursor.fetchone()
+            #     last_block = int(row[4]) + 1
+            #     rowid = int(row[0])
+
+            #     logger.debug(f"Last block: {last_block}")
+            #     
+            #     # Get more blocks from last block
+            #     try:
+            #         url = f"https://api.etherscan.io/api?module=account&action=txlist&address={address}&startblock={last_block}&endblock=99999999&sort=asc&apikey={key}"
+            #         # print(url)
+            #         response = requests.get(url)
+            #         json_object = response.json()['result']
+
+            #         if (len(json_object) > 0):
+            #             message = f"<strong>TRANSACTIONS</strong> - Get more transactions"
+            #             logger.info(message.replace('<strong>', '').replace('</strong>', ''))
+            #             data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
+            #             yield f"data:{data}\n\n"
+            #         else:
+            #             message = f"<strong>TRANSACTIONS<strong> - More transactions <strong>NOT FOUND</strong>"
+            #             logger.info(message.replace('<strong>', '').replace('</strong>', ''))
+            #             data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
+            #             yield f"data:{data}\n\n"
+
+            #     except Exception:
+            #         traceback.print_exc()
+            #         traceback_text = traceback.format_exc()
+
+            #         connection.close()
+            #         message = f"<strong>Error...</strong>"
+            #         logger.warning(f"{message}")
+            #         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+            #         yield f"data:{data}\n\n"
+
+            #         for line in traceback_text.splitlines():
+            #             message = f"{line}"
+            #             logger.warning(f"{message}")
+            #             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+            #             yield f"data:{data}\n\n"
+
+            #         message = f" "
+            #         logger.warning(f"{message}")
+            #         data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
+            #         yield f"data:{data}\n\n"
+
+            #     # Store transaction in DB
+            #     try:
+            #         message = f"<strong>TRANSACTIONS</strong> - Storing..."
+            #         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
+            #         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
+            #         yield f"data:{data}\n\n"
+
+            #         db_store_transactions(connection, json_object)
+            #     except Exception:
+            #         traceback.print_exc()
+            #         traceback_text = traceback.format_exc()
+
+            #         connection.close()
+            #         message = f"<strong>Error...</strong>"
+            #         logger.error(message.replace('<strong>', '').replace('</strong>', ''))
+            #         logger.warning(f"{message}")
+            #         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+            #         yield f"data:{data}\n\n"
+
+            #         for line in traceback_text.splitlines():
+            #             message = f"{line}"
+            #             logger.warning(f"{message}")
+            #             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+            #             yield f"data:{data}\n\n"
+
+            #         message = f" "
+            #         logger.warning(f"{message}")
+            #         data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
+            #         yield f"data:{data}\n\n"
+
+            #     # Get new last block and date
+            #     new_last_block = json_object[-1]['blockNumber']
+            #     new_timeStamp_to = json_object[-1]['timeStamp']
+
+            #     logger.debug(f"New Last block: {json_object[-1]}")
+            #     logger.debug(f"New Last block number: {new_last_block}")
+
+            #     # Update last block
+            #     update = f"UPDATE t_blocks SET block_to = {new_last_block}, date_to = {new_timeStamp_to} WHERE rowid = {rowid}"
+            #     cursor.execute(update)
+            #     logger.debug(f"UPDATE: {update}")
+            #     connection.commit()
+
+            #     # TODO: Store transfer in DB
+            #     # TODO: Store internal in DB
+            #     # TODO: Generating internals tags
+
         # INFO: Send wallet detail information
-        query = f"SELECT * FROM t_address_detail WHERE address = '{address}' and blockChain = '{blockchain}'"
+        query = f"SELECT * FROM t_address_detail WHERE address = '{address}' AND blockChain = '{blockchain}'"
         cursor.execute(query)
         wallet_detail = cursor.fetchall()
 
@@ -1014,9 +1080,6 @@ def event_stream_bsc(params):
         cursor.execute(query)
         address = cursor.fetchone()
         # print(f"ADDRESS: {address}")
-        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
-        logger.debug(f"+ wallet detail: {wallet_detail}")
-        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
         type = wallet_detail[0][12]
 
         # TODO: Path must support multichain in the future
@@ -1048,13 +1111,13 @@ def event_stream_bsc(params):
                            "content": {"graph": trxs['transactions'], "list": trxs['list'], "stat": trxs['stat']}})
         yield f"data:{data}\n\n"
 
-        # INFO: Get Funders and creators
+        # INFO: Get Founders and creators
         tic = time.perf_counter()
-        funders = get_funders_creators(connection, address)
+        founders = get_founders_creators(connection, address)
         toc = time.perf_counter()
-        message = f"<strong>DATA</strong> - Funders and creators...<strong>{toc - tic:0.4f}</strong> seconds"
+        message = f"<strong>DATA</strong> - Founders and creators...<strong>{toc - tic:0.4f}</strong> seconds"
         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
-        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {"funders": funders}})
+        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {"founders": founders}})
         yield f"data:{data}\n\n"
 
         # INFO: Get Balance and Gas
@@ -1088,12 +1151,12 @@ def test_function_1(params):
     address = params.get('address')
     connection = sqlite3.connect(dbname)
 
-    address = ('bsc', address, 'central')
+    address = ('eth', address, 'central')
     # trxs = get_trx_from_address(connection, address)
 
     tic = time.perf_counter()
-    data = get_trx_from_addresses_opt(connection, address)
-    # data = get_balance_and_gas(connection, address, 'wallet', '')
+    # data = get_trx_from_addresses_opt(connection, address)
+    data = get_trx_from_addresses_experimental(connection, address)
     toc = time.perf_counter()
     logger.info(f"Execute test_1 in {toc - tic:0.4f} seconds")
 
@@ -1106,11 +1169,11 @@ def test_function_2(params):
     address = params.get('address')
     connection = sqlite3.connect(dbname)
 
-    address = ('bsc', address, 'central')
+    address = ('eth', address, 'central')
 
     tic = time.perf_counter()
     # data = get_trx_from_addresses_opt_bkp(connection, address)
-    data = get_funders_creators(connection, address)
+    data = get_founders_creators(connection, address)
     # data = get_tags_labels(connection, address)
     toc = time.perf_counter()
     logger.info(f"Execute test_2 in {toc - tic:0.4f} seconds")
@@ -1143,20 +1206,20 @@ def db_store_tagging_opt(connection, address, trxs, transfers, internals, nfts, 
                                      'value', 'input', 'contractAddress', 'tokenDecimal', 'tokenSymbol', 'tokenName'])
     else:
         df_n = pd.DataFrame(nfts)
-    # INFO: There aren't multitoken transactions
-    # if not multitoken:
-    #     df_m = pd.DataFrame(columns=['blockChain', 'blockNumber', 'type', 'timeStamp','hash', 'from', 'to', 
-    #                                  'value', 'input', 'contractAddress', 'tokenDecimal', 'tokenSymbol', 'tokenName'])
-    # else:
-    #     df_m = pd.DataFrame(multitoken)
+    if not multitoken:
+        df_m = pd.DataFrame(columns=['blockChain', 'blockNumber', 'type', 'timeStamp','hash', 'from', 'to', 
+                                     'value', 'input', 'contractAddress', 'tokenDecimal', 'tokenSymbol', 'tokenName'])
+    else:
+        df_m = pd.DataFrame(multitoken)
 
     # Safe concat
     address_columns = ['from', 'to', 'contractAddress']
-    addresses = pd.concat([pd.Series(df[column].dropna().unique()) for df in [df_t, df_f, df_i, df_n] for column in address_columns if column in df.columns])
+    # addresses = pd.concat([df[column].dropna().unique() for df in [df_t, df_f, df_i, df_n, df_m] for column in address_columns if column in df.columns])
+    addresses = pd.concat([pd.Series(df[column].dropna().unique()) for df in [df_t, df_f, df_i, df_n, df_m] for column in address_columns if column in df.columns])
 
 
     df_addresses = pd.DataFrame(addresses.unique(), columns=['address'])
-    df_addresses['blockChain'] = 'bsc'
+    df_addresses['blockChain'] = 'eth'
     df_addresses['tag'] = 'wallet'
 
     # Detect contracts
@@ -1167,26 +1230,29 @@ def db_store_tagging_opt(connection, address, trxs, transfers, internals, nfts, 
         df_t.loc[(df_t['input'] != '0x') & (df_t['to'] != address), 'to'],
         # df_t.loc[df_t['input'] != '', 'to'],
         df_f['contractAddress'].dropna(),
-        df_n['contractAddress'].dropna()
+        df_n['contractAddress'].dropna(),
+        df_m['contractAddress'].dropna()
     ]).unique()
 
     # TODO: NTFs and Multitoken should be separated and tagged like "contract nft" and "contract multitoken" respectively
 
     df_addresses.loc[df_addresses['address'].isin(contracts), 'tag'] = 'contract'
 
-    # INFO: Funders or creators
-    # TODO: Evaluate type to distinguish Funders and creators
+    # INFO: Founders or creators
+    # TODO: Evaluate type to distinguish Founders and creators
     # df_all = pd.concat([df[['from', 'to', 'timeStamp']] for df in [df_t, df_f, df_i] if 'timeStamp' in df.columns], ignore_index=True).sort_values(by='timeStamp')
-    df_all = pd.concat([df[['from', 'to', 'timeStamp']] for df in [df_t, df_f, df_i, df_n] if 'timeStamp' in df.columns], ignore_index=True).sort_values(by='timeStamp')
+    df_all = pd.concat([df[['from', 'to', 'timeStamp']] for df in [df_t, df_f, df_i, df_n, df_m] if 'timeStamp' in df.columns], ignore_index=True).sort_values(by='timeStamp')
     min_timestamp = df_all.loc[df_all['from'] == address, 'timeStamp'].min()
-    funders_addresses = df_all.loc[df_all['timeStamp'] < min_timestamp, 'from'].unique()
+    founders_addresses = df_all.loc[df_all['timeStamp'] < min_timestamp, 'from'].unique()
 
-    df_funders = pd.DataFrame(funders_addresses, columns=['address'])
-    df_funders['blockChain'] = 'bsc'
-    df_funders['tag'] = 'funder'
+    df_founders = pd.DataFrame(founders_addresses, columns=['address'])
+    df_founders['blockChain'] = 'eth'
+    df_founders['tag'] = 'founder'
 
     # Unifying tags
-    df_addresses = pd.concat([df_addresses, df_funders]).drop_duplicates().reset_index(drop=True)
+    # FIXME: The lines that follow this messages are to avoid "wallet" and "contract" store (KKK)
+    # df_addresses = pd.concat([df_addresses, df_founders]).drop_duplicates().reset_index(drop=True)
+    df_addresses = df_founders
 
     # Insert tags in SQLite
     cursor = connection.cursor()
@@ -1194,61 +1260,61 @@ def db_store_tagging_opt(connection, address, trxs, transfers, internals, nfts, 
     cursor.executemany(insert_tag, df_addresses.to_records(index=False))
     connection.commit()
 
-    # Store trxs Funders
-    funders = df_funders['address'].tolist()
+    # Store trxs Founders
+    founders = df_founders['address'].tolist()
     df_t_f = df_t.loc[(df_t['to'] == address) & 
-                      (df_t['from'].isin(funders)) & 
+                      (df_t['from'].isin(founders)) & 
                       (df_t['timeStamp'] < min_timestamp)].assign(
-                              type='transaction').assign(blockChain='bsc').assign(tokenDecimal=18).assign(tokenSymbol='BNB').assign(tokenName='BNB')[[
+                              type='transaction').assign(blockChain='eth').assign(tokenDecimal=18).assign(tokenSymbol='ETH').assign(tokenName='Ether')[[
                                   'blockChain', 'blockNumber', 'type', 'timeStamp','hash', 'from', 'to', 
                                   'value', 'input', 'contractAddress', 'tokenDecimal', 'tokenSymbol', 'tokenName']]
     df_i_f = df_i.loc[(df_i['to'] == address) & 
-                      (df_i['from'].isin(funders)) & 
+                      (df_i['from'].isin(founders)) & 
                       (df_i['timeStamp'] < min_timestamp)].assign(
-                              type='internal').assign(blockChain='bsc').assign(tokenDecimal=18).assign(tokenSymbol='BNB').assign(tokenName='BNB')[[
+                              type='internal').assign(blockChain='eth').assign(tokenDecimal=18).assign(tokenSymbol='ETH').assign(tokenName='Ether')[[
                                   'blockChain', 'blockNumber', 'type', 'timeStamp','hash', 'from', 'to', 
                                   'value', 'input', 'contractAddress', 'tokenDecimal', 'tokenSymbol', 'tokenName']]
     df_f_f = df_f.loc[(df_f['to'] == address) & 
-                      (df_f['from'].isin(funders)) & 
+                      (df_f['from'].isin(founders)) & 
                       (df_f['timeStamp'] < min_timestamp)].assign(
-                              type='transfer').assign(blockChain='bsc')[[
+                              type='transfer').assign(blockChain='eth')[[
                                   'blockChain', 'blockNumber', 'type', 'timeStamp','hash', 'from', 'to', 
                                   'value', 'input', 'contractAddress', 'tokenDecimal', 'tokenSymbol', 'tokenName']]
-    # INFO: Neccesary rename to avoid add columns to funders
+    # INFO: Neccesary rename to avoid add columns to founders
     df_n.rename(columns={"tokenID": "value"}, inplace=True)
     df_n_f = df_n.loc[(df_n['to'] == address) & 
-                      (df_n['from'].isin(funders)) & 
+                      (df_n['from'].isin(founders)) & 
                       (df_n['timeStamp'] < min_timestamp)].assign(
-                              type='nfts').assign(blockChain='bsc')[[
+                              type='nfts').assign(blockChain='eth')[[
                                   'blockChain', 'blockNumber', 'type', 'timeStamp','hash', 'from', 'to', 
                                   'value', 'input', 'contractAddress', 'tokenDecimal', 'tokenSymbol', 'tokenName']]
-    # INFO: There aren't multitoken transactions
-    # df_m.rename(columns={"tokenID": "value"}, inplace=True)
-    # df_m.rename(columns={"tokenValue": "tokenDecimal"}, inplace=True)
-    # df_m_f = df_m.loc[(df_m['to'] == address) & 
-    #                   (df_m['from'].isin(funders)) & 
-    #                   (df_m['timeStamp'] < min_timestamp)].assign(
-    #                           type='nfts').assign(blockChain='eth')[[
-    #                               'blockChain', 'blockNumber', 'type', 'timeStamp','hash', 'from', 'to', 
-    #                               'value', 'input', 'contractAddress', 'tokenDecimal', 'tokenSymbol', 'tokenName']]
+    # INFO: Neccesary rename to avoid add columns to founders
+    df_m.rename(columns={"tokenID": "value"}, inplace=True)
+    df_m.rename(columns={"tokenValue": "tokenDecimal"}, inplace=True)
+    df_m_f = df_m.loc[(df_m['to'] == address) & 
+                      (df_m['from'].isin(founders)) & 
+                      (df_m['timeStamp'] < min_timestamp)].assign(
+                              type='nfts').assign(blockChain='eth')[[
+                                  'blockChain', 'blockNumber', 'type', 'timeStamp','hash', 'from', 'to', 
+                                  'value', 'input', 'contractAddress', 'tokenDecimal', 'tokenSymbol', 'tokenName']]
 
-    df_funders_trxs = pd.concat([df_t_f, df_i_f, df_f_f, df_n_f])
+    df_founders_trxs = pd.concat([df_t_f, df_i_f, df_f_f, df_n_f, df_m_f])
 
     # Insert tags in SQLite
     cursor = connection.cursor()
-    insert_funders = """INSERT OR IGNORE INTO t_funders_creators 
+    insert_founders = """INSERT OR IGNORE INTO t_founders_creators 
         (blockChain, blockNumber, type, timeStamp, hash, `from`, `to`, value, input, contractAddress, tokenDecimal, tokenSymbol, tokenName) 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
-    cursor.executemany(insert_funders, df_funders_trxs.to_records(index=False))
+    cursor.executemany(insert_founders, df_founders_trxs.to_records(index=False))
     connection.commit()
 
 
 def get_trx_from_addresses_opt(conn, address_central):
 
     # INFO: address_central is
-    # ('bsc', '0x7f3acf451e372f517b45f9d2ee0e42e31bc5e53e', 'central')
+    # ('eth', '0x7f3acf451e372f517b45f9d2ee0e42e31bc5e53e', 'central')
     # For future Multichain (?)
-    
+
     logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
     logger.debug(f"+ Address: {address_central}")
     logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
@@ -1290,11 +1356,11 @@ def get_trx_from_addresses_opt(conn, address_central):
         SELECT blockChain, type, hash, `from`, `to`, value, contractAddress, symbol, name, decimal, valConv, timeStamp, isError
         FROM (
             SELECT blockChain, 'transaction' as 'type', hash, `from`, `to`, value, 
-                contractAddress, 'BNB' as 'symbol', 'BNB' as 'name', 18 as 'decimal', value / POWER(10, 18) as valConv, timeStamp, isError
+                contractAddress, 'ETH' as 'symbol', 'Ether' as 'name', 18 as 'decimal', value / POWER(10, 18) as valConv, timeStamp, isError
             FROM t_transactions
             UNION ALL
             SELECT blockChain, 'internals', hash, `from`, `to`, value, 
-                contractAddress, 'BNB', 'BNB', 18, value / POWER(10, 18), timeStamp, isError
+                contractAddress, 'ETH', 'Ether', 18, value / POWER(10, 18), timeStamp, isError
             FROM t_internals
             UNION ALL
             SELECT blockChain, 'transfers', hash, `from`, `to`, value, 
@@ -1330,7 +1396,6 @@ def get_trx_from_addresses_opt(conn, address_central):
                     # "tag": [tag] if tag else [],
                     "tag": tag,
                     "label": label,
-                    "blockchain": "bsc",
                     "token": "ETH"
                     # "trx_in": {},
                     # "qty_in": 0,
@@ -1404,6 +1469,10 @@ def get_trx_from_addresses_opt(conn, address_central):
 
 
 def get_balance_and_gas(conn, address_central, type, key):
+    # INFO: address_central is
+    # ('eth', '0x7f3acf451e372f517b45f9d2ee0e42e31bc5e53e', 'central')
+    # For future Multichain (?)
+
     address_central = address_central[1]
 
     if (type == 'wallet'):
@@ -1423,10 +1492,10 @@ def get_balance_and_gas(conn, address_central, type, key):
                 ) AS balance
             FROM 
                 (
-                SELECT blockChain, 'transaction', hash, `from`, `to`, value, contractAddress, 'BNB' as 'token', 'BNB' as 'tokenName', 18 as 'SymbolDecimal', timeStamp, isError
+                SELECT blockChain, 'transaction', hash, `from`, `to`, value, contractAddress, 'ETH' as 'token', 'Ether' as 'tokenName', 18 as 'SymbolDecimal', timeStamp, isError
                 FROM t_transactions
                 UNION 
-                SELECT blockChain, 'internals', hash, `from`, `to`, value, contractAddress, 'BNB',  'BNB', 18 as 'SymbolDecimal', timeStamp, isError
+                SELECT blockChain, 'internals', hash, `from`, `to`, value, contractAddress, 'ETH',  'Ether', 18 as 'SymbolDecimal', timeStamp, isError
                 FROM t_internals
                 UNION 
                 SELECT blockChain, 'transfers', hash, `from`, `to`, value, contractAddress, tokenSymbol, tokenName, tokenDecimal, timeStamp, 0
@@ -1434,7 +1503,6 @@ def get_balance_and_gas(conn, address_central, type, key):
                 ) AS balance_temp
             WHERE 
                 "isError" = 0 AND
-                "blockChain" = 'bsc' AND
                 ("From" = '{address_central}' OR "To" = '{address_central}')
             GROUP BY 
                 token;
@@ -1449,7 +1517,6 @@ def get_balance_and_gas(conn, address_central, type, key):
             FROM t_transactions
             WHERE 
                 "isError" = 0 AND
-                "blockChain" = 'bsc' AND
                 "From" = '{address_central}'
         """
         cursor = conn.cursor()
@@ -1457,12 +1524,8 @@ def get_balance_and_gas(conn, address_central, type, key):
         gas = cursor.fetchone()[0]
 
         # Get index of ETH row
-        index = df_balance.index[df_balance['token'] == 'BNB'].tolist()
-        balance = df_balance[df_balance['token'] == 'BNB']
-
-        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
-        logger.debug(f"+ Balance: {balance}")
-        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        index = df_balance.index[df_balance['token'] == 'ETH'].tolist()
+        balance = df_balance[df_balance['token'] == 'ETH']
 
         if (balance.loc[index[0], 'balance'] - gas) >= 0:
             balance.loc[index[0], 'balance'] -= gas
@@ -1472,7 +1535,7 @@ def get_balance_and_gas(conn, address_central, type, key):
         # balance.loc[index, 'balance'] -= gas
         # if (balance.loc[index, 'balance'] < 0):
         #     balance.loc[index, 'balance'] = 0.0
-        balance = json.loads(balance[balance['token'] == 'BNB'].to_json(orient = "records"))
+        balance = json.loads(balance[balance['token'] == 'ETH'].to_json(orient = "records"))
 
         # Remove row from tokens
         df_balance.drop(index, inplace=True)
@@ -1482,26 +1545,25 @@ def get_balance_and_gas(conn, address_central, type, key):
 
     else:
         # INFO: Get balance of contract
-        url = f"https://api.bscscan.com/api?module=account&action=balance&address={address_central}&tag=latest&apikey={key}"
-        logger.debug(f"BALANCE BSC URL: {url}")
+        url = f"https://api.etherscan.io/api?module=account&action=balance&address={address_central}&tag=latest&apikey={key}"
+        # print(f"KEY: {key}")
         response = requests.get(url)
         json_object = response.json()['result']
-        logger.debug(f"BALANCE: {json_object}")
         # print(f"BALANCE: {json_object}")
-        balance  = [{"blockChain": "bsc", "balance": int(json_object) / 1e18, "token": "BNB", "tokenName": "BNB"}]
+        balance  = [{"blockChain": "eth", "balance": int(json_object) / 1e18, "token": "ETH", "tokenName": "Ether"}]
         # TODO: Use scrapping to get all of tokens balance
 
         return {"balance": balance, "tokens": [], "gas": []}
 
 
-def get_funders_creators(conn, address_central):
+def get_founders_creators(conn, address_central):
     address_central = address_central[1]
 
-    # INFO: Get Funders
-    query = f"SELECT * FROM t_funders_creators WHERE blockChain = 'bsc' AND `to` = '{address_central}';"
-    df_funders_creators = pd.read_sql_query(query, conn).to_json(orient = "records")
+    # INFO: Get Founders
+    query = f"SELECT * FROM t_founders_creators WHERE `to` = '{address_central}';"
+    df_founders_creators = pd.read_sql_query(query, conn).to_json(orient = "records")
 
-    return {"funders": df_funders_creators}
+    return {"founders": df_founders_creators}
 
 
 def get_tags_labels(conn, address_central):
@@ -1510,12 +1572,385 @@ def get_tags_labels(conn, address_central):
     # PERF: I think that need to remove the blockchain condition
 
     # INFO: Get Tags
-    query = f"SELECT * FROM t_tags WHERE blockChain = 'bsc' and address = '{address_central}';"
+    query = f"SELECT * FROM t_tags WHERE blockChain = 'eth' and address = '{address_central}';"
     df_tags = json.loads(pd.read_sql_query(query, conn).to_json(orient = "records"))
 
     # INFO: Get Labels
-    query = f"SELECT * FROM t_labels WHERE blockChain = 'binance' and address = '{address_central}';"
+    query = f"SELECT * FROM t_labels WHERE blockChain = 'ethereum' and address = '{address_central}';"
     df_labels = json.loads(pd.read_sql_query(query, conn).to_json(orient = "records"))
 
     return {"tags": df_tags, "labels": df_labels}
 
+
+
+
+
+
+
+
+
+
+
+# WARN: This isn't in bsc.py (KKK)
+def get_trx_from_addresses_experimental(conn, address_central):
+
+    logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+    logger.debug(f"+ Address: {address_central}")
+    logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+
+    address_central = address_central[1]
+
+    nodes = []
+    nodes_list = []
+    links = []
+    stat_tot = 0
+    stat_trx = 0
+    stat_int = 0
+    stat_tra = 0
+    stat_err = 0
+    stat_con = 0
+    stat_wal = 0
+    # stat_coo = 0  # TODO: Contract owned
+    # max_qty = 0
+
+    # INFO: Tagging
+    df_tags = pd.read_sql_query("SELECT address, tag FROM t_tags", conn)
+    tags_grouped = df_tags.groupby('address')['tag'].apply(list).reset_index(name='tags')
+    tags_dict = pd.Series(tags_grouped.tags.values,index=tags_grouped.address).to_dict()
+
+    # INFO: Labels
+    df_labels = pd.read_sql_query("SELECT * FROM t_labels WHERE blockChain = 'ethereum'", conn)  # TODO: Multichain
+    labels_dict = df_labels.set_index('address').apply(lambda row: row.to_dict(), axis=1).to_dict()
+
+    # stat_coo = 
+    # stat_con = len(json_tags) - stat_coo
+
+    # TODO: 
+    # - Isolate contract creation trx
+    # - Join query with labels
+    # - More info in links
+
+    # TODO: 
+    # - [ ] Group transaction, internals, transfers, nfts, multitokens by hash
+    # - [ ] Separate complete trxs from incomplete one
+    # - [ ] Count isError
+    # - [ ] Count different type
+    # PERF:
+    # - [ ] Move node and link creation to the part following store
+    # - [ ] Eliminates address with 
+
+    # INFO: Get all Trx, Transfers, internals, nfts and multitoken
+    query = """
+        SELECT blockChain, type, hash, `from`, `to`, value, contractAddress, symbol, name, decimal, valConv, timeStamp, isError, methodId, functionName
+        FROM (
+            SELECT blockChain, 'transaction' as 'type', hash, `from`, `to`, value, contractAddress, 'ETH' as 'symbol', 
+			'Ether' as 'name', 18 as 'decimal', value / POWER(10, 18) as valConv, timeStamp, isError, methodId, functionName
+            FROM t_transactions
+            UNION ALL
+            SELECT blockChain, 'internals', hash, `from`, `to`, value, 
+                contractAddress, 'ETH', 'Ether', 18, value / POWER(10, 18), timeStamp, isError, '0x', ''
+            FROM t_internals
+            UNION ALL
+            SELECT blockChain, 'transfers', hash, `from`, `to`, value,
+                contractAddress, tokenSymbol, tokenName, tokenDecimal, value / POWER(10, tokenDecimal), timeStamp, 0, '0x', ''
+            FROM t_transfers
+            UNION ALL
+            SELECT blockChain, 'nfts', hash, `from`, `to`, tokenID,
+                contractAddress, tokenSymbol, tokenName, tokenDecimal, tokenID, timeStamp, 0, '0x', ''
+            FROM t_nfts
+            UNION ALL
+            SELECT blockChain, 'multitoken', hash, `from`, `to`, tokenID,
+                contractAddress, tokenSymbol, tokenName, tokenValue, tokenID, timeStamp, 0, '0x', ''
+            FROM t_multitoken
+        ) AS combined
+        ORDER BY timeStamp ASC
+    """
+    df_all = pd.read_sql_query(query, conn)
+
+    # INFO: Convert to datetime
+    df_all['timeStamp'] = pd.to_datetime(df_all['timeStamp'], unit='s')
+    stat_err = len(df_all[df_all['isError'] != 0])
+    df_all = df_all[df_all['isError'] == 0]
+
+    nodes = {}
+    links = {}
+
+    # for index, row in df_all.iterrows():
+    grouped = df_all.groupby('hash')
+
+    count = 0
+    for hash, group in grouped:
+
+        group_size = len(group)
+        has_transaction = 'transaction' in group['type'].values
+
+        # INFO: Complete transaction
+        if (group_size == 1) and (has_transaction):
+            print(f"== SIMPLE TRANSACTION ============================")
+            print(f"Hash: {hash}")
+            print(group)
+            print("\n")
+
+            for index, row in group.iterrows():
+                tag = ['wallet']
+                if row['from'] not in nodes:
+                    from_address = row['from']
+                    # PERF: Improve
+                    # tag = tags_dict.get(address, [])  # Get tag
+                    label = labels_dict.get(from_address, [])  # Get label
+                    nodes[from_address] = {
+                        "id": from_address, 
+                        "address": from_address,
+                        "tag": tag,
+                        "label": label,
+                    }
+                if (row['functionName'] != ''):
+                    tag = ['contract']
+                if row['to'] not in nodes:
+                    to_address = row['to']
+                    tag = tags_dict.get(to_address, [])  # Get tag
+                    label = labels_dict.get(to_address, [])  # Get label
+                    nodes[to_address] = {
+                        "id": to_address, 
+                        "address": to_address,
+                        "tag": tag,
+                        "label": label,
+                    }
+            print("====================================================")
+            print("====================================================")
+
+            # Links
+            link_key = f"{from_address}->{to_address}"
+            if link_key not in links:
+                links[link_key] = {"source": from_address, "target": to_address, "detail": {}, "qty": 0}
+            if symbol in links[link_key]["detail"]:
+                links[link_key]["detail"][symbol]["sum"] += value
+                links[link_key]["detail"][symbol]["count"] += 1
+            else:
+                links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
+            links[link_key]["qty"] += 1
+
+
+
+
+
+        # elif (group_size > 1) and (has_transaction):
+        #     print(f"== COMPLETE ======================================")
+        #     print(f"Hash: {hash}")
+        #     print(group)
+        #     print("\n")
+        # else:
+        #     print(f"== INCOMPLETE ====================================")
+        #     print(f"Hash: {hash}")
+        #     print(group)
+        #     print("\n")
+
+        # count +=1
+        # if count == 10:
+        #     break
+
+    print(f"NODES {nodes}")
+
+    type_counts = df_all['type'].value_counts()
+    print("Conteo por tipo:")
+    print(type_counts)
+    print(type_counts['nfts'])
+    print("\n")  # Agrega una línea en blanco después del conteo
+
+
+
+
+
+    # for _, row in df_all.iterrows():
+    #     from_address = row['from']
+    #     to_address = row['to']
+    #     symbol = row['symbol']
+    #     value = float(row['valConv'])
+    #     type = row['type']
+
+    #     for address in [from_address, to_address]:
+    #         if address not in nodes:
+    #             tag = tags_dict.get(address, [])  # Get tag
+    #             label = labels_dict.get(address, [])  # Get label
+    #             nodes[address] = {
+    #                 "id": address, 
+    #                 "address": address,
+    #                 # "tag": [tag] if tag else [],
+    #                 "tag": tag,
+    #                 "label": label,
+    #                 "token": "ETH"
+    #                 # "trx_in": {},
+    #                 # "qty_in": 0,
+    #                 # "trx_out": {},
+    #                 # "qty_out": 0
+    #             }
+
+    #     # HACK: Perhaps we need trx_in, trx_out, qty_in, qty_out for bubbles in the future
+
+    #     # Links
+    #     link_key = f"{from_address}->{to_address}"
+    #     if link_key not in links:
+    #         links[link_key] = {"source": from_address, "target": to_address, "detail": {}, "qty": 0}
+    #     if symbol in links[link_key]["detail"]:
+    #         links[link_key]["detail"][symbol]["sum"] += value
+    #         links[link_key]["detail"][symbol]["count"] += 1
+    #     else:
+    #         links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
+    #     links[link_key]["qty"] += 1
+
+
+    # nodes_list = list(nodes.values())
+    # links_list = list(links.values())
+
+    # transactions = {"nodes": nodes_list, "links": links_list}
+
+    # # list_trans = df_all[(df_all['from'] == address_central) | (df_all['to'] == address_central)].to_json(orient = "records")  # FIX: Add contractAddress ??
+    # list_trans = df_all.loc[(df_all["from"] == address_central) | (df_all["to"] == address_central)].to_json(orient = "records")
+
+    # stat_trx = len(df_all[df_all['type'] == 'transaction'])
+    # stat_int = len(df_all[df_all['type'] == 'internals'])
+    # stat_tra = len(df_all[df_all['type'] == 'transfers'])
+    # stat_tot = len(df_all)
+    # stat_wal = len(df_tags[df_tags['tag'] == 'wallet'])
+    # stat_con = len(df_tags[df_tags['tag'] == 'contract'])
+    # # TODO: Stat of wallets and contracts
+
+    # stat = {"stat_trx": int(stat_trx), "stat_int": int(stat_int), 
+    #         "stat_tra": int(stat_tra), "stat_wal": int(stat_wal),
+    #         "stat_tot": int(stat_tot), "stat_con": int(stat_con), 
+    #         "stat_err": int(stat_err), "stat_coo": int(stat_con)}  # FIX: repeating stat_con in stat_coo
+
+    # return {"transactions": transactions, "list": list_trans, "stat": stat}
+    return {"transactions": "end"}
+
+
+
+
+
+
+
+
+
+
+
+# WARN: This isn't in bsc.py (KKK)
+def get_trx_from_addresses_exp(conn, address_central):
+
+    logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+    logger.debug(f"+ Address: {address_central}")
+    logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+
+    address_central = address_central[1]
+
+    nodes = []
+    nodes_list = []
+    links = []
+    stat_tot = 0
+    stat_trx = 0
+    stat_int = 0
+    stat_tra = 0
+    stat_err = 0
+    stat_con = 0
+    stat_wal = 0
+    stat_orf = 0
+    # stat_coo = 0  # TODO: Contract owned
+    # max_qty = 0
+
+    # INFO: Tagging
+    df_tags = pd.read_sql_query("SELECT address, tag FROM t_tags", conn)
+    tags_grouped = df_tags.groupby('address')['tag'].apply(list).reset_index(name='tags')
+    tags_dict = pd.Series(tags_grouped.tags.values,index=tags_grouped.address).to_dict()
+
+    # INFO: Labels
+    df_labels = pd.read_sql_query("SELECT * FROM t_labels WHERE blockChain = 'ethereum'", conn)  # TODO: Multichain
+    labels_dict = df_labels.set_index('address').apply(lambda row: row.to_dict(), axis=1).to_dict()
+
+    # stat_coo = 
+    # stat_con = len(json_tags) - stat_coo
+
+    # TODO: 
+    # - Isolate contract creation trx
+    # - Join query with labels
+    # - More info in links
+
+    # INFO: Get all Trx, Transfers and internals
+    query = """
+        SELECT blockChain, type, hash, `from`, `to`, value, contractAddress, symbol, name, decimal, valConv, timeStamp, isError
+        FROM (
+            SELECT blockChain, 'transaction' as 'type', hash, `from`, `to`, value, 
+                contractAddress, 'ETH' as 'symbol', 'Ether' as 'name', 18 as 'decimal', value / POWER(10, 18) as valConv, timeStamp, isError
+            FROM t_transactions
+            UNION ALL
+            SELECT blockChain, 'internals', hash, `from`, `to`, value, 
+                contractAddress, 'ETH', 'Ether', 18, value / POWER(10, 18), timeStamp, isError
+            FROM t_internals
+            UNION ALL
+            SELECT blockChain, 'transfers', hash, `from`, `to`, value, 
+                contractAddress, tokenSymbol, tokenName, tokenDecimal, value / POWER(10, tokenDecimal), timeStamp, 0
+            FROM t_transfers
+        ) AS combined
+        ORDER BY timeStamp ASC
+    """
+    df_all = pd.read_sql_query(query, conn)
+
+    # INFO: Convert to datetime
+    df_all['timeStamp'] = pd.to_datetime(df_all['timeStamp'], unit='s')
+    stat_err = len(df_all[df_all['isError'] != 0])
+    df_all = df_all[df_all['isError'] == 0]
+
+
+    # INFO: ChatGPT
+    # Suponiendo que df es tu DataFrame original
+    columns = ['blockChain', 'type', 'hash', 'from', 'to', 'value', 'contractAddress',
+               'symbol', 'name', 'decimal', 'valConv', 'timeStamp', 'isError']
+    suffixes = ['', '_c']
+    new_columns = [f"{col}{suf}" for col in columns for suf in suffixes]
+
+    # Crear el nuevo DataFrame con las columnas requeridas
+    new_df = pd.DataFrame(columns=new_columns)
+
+    last_hash = None
+    last_transaction_index = -1
+
+    rows_to_add = []  # Lista para almacenar las filas que se añadirán
+
+    for index, row in df_all.iterrows():
+        new_row = {}
+        # Asigna las columnas originales
+        for col in columns:
+            new_row[col] = row[col]
+        
+        # Si es una transacción, guardar la posición y el hash
+        if row['type'] == 'transaction':
+            last_hash = row['hash']
+            last_transaction_index = index
+            for col in columns:
+                new_row[f"{col}_c"] = ''
+            new_row['type_c'] = 'transaction'
+        
+        # Si el hash coincide y no es la primera transacción
+        elif row['hash'] == last_hash and last_transaction_index != -1:
+            for col in columns:
+                new_row[f"{col}_c"] = df_all.loc[last_transaction_index, col]
+        
+        # Si no hay coincidencia de hash
+        else:
+            for col in columns:
+                new_row[f"{col}_c"] = row[col] if row['type'] in ['transfer', 'internal'] else ''
+            new_row['type'] = 'orfan' if row['type'] in ['transfer', 'internal'] else new_row['type']
+
+        rows_to_add.append(new_row)
+        
+        # new_df = new_df.append(new_row, ignore_index=True)
+        # new_df = pd.concat([new_df, new_row], ignore_index=True)
+
+
+    # Agregar todas las filas al DataFrame de una vez
+    new_df = pd.concat([new_df, pd.DataFrame(rows_to_add, columns=new_columns)], ignore_index=True)
+    # Opcional: Ordenar por timestamp si es necesario
+    new_df.sort_values(by='timeStamp', inplace=True)
+
+
+    json_new_df = new_df.to_json(orient = "records")
+
+    return {"transactions": json_new_df}
