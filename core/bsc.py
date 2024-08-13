@@ -582,7 +582,7 @@ def event_stream_bsc(params):
 
                     # INFO: Store contract creation info
                     cursor = connection.cursor()
-                    insert_creator = """INSERT OR IGNORE INTO t_founders_creators 
+                    insert_creator = """INSERT OR IGNORE INTO t_funders_creators 
                         (blockChain, blockNumber, type, timeStamp, hash, `from`, `to`, value, input, contractAddress, tokenDecimal, tokenSymbol, tokenName) 
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
                     creator_row = [(blockchain,
@@ -1048,13 +1048,13 @@ def event_stream_bsc(params):
                            "content": {"graph": trxs['transactions'], "list": trxs['list'], "stat": trxs['stat']}})
         yield f"data:{data}\n\n"
 
-        # INFO: Get Founders and creators
+        # INFO: Get Funders and creators
         tic = time.perf_counter()
-        founders = get_founders_creators(connection, address)
+        funders = get_funders_creators(connection, address)
         toc = time.perf_counter()
-        message = f"<strong>DATA</strong> - Founders and creators...<strong>{toc - tic:0.4f}</strong> seconds"
+        message = f"<strong>DATA</strong> - Funders and creators...<strong>{toc - tic:0.4f}</strong> seconds"
         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
-        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {"founders": founders}})
+        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {"funders": funders}})
         yield f"data:{data}\n\n"
 
         # INFO: Get Balance and Gas
@@ -1110,7 +1110,7 @@ def test_function_2(params):
 
     tic = time.perf_counter()
     # data = get_trx_from_addresses_opt_bkp(connection, address)
-    data = get_founders_creators(connection, address)
+    data = get_funders_creators(connection, address)
     # data = get_tags_labels(connection, address)
     toc = time.perf_counter()
     logger.info(f"Execute test_2 in {toc - tic:0.4f} seconds")
@@ -1174,19 +1174,19 @@ def db_store_tagging_opt(connection, address, trxs, transfers, internals, nfts, 
 
     df_addresses.loc[df_addresses['address'].isin(contracts), 'tag'] = 'contract'
 
-    # INFO: Founders or creators
-    # TODO: Evaluate type to distinguish Founders and creators
+    # INFO: Funders or creators
+    # TODO: Evaluate type to distinguish Funders and creators
     # df_all = pd.concat([df[['from', 'to', 'timeStamp']] for df in [df_t, df_f, df_i] if 'timeStamp' in df.columns], ignore_index=True).sort_values(by='timeStamp')
     df_all = pd.concat([df[['from', 'to', 'timeStamp']] for df in [df_t, df_f, df_i, df_n] if 'timeStamp' in df.columns], ignore_index=True).sort_values(by='timeStamp')
     min_timestamp = df_all.loc[df_all['from'] == address, 'timeStamp'].min()
-    founders_addresses = df_all.loc[df_all['timeStamp'] < min_timestamp, 'from'].unique()
+    funders_addresses = df_all.loc[df_all['timeStamp'] < min_timestamp, 'from'].unique()
 
-    df_founders = pd.DataFrame(founders_addresses, columns=['address'])
-    df_founders['blockChain'] = 'bsc'
-    df_founders['tag'] = 'founder'
+    df_funders = pd.DataFrame(funders_addresses, columns=['address'])
+    df_funders['blockChain'] = 'bsc'
+    df_funders['tag'] = 'funder'
 
     # Unifying tags
-    df_addresses = pd.concat([df_addresses, df_founders]).drop_duplicates().reset_index(drop=True)
+    df_addresses = pd.concat([df_addresses, df_funders]).drop_duplicates().reset_index(drop=True)
 
     # Insert tags in SQLite
     cursor = connection.cursor()
@@ -1194,30 +1194,30 @@ def db_store_tagging_opt(connection, address, trxs, transfers, internals, nfts, 
     cursor.executemany(insert_tag, df_addresses.to_records(index=False))
     connection.commit()
 
-    # Store trxs Founders
-    founders = df_founders['address'].tolist()
+    # Store trxs Funders
+    funders = df_funders['address'].tolist()
     df_t_f = df_t.loc[(df_t['to'] == address) & 
-                      (df_t['from'].isin(founders)) & 
+                      (df_t['from'].isin(funders)) & 
                       (df_t['timeStamp'] < min_timestamp)].assign(
                               type='transaction').assign(blockChain='bsc').assign(tokenDecimal=18).assign(tokenSymbol='BNB').assign(tokenName='BNB')[[
                                   'blockChain', 'blockNumber', 'type', 'timeStamp','hash', 'from', 'to', 
                                   'value', 'input', 'contractAddress', 'tokenDecimal', 'tokenSymbol', 'tokenName']]
     df_i_f = df_i.loc[(df_i['to'] == address) & 
-                      (df_i['from'].isin(founders)) & 
+                      (df_i['from'].isin(funders)) & 
                       (df_i['timeStamp'] < min_timestamp)].assign(
                               type='internal').assign(blockChain='bsc').assign(tokenDecimal=18).assign(tokenSymbol='BNB').assign(tokenName='BNB')[[
                                   'blockChain', 'blockNumber', 'type', 'timeStamp','hash', 'from', 'to', 
                                   'value', 'input', 'contractAddress', 'tokenDecimal', 'tokenSymbol', 'tokenName']]
     df_f_f = df_f.loc[(df_f['to'] == address) & 
-                      (df_f['from'].isin(founders)) & 
+                      (df_f['from'].isin(funders)) & 
                       (df_f['timeStamp'] < min_timestamp)].assign(
                               type='transfer').assign(blockChain='bsc')[[
                                   'blockChain', 'blockNumber', 'type', 'timeStamp','hash', 'from', 'to', 
                                   'value', 'input', 'contractAddress', 'tokenDecimal', 'tokenSymbol', 'tokenName']]
-    # INFO: Neccesary rename to avoid add columns to founders
+    # INFO: Neccesary rename to avoid add columns to funders
     df_n.rename(columns={"tokenID": "value"}, inplace=True)
     df_n_f = df_n.loc[(df_n['to'] == address) & 
-                      (df_n['from'].isin(founders)) & 
+                      (df_n['from'].isin(funders)) & 
                       (df_n['timeStamp'] < min_timestamp)].assign(
                               type='nfts').assign(blockChain='bsc')[[
                                   'blockChain', 'blockNumber', 'type', 'timeStamp','hash', 'from', 'to', 
@@ -1226,20 +1226,20 @@ def db_store_tagging_opt(connection, address, trxs, transfers, internals, nfts, 
     # df_m.rename(columns={"tokenID": "value"}, inplace=True)
     # df_m.rename(columns={"tokenValue": "tokenDecimal"}, inplace=True)
     # df_m_f = df_m.loc[(df_m['to'] == address) & 
-    #                   (df_m['from'].isin(founders)) & 
+    #                   (df_m['from'].isin(funders)) & 
     #                   (df_m['timeStamp'] < min_timestamp)].assign(
     #                           type='nfts').assign(blockChain='eth')[[
     #                               'blockChain', 'blockNumber', 'type', 'timeStamp','hash', 'from', 'to', 
     #                               'value', 'input', 'contractAddress', 'tokenDecimal', 'tokenSymbol', 'tokenName']]
 
-    df_founders_trxs = pd.concat([df_t_f, df_i_f, df_f_f, df_n_f])
+    df_funders_trxs = pd.concat([df_t_f, df_i_f, df_f_f, df_n_f])
 
     # Insert tags in SQLite
     cursor = connection.cursor()
-    insert_founders = """INSERT OR IGNORE INTO t_founders_creators 
+    insert_funders = """INSERT OR IGNORE INTO t_funders_creators 
         (blockChain, blockNumber, type, timeStamp, hash, `from`, `to`, value, input, contractAddress, tokenDecimal, tokenSymbol, tokenName) 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
-    cursor.executemany(insert_founders, df_founders_trxs.to_records(index=False))
+    cursor.executemany(insert_funders, df_funders_trxs.to_records(index=False))
     connection.commit()
 
 
@@ -1494,14 +1494,14 @@ def get_balance_and_gas(conn, address_central, type, key):
         return {"balance": balance, "tokens": [], "gas": []}
 
 
-def get_founders_creators(conn, address_central):
+def get_funders_creators(conn, address_central):
     address_central = address_central[1]
 
-    # INFO: Get Founders
-    query = f"SELECT * FROM t_founders_creators WHERE blockChain = 'bsc' AND `to` = '{address_central}';"
-    df_founders_creators = pd.read_sql_query(query, conn).to_json(orient = "records")
+    # INFO: Get Funders
+    query = f"SELECT * FROM t_funders_creators WHERE blockChain = 'bsc' AND `to` = '{address_central}';"
+    df_funders_creators = pd.read_sql_query(query, conn).to_json(orient = "records")
 
-    return {"founders": df_founders_creators}
+    return {"funders": df_funders_creators}
 
 
 def get_tags_labels(conn, address_central):

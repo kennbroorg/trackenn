@@ -22,7 +22,7 @@ import pandas as pd
 from termcolor import colored
 import coloredlogs, logging
 
-# from core.eth import get_trx_from_addresses_opt, get_founders_creators, get_balance_and_gas, get_tags_labels
+# from core.eth import get_trx_from_addresses_opt, get_funders_creators, get_balance_and_gas, get_tags_labels
 from core import eth
 from core import bsc
 
@@ -347,11 +347,11 @@ def event_stream_checking(config):
                                        );"""
             cursor.execute(sql_create_blocks_table)
 
-            message = "Creating Table t_founders_creators"
+            message = "Creating Table t_funders_creators"
             logger.info(f"{message}")
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
             yield f"data:{data}\n\n"
-            sql_create_founders_table = """CREATE TABLE IF NOT EXISTS t_founders_creators (
+            sql_create_funders_table = """CREATE TABLE IF NOT EXISTS t_funders_creators (
                                            blockChain text NOT NULL,
                                            blockNumber integer NOT NULL,
                                            type text NOT NULL,
@@ -367,7 +367,7 @@ def event_stream_checking(config):
                                            tokenName text NOT NULL,
                                            UNIQUE(blockChain, blockNumber, timeStamp, hash, `from`, `to`, value)
                                          );"""
-            cursor.execute(sql_create_founders_table)
+            cursor.execute(sql_create_funders_table)
 
             message = "Creating Table t_tagging"
             logger.info(f"{message}")
@@ -501,10 +501,15 @@ def event_stream_checking(config):
             tic = time.perf_counter()
 
             if (blockchain == "bsc"):
-                trxs = bsc.get_trx_from_addresses_opt(connection, address)
+                if (config['graph'] == "Complex"):
+                    trxs = bsc.get_trx_from_addresses_opt(connection, address) # TODO: Add experimental 
+                else:
+                    trxs = bsc.get_trx_from_addresses_opt(connection, address)
             elif (blockchain == "eth"):
-                trxs = eth.get_trx_from_addresses_opt(connection, address)
-                # trxs = eth.get_trx_from_addresses_experimental(connection, address)
+                if (config['graph'] == "Complex"):
+                    trxs = eth.get_trx_from_addresses_experimental(connection, address)
+                else:
+                    trxs = eth.get_trx_from_addresses_opt(connection, address)
             else:
                 # INFO: ERROR handle. Not in the followings
                 connection.close()
@@ -531,16 +536,16 @@ def event_stream_checking(config):
                                "content": {"graph": trxs['transactions'], "list": trxs['list'], "stat": trxs['stat']}})
             yield f"data:{data}\n\n"
 
-            # INFO: Get Founders and creators
+            # INFO: Get Funders and creators
             tic = time.perf_counter()
             if (blockchain == "bsc"):
-                founders = bsc.get_founders_creators(connection, address)
+                funders = bsc.get_funders_creators(connection, address)
             else: # INFO: ETH
-                founders = eth.get_founders_creators(connection, address)
+                funders = eth.get_funders_creators(connection, address)
             toc = time.perf_counter()
-            message = f"<strong>DATA</strong> - Founders and creators...<strong>{toc - tic:0.4f}</strong> seconds"
+            message = f"<strong>DATA</strong> - Funders and creators...<strong>{toc - tic:0.4f}</strong> seconds"
             logger.info(message.replace('<strong>', '').replace('</strong>', ''))
-            data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {"founders": founders}})
+            data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {"funders": funders}})
             yield f"data:{data}\n\n"
 
             # INFO: Get Balance and Gas

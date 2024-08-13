@@ -20,7 +20,7 @@
 <h1 align="center">tracKenn</h1>
 
 <h1 id="description">Description</h1>
-Traceability project in blockchain. Ethereum for now. Transactions, internals, ERC-20 transfers, contracts, internal tagging, labeling, etc
+Traceability project in blockchain. Ethereum and some features in Binance Smart Chain for now. Transactions, internals, ERC-20 transfers, contracts, internal tagging, labeling, etc
 
 ---
 
