@@ -26,7 +26,7 @@ from termcolor import colored
 import coloredlogs, logging
 
 logger = logging.getLogger(__name__)
-logger.propagate = False  # INFO: To prevent duplicates with flask
+# logger.propagate = False  # INFO: To prevent duplicates with flask
 
 
 def insert_with_ignore(table, conn, keys, data_iter):
@@ -1204,7 +1204,8 @@ def test_function_2(params):
 
     tic = time.perf_counter()
     # data = get_trx_from_addresses_opt_bkp(connection, address)
-    data = get_founders_creators(connection, address)
+    # data = get_founders_creators(connection, address)
+    data = get_trx_from_addresses_research(connection, address, params=params)
     # data = get_tags_labels(connection, address)
     toc = time.perf_counter()
     logger.info(f"Execute test_2 in {toc - tic:0.4f} seconds")
@@ -1714,6 +1715,19 @@ def get_trx_from_addresses_experimental(conn, address_central, params=[]):
 
         group_size = len(group)
         has_transaction = 'transaction' in group['type'].values
+
+        # FIX: Remove after research
+        # INFO: Piece of code for classification
+        # print(f"TYPE: {type}")
+        # print(f"XFROM: {xfrom_address}")
+        # print(f"XTO: {xto_address}")
+        # print(f"XVALUE: {xvalue}")
+        # print(f"XSYMBOL: {xsymbol}")
+        # print(f"FROM: {from_address}")
+        # print(f"TO: {to_address}")
+        # print(f"CONTRACT ADDRESS: {row['contractAddress']}")
+        # print(f"VALUE: {value}")
+        # print(f"SYMBOL: {symbol}")
 
         # INFO: Complete transaction and pure =======================================
         if (group_size == 1) and (has_transaction):
@@ -3231,3 +3245,202 @@ def get_trx_from_addresses_experimental(conn, address_central, params=[]):
             "stat_err": int(stat_err), "stat_coo": int(stat_con)}  # FIX: repeating stat_con in stat_coo
 
     return {"transactions": transactions, "list": list_trans, "stat": stat}
+
+
+
+
+
+
+
+
+def get_trx_from_addresses_research(conn, address_central, params=[]):
+
+    # INFO: Config Log Level
+    if params:
+        log_format = '%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s'
+        coloredlogs.install(level=params['config']['level'], fmt=log_format, logger=logger)
+        logger.propagate = False  # INFO: To prevent duplicates with flask
+
+    logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+    logger.debug(f"+ Address: {address_central}")
+    logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+
+    address_central = address_central[1]
+
+    # INFO: Get all Trx, Transfers, internals, nfts and multitoken
+    query = """
+        SELECT blockChain, type, hash, `from`, `to`, value, contractAddress, symbol, name, decimal, valConv, timeStamp, isError, methodId, functionName
+        FROM (
+            SELECT blockChain, 'transaction' as 'type', hash, `from`, `to`, value, contractAddress, 'ETH' as 'symbol', 
+			'Ether' as 'name', 18 as 'decimal', value / POWER(10, 18) as valConv, timeStamp, isError, methodId, functionName
+            FROM t_transactions
+            UNION ALL
+            SELECT blockChain, 'internals', hash, `from`, `to`, value, 
+                contractAddress, 'ETH', 'Ether', 18, value / POWER(10, 18), timeStamp, isError, '0x', ''
+            FROM t_internals
+            UNION ALL
+            SELECT blockChain, 'transfers', hash, `from`, `to`, value,
+                contractAddress, tokenSymbol, tokenName, tokenDecimal, value / POWER(10, tokenDecimal), timeStamp, 0, '0x', ''
+            FROM t_transfers
+            UNION ALL
+            SELECT blockChain, 'nfts', hash, `from`, `to`, tokenID,
+                contractAddress, tokenSymbol, tokenName, tokenDecimal, tokenID, timeStamp, 0, '0x', ''
+            FROM t_nfts
+            UNION ALL
+            SELECT blockChain, 'multitoken', hash, `from`, `to`, tokenID,
+                contractAddress, tokenSymbol, tokenName, tokenValue, tokenID, timeStamp, 0, '0x', ''
+            FROM t_multitoken
+        ) AS combined
+        ORDER BY timeStamp ASC
+    """
+    df_all = pd.read_sql_query(query, conn)
+
+    # INFO: Convert to datetime
+    df_all['timeStamp'] = pd.to_datetime(df_all['timeStamp'], unit='s')
+    df_all = df_all[df_all['isError'] == 0]
+
+    # for index, row in df_all.iterrows():
+    grouped = df_all.groupby('hash')
+
+    for hash, group in grouped:
+
+        # PERF: Process each row independently but try process like group in the future, if it's possible
+        group_size = len(group)
+        has_transaction = 'transaction' in group['type'].values
+        # print(f"+++++++++ {grouped[0]}")
+
+        # print(f"TYPE: {type}")
+        # print(f"XFROM: {xfrom_address}")
+        # print(f"XTO: {xto_address}")
+        # print(f"XVALUE: {xvalue}")
+        # print(f"XSYMBOL: {xsymbol}")
+        # print(f"FROM: {from_address}")
+        # print(f"TO: {to_address}")
+        # print(f"CONTRACT ADDRESS: {row['contractAddress']}")
+        # print(f"VALUE: {value}")
+        # print(f"SYMBOL: {symbol}")
+
+        # INFO: Complete transaction and pure =======================================
+        if (group_size == 1) and (has_transaction):
+            pass
+            # logger.debug(f"\n== SIMPLE TRANSACTION ============================")
+            # for _, row in group.iterrows():
+            #     print(f"TYPE: {row['type']} - HASH: {hash}")
+            #     print(f"XFROM: {row['from']} -> XTO: {row['to']} <--> CONTRACT: {row['contractAddress']}")
+            #     print(f"XVALUE: {row['valConv']} - XSYMBOL: {row['symbol']} - XMETHOD: {row['methodId']} - XFUNC: {row['functionName']}") 
+            #     if (float(row['value']) != 0.0) and (row['functionName'] == ''):
+            #         logger.warning(f"   ETHER MOVE ====================================")
+            #     elif (float(row['value']) == 0.0) and (row['functionName'] != ''):
+            #         logger.warning(f"   CONTRACT EXECUTION ============================")
+            #     elif (float(row['value']) != 0.0) and ('deposit' in row['functionName']):
+            #         logger.warning(f"   DEPOSIT =======================================")
+            #     elif (row['from'] == row['to']):
+            #         logger.warning(f"   SELF-DEPOSIT ==================================")
+            #     else:
+            #         logger.error(f"   NOT DETECTED ==================================")
+
+        # INFO: OTHERS
+        elif (group_size > 1) and (has_transaction):
+            pass
+            print(" ")
+            logger.debug(f"== NOT SIMPLE ====================================")
+            xfrom_address = xto_address = xsymbol = xfunc = ''
+            xvalue = 0
+            for _, row in group.iterrows():
+                if (row['type'] == 'transaction'):
+                    xfrom_address = row['from']
+                    xto_address = row['to']
+                    xvalue = row['valConv']
+                    xsymbol = row['symbol']
+                    xfunc = row['functionName'].split('(')[0]
+                    xparam = row['functionName'].split('(')[1]
+                    print(f"TYPE: {row['type']} - HASH: {hash}")
+                    print(f"XFROM: {xfrom_address} -> XTO: {xto_address}")
+                    print(f"XVALUE: {xvalue} - XSYMBOL: {xsymbol} - XFUNC: {xfunc}-{xparam}") 
+                else:
+                    logger.debug(f"   ERC - {row['type']} =============================")
+
+                    if (row['type'] == 'transfers') and (float(xvalue) == 0.0) and ("swap" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to'] == address_central):
+                        # WARN: Perhaps I must verify type of all ERC row
+                        # print(f"GROUP")
+                        # print(f"{group[['from', 'to', 'value', 'contractAddress']]}")
+                        # logger.warning(f"   SWAP TOKEN ====================================")
+                        break
+                    elif (row['type'] == 'transfers') and (float(xvalue) != 0.0) and ("swap" in xfunc) and (xfrom_address == row['to'] == address_central) and (xto_address != row['from'] != row['contractAddress']):
+                        pass
+                        # logger.warning(f"   SWAP ETHER TO TK ==============================")
+                    elif (row['type'] == 'transfers') and (float(xvalue) == 0.0) and ("deposit" in xfunc) and (xfrom_address == row['from'] == address_central) and (xto_address == row['to'] != row['contractAddress']):
+                        pass
+                        logger.warning(f"   DEPOSIT TOKEN =================================")
+                    # elif (row['type'] == 'nfts') and (xfrom_address == row['to'] == address_central) and (xto_address == row['contractAddress']) and (row['from'] == '0x0000000000000000000000000000000000000000'):
+                    #     pass
+                    #     logger.warning(f"   MINT NFT ======================================")
+                    elif (row['type'] == 'nfts') and (xfrom_address == row['to'] == address_central) and (row['from'] == '0x0000000000000000000000000000000000000000'):
+                        pass
+                        # logger.warning(f"   MINT NFT ======================================")
+                    elif (row['type'] == 'transfers') and (xfrom_address == row['from'] == address_central) and (xto_address == row['contractAddress']) and (row['to'] != '0x0000000000000000000000000000000000000000'):
+                        pass
+                        # logger.warning(f"   TRANSFER TK FROM WA ===========================")
+                    elif (row['type'] == 'nfts') and (xfrom_address == row['from'] == address_central) and (xto_address == row['contractAddress']) and (row['to'] != '0x0000000000000000000000000000000000000000'):
+                        pass
+                        # logger.warning(f"   TRANSFER NFT FROM WA ===========================")
+                    elif (row['type'] == 'nfts') and (xfrom_address == row['to'] == address_central) and (xto_address != row['to'] != row['contractAddress']) and (row['from'] != '0x0000000000000000000000000000000000000000'):
+                        pass
+                        # logger.warning(f"   BUY NFT ========================================")
+                    elif (row['type'] == 'transfers') and ("withdraw" in xfunc) and (xfrom_address == row['to'] == address_central) and (xto_address == row['from']):
+                        pass
+                        # logger.warning(f"   WITHDRAW TOKEN ================================")
+                    elif (row['type'] == 'internals') and ("withdraw" in xfunc) and (xfrom_address == row['to'] == address_central) and (xto_address == row['from']):
+                        pass
+                        # logger.warning(f"   UNWRAP INTERNAL ===============================")
+                    elif (row['type'] == 'multitoken') and (xfrom_address == row['to'] == address_central) and (row['from'] == '0x0000000000000000000000000000000000000000'):
+                        pass
+                        # logger.warning(f"   MULTITOKEN MINT NFT ===========================")
+                    elif (row['type'] == 'multitoken') and (xfrom_address == row['from'] == address_central) and (row['to'] == '0x0000000000000000000000000000000000000000'):
+                        pass
+                        # logger.warning(f"   MULTITOKEN BURN NFT ===========================")
+                    elif (row['type'] == 'transfers') and (xfrom_address == row['to'] == address_central) and (xto_address == row['from']):
+                        pass
+                        # logger.warning(f"   TRANSFER TK TO WA ===========================")
+                    elif (row['type'] == 'multitoken') and (xfrom_address == row['to'] == address_central) and (float(xvalue) > 0.0) and (xto_address != row['from'] != row['contractAddress']):
+                        # INFO: Implement mechanism to determine if it's transfer NFT or token
+                        # Perhaps you need to use Decimal fields
+                        pass
+                        # logger.warning(f"   MULTITOKEN BUY NFT ============================")
+                    elif (row['type'] == 'transfers') and (float(xvalue) == 0.0) and ("atomicMatch" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to']) and ((group['type'] == 'nfts').any()):
+                        # print(f"GROUP")
+                        # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+                        # logger.warning(f"   TRANSFER TOKEN BY NFT =========================")
+                        break
+                    elif (float(xvalue) == 0.0) and ("swap" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to']) and ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()):
+                        # print(f"GROUP")
+                        # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+                        # logger.warning(f"   BUY TOKEN WITH ETHER ==========================")
+                        break
+                    else:
+                        logger.error(f"   NOT DETECTED ==================================")
+                    print(f"FROM: {row['from']} -> TO: {row['to']} <-> CON: {row['contractAddress']}")
+                    print(f"VALUE: {row['valConv']} - SYMBOL: {row['symbol']} - FUNC: {row['functionName']}") 
+
+        elif (not has_transaction):
+            pass
+            # logger.debug(f"== INCOMPLETE ====================================")
+            # for _, row in group.iterrows():
+            #     print(f"TYPE: {row['type']} - HASH: {hash}")
+            #     print(f"XFROM: {row['from']}")
+            #     print(f"XTO: {row['to']}")
+            #     print(f"XVALUE: {row['valueConv']}")
+            #     print(f"XSYMBOL: {row['symbol']}")
+            #     print(f"CONTRACT ADDRESS: {row['contractAddress']}")
+        else:
+            pass
+            # logger.debug(f"== NOT CLASSIFIED ================================")
+            # for _, row in group.iterrows():
+            #     print(f"TYPE: {row['type']} - HASH: {hash}")
+            #     print(f"XFROM: {row['from']}")
+            #     print(f"XTO: {row['to']}")
+            #     print(f"XVALUE: {row['valueConv']}")
+            #     print(f"XSYMBOL: {row['symbol']}")
+            #     print(f"CONTRACT ADDRESS: {row['contractAddress']}")
+
+    return {"transactions": "ok"}
