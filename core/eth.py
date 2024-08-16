@@ -1006,7 +1006,6 @@ def event_stream_ether(params):
                                             df_transfers_store, df_nfts_store, 
                                             df_multitoken_store)
 
-
         # INFO: Exist information in db
         else:
             # HACK: This is not a good place to continue collecting information if it is not complete
@@ -3276,13 +3275,7 @@ def get_trx_from_addresses_experimental(conn, address_central, params=[]):
 
     return {"transactions": transactions, "list": list_trans, "stat": stat}
 
-
-
-
-
-
-
-
+# FIX : Remove
 def get_trx_from_addresses_research(conn, address_central, params=[]):
 
     # INFO: Config Log Level
@@ -3479,6 +3472,7 @@ def get_trx_from_addresses_research(conn, address_central, params=[]):
 def store_nodes_links_db(conn, address_central, params=[],
                          df_trx=[], df_int=[], df_trf=[], df_nft=[], df_mul=[]):
 
+    tic = time.perf_counter()
     # TODO: 
     # - [ ] Get t_nodes through query to Dataframes
     # - [ ] Get t_links through query to Dataframes
@@ -3554,6 +3548,18 @@ def store_nodes_links_db(conn, address_central, params=[],
     # for index, row in df_all.iterrows():
     grouped = df_all.groupby('hash')
     inc = 0
+    nodes = {}
+    links = {}
+    stat_tot = 0
+    stat_trx = 0
+    stat_int = 0
+    stat_tra = 0
+    stat_err = 0
+    stat_con = 0
+    stat_wal = 0
+    # stat_coo = 0  # TODO: Contract owned
+    # max_qty = 0
+
     for hash, group in grouped:
 
         group_size = len(group)
@@ -3562,25 +3568,81 @@ def store_nodes_links_db(conn, address_central, params=[],
         # INFO: Complete transaction and pure =======================================
         if (group_size == 1) and (has_transaction):
             logger.info(colored(f"== SIMPLE ========================================", 'blue'))
-            # for _, row in group.iterrows():
+            for _, row in group.iterrows():
+                from_address = row['from']
+                to_address = row['to']
+                symbol = row['symbol']
+                value = float(row['valConv'])
+                # Nodes
+                if from_address not in nodes:
+                    stat_wal += 1
+                    # PERF: Improve - Use tagging calculated when is contract
+                    tag = tags_dict.get(from_address, [])  # Get tag
+                    tag.append('wallet')
+                    label = labels_dict.get(from_address, [])  # Get label
+                    nodes[from_address] = {
+                        "id": from_address, 
+                        "address": from_address,
+                        "tag": tag,
+                        "label": label,
+                    }
+
+                if to_address not in nodes:
+                    # PERF: Improve - Use tagging calculated when is contract
+                    tag = tags_dict.get(to_address, [])  # Get tag
+                    if (row['functionName'] != ''):
+                        tag.append('contract')
+                        stat_con += 1
+                    else: 
+                        tag.append('wallet')
+                        stat_wal += 1
+
+                    label = labels_dict.get(to_address, [])  # Get label
+                    nodes[to_address] = {
+                        "id": to_address, 
+                        "address": to_address,
+                        "tag": tag,
+                        "label": label,
+                    }
             #     logger.debug(colored(f"== DETAIL\nTYPE: {row['type']} - HASH: {hash}\nXFROM: {row['from']} -> XTO: {row['to']} " + 
             #                          f"<--> CONTRACT: {row['contractAddress']}\nXVALUE: {row['valConv']} - XSYMBOL: {row['symbol']} " +
             #                          f"- XMETHOD: {row['methodId']} - XFUNC: {row['functionName']}", 'blue'))
-            #     if (float(row['value']) != 0.0) and (row['functionName'] == ''):
-            #         logger.info(colored(f"++ ETHER MOVE ====================================", 'blue'))   # NOTE: Checked
-            #     elif (row['from'] == row['to']):
-            #         logger.info(colored(f"++ SELF-DEPOSIT ==================================", 'blue'))   # NOTE: Checked
-            #     elif (float(row['value']) != 0.0) and ('deposit' in row['functionName']):
-            #         logger.info(colored(f"++ DEPOSIT =======================================", 'blue'))   # NOTE: Checked
-            #     # elif (float(row['value']) == 0.0) and (row['functionName'] != ''):
-            #     elif (row['functionName'] != ''):  # 0xfb09c6e73cccf49307bb0f81428dc9ebbbb93699c5834c5a71e5aa8a5220229d
-            #         # TODO: Nest to distinguish differents functions (?)
-            #         logger.info(colored(f"++ CONTRACT EXECUTION ============================", 'blue'))   # NOTE: Checked 
-            #     elif (float(row['value']) == 0.0) and (row['functionName'] == ''):  # 0x9ea05e6effbd5deea270a5296fd3e88e2653cefdff177296a487efe71b6fd728
-            #         logger.info(colored(f"++ DO NOTHING ====================================", 'blue'))   # TODO: Checked 
-            #     else:
-            #         logger.error(f"++ NOT DETECTED = {row['type']} ==================")
+                action = ""
+                if (float(row['value']) != 0.0) and (row['functionName'] == ''):
+                    # logger.info(colored(f"++ ETHER MOVE ====================================", 'blue'))   # NOTE: Checked
+                    action = "ether move"
+                elif (row['from'] == row['to']):
+                    # logger.info(colored(f"++ SELF-DEPOSIT ==================================", 'blue'))   # NOTE: Checked
+                    action = "self deposit"
+                elif (float(row['value']) != 0.0) and ('deposit' in row['functionName']):
+                    # logger.info(colored(f"++ DEPOSIT =======================================", 'blue'))   # NOTE: Checked
+                    action = "deposit"
+                # elif (float(row['value']) == 0.0) and (row['functionName'] != ''):
+                elif (row['functionName'] != ''):  # 0xfb09c6e73cccf49307bb0f81428dc9ebbbb93699c5834c5a71e5aa8a5220229d
+                    # TODO: Nest to distinguish differents functions (?)
+                    # logger.info(colored(f"++ CONTRACT EXECUTION ============================", 'blue'))   # NOTE: Checked 
+                    action = "contract execution"
+                elif (float(row['value']) == 0.0) and (row['functionName'] == ''):  # 0x9ea05e6effbd5deea270a5296fd3e88e2653cefdff177296a487efe71b6fd728
+                    # logger.info(colored(f"++ DO NOTHING ====================================", 'blue'))   # TODO: Checked 
+                    action = "do nothing"
+                else:
+                    logger.error(f"++ NOT DETECTED = {row['type']} ==================")
+
+                # Link
+                link_key = f"{from_address}->{to_address}"
+                if link_key not in links:
+                    links[link_key] = {"source": from_address, "target": to_address, "detail": {}, "qty": 0}
+                if symbol in links[link_key]["detail"]:
+                    links[link_key]["detail"][symbol]["sum"] += value
+                    links[link_key]["detail"][symbol]["count"] += 1
+                    if action not in links[link_key]["detail"][symbol]["action"]:
+                        links[link_key]["detail"][symbol]["action"].append(action)
+                else:
+                    links[link_key]["detail"][symbol] = {"sum": value, "count": 1, "action": [action]}
+                links[link_key]["qty"] += 1
+
             # logger.info(colored(f"==================================================\n", 'black'))
+                    # Links 
 
         # INFO: OTHERS
         elif (group_size > 1) and (has_transaction):
@@ -3778,69 +3840,69 @@ def store_nodes_links_db(conn, address_central, params=[],
 
         elif (not has_transaction):
             logger.info(colored(f"== INCOMPLETE ({inc}) == HASH: {group.iloc[0]['hash']} ==", 'magenta'))
-            logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-            inc += 1
-            for _, row in group.iterrows():
-                # INFO: Internals
-                if (row['type'] == 'internals'):
-                    if ((group['type'] == 'nfts').any()) and (group.loc[group['type'] == 'internals', 'to'].values[0] == group.loc[group['type'] == 'nfts', 'from'].values[0]):
-                        # 0xfb11efd2453075e0998c3b6941886858b08b0431b373a96c0347621c1a114820
-                        # print(f"group")
-                        # print(f"{group[['type', 'from', 'to', 'value', 'contractaddress']]}")
-                        # WARN: group processed
-                        # WARN: there is a record “transfers” that is not shown but is in the group, due to the “break”.
-                        logger.info(colored(f"++ SWAP NFT BY ETHER =============================", 'magenta'))  # TODO: checked
-                        break
-                    elif (row['from'] == address_central):
-                        logger.info(colored(f"++ TRANSFER ETHER FROM WA ========================", 'magenta'))
-                    elif (row['to'] == address_central):
-                        logger.info(colored(f"++ TRANSFER ETHER TO WA ==========================", 'magenta'))
-                    else:
-                        logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} ==================")
-                        logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-                        break
-                # INFO: Transfers
-                elif (row['type'] == 'transfers'):
-                    if (row['from'] == address_central):
-                        logger.info(colored(f"++ TRANSFER TOKEN FROM WA ========================", 'magenta'))
-                    elif (row['to'] == address_central):
-                        logger.info(colored(f"++ TRANSFER TOKEN TO WA ==========================", 'magenta'))
-                    else:
-                        logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} ==================")
-                        logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-                        break
-                elif (row['type'] == 'nfts'):
-                    if (row['to'] == address_central) and (row['from'] == '0x0000000000000000000000000000000000000000'):
-                        logger.info(colored(f"++ MINT NFT ======================================", 'magenta'))
-                    elif (row['from'] == address_central) and (row['to'] == '0x0000000000000000000000000000000000000000'):
-                        logger.info(colored(f"++ BURN NFT ======================================", 'magenta'))
-                    elif (row['from'] == address_central):
-                        logger.info(colored(f"++ TRANSFER NFT FROM WA ==========================", 'magenta'))
-                    elif (row['to'] == address_central):
-                        logger.info(colored(f"++ TRANSFER NFT TO WA ============================", 'magenta'))
-                    else:
-                        logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} ==================")
-                        logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-                        break
-                # INFO: Multitoken
-                elif (row['type'] == 'multitoken'):
-                    if (row['from'] == address_central) and (row['decimal'] <= 2) and (row['to'] == '0x0000000000000000000000000000000000000000'):
-                        logger.info(colored(f"++ MULTITOKEN BURN NFT ===========================", 'magenta'))
-                    elif (row['to'] == address_central) and (row['decimal'] <= 2) and (row['from'] == '0x0000000000000000000000000000000000000000'):
-                        logger.info(colored(f"++ MULTITOKEN MINT NFT ===========================", 'magenta'))
-                    elif (row['from'] == address_central) and (row['decimal'] == 1):
-                        logger.info(colored(f"++ MULTITOKEN TRANSFER NFT FROM WA ===============", 'magenta'))
-                    elif (row['to'] == address_central) and (row['decimal'] == 1):
-                        logger.info(colored(f"++ MULTITOKEN TRANSFER NFT TO WA =================", 'magenta'))
-                    else:
-                        logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} ==================")
-                        logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-                        break
-                else: 
-                    logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} ==================")
-                    logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-                    break
-            logger.info(colored(f"==================================================\n", 'black'))
+            # logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+            # inc += 1
+            # for _, row in group.iterrows():
+            #     # INFO: Internals
+            #     if (row['type'] == 'internals'):
+            #         if ((group['type'] == 'nfts').any()) and (group.loc[group['type'] == 'internals', 'to'].values[0] == group.loc[group['type'] == 'nfts', 'from'].values[0]):
+            #             # 0xfb11efd2453075e0998c3b6941886858b08b0431b373a96c0347621c1a114820
+            #             # print(f"group")
+            #             # print(f"{group[['type', 'from', 'to', 'value', 'contractaddress']]}")
+            #             # WARN: group processed
+            #             # WARN: there is a record “transfers” that is not shown but is in the group, due to the “break”.
+            #             logger.info(colored(f"++ SWAP NFT BY ETHER =============================", 'magenta'))  # TODO: checked
+            #             break
+            #         elif (row['from'] == address_central):
+            #             logger.info(colored(f"++ TRANSFER ETHER FROM WA ========================", 'magenta'))
+            #         elif (row['to'] == address_central):
+            #             logger.info(colored(f"++ TRANSFER ETHER TO WA ==========================", 'magenta'))
+            #         else:
+            #             logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} ==================")
+            #             logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+            #             break
+            #     # INFO: Transfers
+            #     elif (row['type'] == 'transfers'):
+            #         if (row['from'] == address_central):
+            #             logger.info(colored(f"++ TRANSFER TOKEN FROM WA ========================", 'magenta'))
+            #         elif (row['to'] == address_central):
+            #             logger.info(colored(f"++ TRANSFER TOKEN TO WA ==========================", 'magenta'))
+            #         else:
+            #             logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} ==================")
+            #             logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+            #             break
+            #     elif (row['type'] == 'nfts'):
+            #         if (row['to'] == address_central) and (row['from'] == '0x0000000000000000000000000000000000000000'):
+            #             logger.info(colored(f"++ MINT NFT ======================================", 'magenta'))
+            #         elif (row['from'] == address_central) and (row['to'] == '0x0000000000000000000000000000000000000000'):
+            #             logger.info(colored(f"++ BURN NFT ======================================", 'magenta'))
+            #         elif (row['from'] == address_central):
+            #             logger.info(colored(f"++ TRANSFER NFT FROM WA ==========================", 'magenta'))
+            #         elif (row['to'] == address_central):
+            #             logger.info(colored(f"++ TRANSFER NFT TO WA ============================", 'magenta'))
+            #         else:
+            #             logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} ==================")
+            #             logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+            #             break
+            #     # INFO: Multitoken
+            #     elif (row['type'] == 'multitoken'):
+            #         if (row['from'] == address_central) and (row['decimal'] <= 2) and (row['to'] == '0x0000000000000000000000000000000000000000'):
+            #             logger.info(colored(f"++ MULTITOKEN BURN NFT ===========================", 'magenta'))
+            #         elif (row['to'] == address_central) and (row['decimal'] <= 2) and (row['from'] == '0x0000000000000000000000000000000000000000'):
+            #             logger.info(colored(f"++ MULTITOKEN MINT NFT ===========================", 'magenta'))
+            #         elif (row['from'] == address_central) and (row['decimal'] == 1):
+            #             logger.info(colored(f"++ MULTITOKEN TRANSFER NFT FROM WA ===============", 'magenta'))
+            #         elif (row['to'] == address_central) and (row['decimal'] == 1):
+            #             logger.info(colored(f"++ MULTITOKEN TRANSFER NFT TO WA =================", 'magenta'))
+            #         else:
+            #             logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} ==================")
+            #             logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+            #             break
+            #     else: 
+            #         logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} ==================")
+            #         logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+            #         break
+            # logger.info(colored(f"==================================================\n", 'black'))
         else:
             logger.error(f"== NOT CLASSIFIED ================================")
             logger.error(f"== NOT CLASSIFIED ================================")
@@ -3848,6 +3910,33 @@ def store_nodes_links_db(conn, address_central, params=[],
             logger.error(f"== NOT CLASSIFIED ================================")
             logger.error(f"== NOT CLASSIFIED ================================")
             raise Exception("== NOT CLASSIFIED ================================")
+
+    toc = time.perf_counter()
+    logger.info(f"Time to classification {toc - tic:0.4f} seconds")
+
+    with open(f"./classification.json", 'w', encoding='utf-8') as file:
+        json.dump({"nodes": nodes, "links": links}, file, ensure_ascii=False, indent=4)
+
+    # INFO: Write nodes and links in db
+    # TODO:
+    # - Store nodes (if it exist?)
+    #   - Convert nodes to List
+    #   - Convert nodes to Dataframe
+    # - Store links (If ir exist? What about detail field?)
+    nodes_list = list(nodes.values())
+    links_list = list(links.values())
+    df_nodes = pd.DataFrame(nodes_list)
+    df_links = pd.DataFrame(links_list)
+    df_nodes['tag'] = df_nodes['tag'].apply(lambda x: json.dumps(x))
+    df_nodes['label'] = df_nodes['label'].apply(lambda x: json.dumps(x))
+    df_links['detail'] = df_links['detail'].apply(lambda x: json.dumps(x))
+    print("=================================================================")
+    print(df_links.info())
+    print(df_links.head())
+    print("=================================================================")
+    df_nodes.to_sql('t_nodes_classification', conn, if_exists='append', index=False, method=insert_with_ignore)
+    df_links.to_sql('t_links_classification', conn, if_exists='append', index=False, method=insert_with_ignore)
+
 
     return {"process": "ok"}
 
