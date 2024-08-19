@@ -3647,65 +3647,127 @@ def store_nodes_links_db(conn, address_central, params=[],
         # INFO: OTHERS
         elif (group_size > 1) and (has_transaction):
             logger.info(colored(f"== COMPLEX =======================================", 'cyan'))
-            # xfrom_address = xto_address = xsymbol = xfunc = ''
-            # xvalue = 0
-            # for _, row in group.iterrows():
-            #     if (row['type'] == 'transaction'):
-            #         xfrom_address = row['from']
-            #         xto_address = row['to']
-            #         xcontract = row['contractAddress']
-            #         xvalue = row['valConv']
-            #         xsymbol = row['symbol']
-            #         if (row['functionName']):
-            #             xfunc = row['functionName'].split('(')[0]
-            #             xparam = row['functionName'].split('(')[1]
-            #         logger.debug(colored(f"== DETAIL\nTYPE: {row['type']} - HASH: {hash}\nXFROM: {xfrom_address} -> XTO: {xto_address} " + 
-            #                              f"<--> CONTRACT: {xcontract}\nXVALUE: {xvalue} - XSYMBOL: {xsymbol} " +
-            #                              f"- XMETHOD: {row['methodId']} - XFUNC: {xfunc}-{xparam}", 'cyan'))
-            #     else:
-            #         logger.debug(colored(f"   ERC - {row['type']} =============================== \n" + 
-            #                              f"FROM: {row['from']} -> TO: {row['to']} <-> CON: {row['contractAddress']}\n" + 
-            #                              f"VALUE: {row['valConv']} - SYMBOL: {row['symbol']} - FUNC: {row['functionName']}", 'cyan'))
+            xfrom_address = xto_address = xsymbol = xfunc = ''
+            xvalue = 0
+            for _, row in group.iterrows():
+                if (row['type'] == 'transaction'):
+                    xfrom_address = row['from']
+                    xto_address = row['to']
+                    xcontract = row['contractAddress']
+                    xvalue = row['valConv']
+                    xsymbol = row['symbol']
+                    if (row['functionName']):
+                        xfunc = row['functionName'].split('(')[0]
+                        xparam = row['functionName'].split('(')[1]
+                    logger.debug(colored(f"== DETAIL\nTYPE: {row['type']} - HASH: {hash}\nXFROM: {xfrom_address} -> XTO: {xto_address} " + 
+                                         f"<--> CONTRACT: {xcontract}\nXVALUE: {xvalue} - XSYMBOL: {xsymbol} " +
+                                         f"- XMETHOD: {row['methodId']} - XFUNC: {xfunc}-{xparam}", 'cyan'))
+                else:
+                    # logger.debug(colored(f"   ERC - {row['type']} =============================== \n" + 
+                    #                      f"FROM: {row['from']} -> TO: {row['to']} <-> CON: {row['contractAddress']}\n" + 
+                    #                      f"VALUE: {row['valConv']} - SYMBOL: {row['symbol']} - FUNC: {row['functionName']}", 'cyan'))
+                    from_address = row['from']
+                    to_address = row['to']
+                    contract = row['contractAddress']
+                    value = row['valConv']
+                    symbol = row['symbol']
 
-            #         # INFO: Internals
-            #         if (row['type'] == 'internals'):
-            #             if ("withdraw" in xfunc) and (xfrom_address == row['to'] == address_central) and (xto_address == row['from']):
-            #                 logger.info(colored(f"++ WITHDRAW INTERNAL =(Do more research)==========", 'light_cyan'))  # NOTE: Checked
-            #             # elif (float(xvalue) == 0.0) and ("swap" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to']) and ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()):
-            #             elif ("swap" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to']) and ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()):
-            #                 # print(f"GROUP")
-            #                 # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-            #                 # WARN: Group processed
-            #                 # WARN: There is a record “transfers” that is not shown but is in the group, due to the “break”.
-            #                 logger.info(colored(f"++ BUY TOKEN WITH ETHER ==========================", 'light_cyan'))  # NOTE: Checked
-            #                 break
-            #             elif ("swap" in xfunc or "multicall" in xfunc) and (group.iloc[1]['to'] == group.iloc[-1]['to']) and ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()) and (xvalue != 0):  # 0xf9358c40ad6b71c12d33139504c462c73d822ff58aaf968374858e139da0740b
-            #                 # print(f"GROUP")
-            #                 # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-            #                 # WARN: Group processed
-            #                 # WARN: There is a record “transfers” that is not shown but is in the group, due to the “break”.
-            #                 logger.info(colored(f"++ SWAP ETHER FOR TOKEN ==========================", 'light_cyan'))  # TODO: Checked
-            #                 break
-            #             elif ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()) and  \
-            #                  (group.loc[group['type'] == 'transaction', 'from'].values[0] == group.loc[group['type'] == 'internals', 'to'].values[0] == group.loc[group['type'] == 'transfers', 'from'].values[0]):
-            #                 #  0xf8f8a9326e6e6f7bcdaca207e4ece32998cb9022dfd61235939693d892c836d9
-            #                 # print(f"group")
-            #                 # print(f"{group[['type', 'from', 'to', 'value', 'contractaddress']]}")
-            #                 # WARN: group processed
-            #                 # WARN: there is a record “transfers” that is not shown but is in the group, due to the “break”.
-            #                 logger.info(colored(f"++ SWAP TOKEN BY ETHER ===========================", 'light_cyan'))  # TODO: checked
-            #                 break
-            #             elif ("exit" in xfunc) and (xfrom_address == row['to']) and (xvalue == 0):  # 0xef233f6abc71024c9894f3b83cb03c94a06efc1b3f7befac95017509a907b6f4
-            #                 logger.info(colored(f"++ BRIDGING (WITHDRAW) =(?)=======================", 'light_cyan'))  # TODO: Checked
-            #             elif ("purchase" in xfunc) and (xfrom_address == row['to']) and (xvalue != 0):  # 0xe7bd55ddf0b6cd170b59f724ce2297a5c28d5837e7968a0885300970a4c8e7a7
-            #                 logger.info(colored(f"++ PURCHASE WITH ETHER ===========================", 'light_cyan'))  # TODO: Checked
-            #             elif (xfrom_address == row['to'] == address_central):  # 0xc5d30d442ed9899304b6234230797cee8b0c0066407a5294a9531d758a2732c5
-            #                 # WARN: Super generic
-            #                 logger.info(colored(f"++ TRANSFER ETHER TO WA ===(Generic)============", 'light_cyan'))  # TODO: Checked
-            #             else:
-            #                 logger.error(f"++ NOT DETECTED = {row['type']} ==================")
-            #                 logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-            #                 break
+                    # INFO: Internals
+                    if (row['type'] == 'internals'):
+                        # FIX: Remove after code
+                        logger.debug(colored(f"   ERC - {row['type']} =============================== \n" + 
+                                             f"FROM: {row['from']} -> TO: {row['to']} <-> CON: {row['contractAddress']}\n" + 
+                                             f"VALUE: {row['valConv']} - SYMBOL: {row['symbol']} - FUNC: {row['functionName']}", 'cyan'))
+
+                        if ("withdraw" in xfunc) and (xfrom_address == row['to'] == address_central) and (xto_address == row['from']):
+                            # 0x344bc8fcc078e736944f728d29f1a5a04303588c793417143e8f5852e5e04b22
+                            # logger.info(colored(f"++ WITHDRAW INTERNAL =(Do more research)==========", 'light_cyan'))  # NOTE: Checked
+                            action = "withdraw internal (unwrap)"
+                            # Nodes
+                            if xfrom_address not in nodes:
+                                stat_wal += 1
+                                # PERF: Improve - Use tagging calculated when is contract
+                                tag = tags_dict.get(xfrom_address, [])  # Get tag
+                                tag.append('wallet')
+                                label = labels_dict.get(xfrom_address, [])  # Get label
+                                nodes[xfrom_address] = {
+                                    "id": xfrom_address, 
+                                    "address": xfrom_address,
+                                    "tag": tag,
+                                    "label": label,
+                                }
+                            if xto_address not in nodes:
+                                # PERF: Improve - Use tagging calculated when is contract
+                                tag = tags_dict.get(xto_address, [])  # Get tag
+                                tag.append('contract')
+                                stat_con += 1
+
+                                label = labels_dict.get(xto_address, [])  # Get label
+                                nodes[xto_address] = {
+                                    "id": xto_address, 
+                                    "address": xto_address,
+                                    "tag": tag,
+                                    "label": label,
+                                }
+                            # Links
+                            link_key = f"{xfrom_address}->{xto_address}"
+                            if link_key not in links:
+                                links[link_key] = {"source": xfrom_address, "target": xto_address, "detail": {}, "qty": 0}
+                            if symbol in links[link_key]["detail"]:
+                                links[link_key]["detail"][symbol]["sum"] += value
+                                links[link_key]["detail"][symbol]["count"] += 1
+                                if action not in links[link_key]["detail"][symbol]["action"]:
+                                    links[link_key]["detail"][symbol]["action"].append(action)
+                            else:
+                                links[link_key]["detail"][symbol] = {"sum": value, "count": 1, "action": [action]}
+                            links[link_key]["qty"] += 1
+
+                            link_key = f"{xto_address}->{xfrom_address}"
+                            if link_key not in links:
+                                links[link_key] = {"source": xto_address, "target": xfrom_address, "detail": {}, "qty": 0}
+                            if symbol in links[link_key]["detail"]:
+                                links[link_key]["detail"][symbol]["sum"] += value
+                                links[link_key]["detail"][symbol]["count"] += 1
+                                if action not in links[link_key]["detail"][symbol]["action"]:
+                                    links[link_key]["detail"][symbol]["action"].append(action)
+                            else:
+                                links[link_key]["detail"][symbol] = {"sum": value, "count": 1, "action": [action]}
+                            links[link_key]["qty"] += 1
+                        # elif (float(xvalue) == 0.0) and ("swap" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to']) and ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()):
+                        elif ("swap" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to']) and ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()):
+                            # print(f"GROUP")
+                            # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+                            # WARN: Group processed
+                            # WARN: There is a record “transfers” that is not shown but is in the group, due to the “break”.
+                            logger.info(colored(f"++ BUY TOKEN WITH ETHER ==========================", 'light_cyan'))  # NOTE: Checked
+                            break
+                        elif ("swap" in xfunc or "multicall" in xfunc) and (group.iloc[1]['to'] == group.iloc[-1]['to']) and ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()) and (xvalue != 0):  # 0xf9358c40ad6b71c12d33139504c462c73d822ff58aaf968374858e139da0740b
+                            # print(f"GROUP")
+                            # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+                            # WARN: Group processed
+                            # WARN: There is a record “transfers” that is not shown but is in the group, due to the “break”.
+                            logger.info(colored(f"++ SWAP ETHER FOR TOKEN ==========================", 'light_cyan'))  # TODO: Checked
+                            break
+                        elif ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()) and  \
+                             (group.loc[group['type'] == 'transaction', 'from'].values[0] == group.loc[group['type'] == 'internals', 'to'].values[0] == group.loc[group['type'] == 'transfers', 'from'].values[0]):
+                            #  0xf8f8a9326e6e6f7bcdaca207e4ece32998cb9022dfd61235939693d892c836d9
+                            # print(f"group")
+                            # print(f"{group[['type', 'from', 'to', 'value', 'contractaddress']]}")
+                            # WARN: group processed
+                            # WARN: there is a record “transfers” that is not shown but is in the group, due to the “break”.
+                            logger.info(colored(f"++ SWAP TOKEN BY ETHER ===========================", 'light_cyan'))  # TODO: checked
+                            break
+                        elif ("exit" in xfunc) and (xfrom_address == row['to']) and (xvalue == 0):  # 0xef233f6abc71024c9894f3b83cb03c94a06efc1b3f7befac95017509a907b6f4
+                            logger.info(colored(f"++ BRIDGING (WITHDRAW) =(?)=======================", 'light_cyan'))  # TODO: Checked
+                        elif ("purchase" in xfunc) and (xfrom_address == row['to']) and (xvalue != 0):  # 0xe7bd55ddf0b6cd170b59f724ce2297a5c28d5837e7968a0885300970a4c8e7a7
+                            logger.info(colored(f"++ PURCHASE WITH ETHER ===========================", 'light_cyan'))  # TODO: Checked
+                        elif (xfrom_address == row['to'] == address_central):  # 0xc5d30d442ed9899304b6234230797cee8b0c0066407a5294a9531d758a2732c5
+                            # WARN: Super generic
+                            logger.info(colored(f"++ TRANSFER ETHER TO WA ===(Generic)============", 'light_cyan'))  # TODO: Checked
+                        else:
+                            logger.error(f"++ NOT DETECTED = {row['type']} ==================")
+                            logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+                            break
 
             #         # INFO: Transfers
             #         elif (row['type'] == 'transfers'):
