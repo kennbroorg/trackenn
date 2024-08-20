@@ -407,16 +407,34 @@ def event_stream_checking(config):
                                          );"""
             cursor.execute(sql_create_links_c_table)
 
+            message = "Creating Table t_stats"
+            logger.info(f"{message}")
+            data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+            yield f"data:{data}\n\n"
+            sql_create_stats_table = """CREATE TABLE IF NOT EXISTS t_stats (
+                                         stat_tot integer DEFAULT 0,
+                                         stat_trx integer DEFAULT 0,
+                                         stat_tra integer DEFAULT 0,
+                                         stat_err integer DEFAULT 0,
+                                         stat_int integer DEFAULT 0,
+                                         stat_wal integer DEFAULT 0,
+                                         stat_con integer DEFAULT 0,
+                                         stat_coo integer DEFAULT 0,
+                                         stat_nft integer DEFAULT 0,
+                                         stat_mul integer DEFAULT 0
+                                       );"""
+            cursor.execute(sql_create_stats_table)
+
             message = "Creating Table t_labels"
             logger.info(f"{message}")
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
             yield f"data:{data}\n\n"
             sql_create_labels_table = """CREATE TABLE IF NOT EXISTS t_labels (
-                                         blockChain text NOT NULL,
-                                         source text NOT NULL,
-                                         address text NOT NULL,
-                                         name text NOT NULL,
-                                         labels text NOT NULL
+                                          blockChain text NOT NULL,
+                                          source text NOT NULL,
+                                          address text NOT NULL,
+                                          name text NOT NULL,
+                                          labels text NOT NULL
                                        );"""
             cursor.execute(sql_create_labels_table)
 
@@ -533,7 +551,8 @@ def event_stream_checking(config):
                     trxs = bsc.get_trx_from_addresses_opt(connection, address)
             elif (blockchain == "eth"):
                 if (config['graph'] == "Complex"):
-                    trxs = eth.get_trx_from_addresses_experimental(connection, address)
+                    # trxs = eth.get_trx_from_addresses_experimental(connection, address)
+                    trxs = eth.get_nodes_links_bd(connection, address)
                 else:
                     trxs = eth.get_trx_from_addresses_opt(connection, address)
             else:
