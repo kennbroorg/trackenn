@@ -1005,6 +1005,7 @@ def event_stream_ether(params):
                                             df_trx_store, df_internals_store, 
                                             df_transfers_store, df_nfts_store, 
                                             df_multitoken_store)
+                trxs = get_nodes_links_bd(connection, address, params)
 
         # INFO: Exist information in db
         else:
@@ -1161,7 +1162,8 @@ def event_stream_ether(params):
 
         tic = time.perf_counter()
         if (params['graph'] == "Complex"):
-            trxs = get_trx_from_addresses_experimental(connection, address, params)
+            # trxs = get_trx_from_addresses_experimental(connection, address, params)
+            trxs = get_nodes_links_bd(connection, address, params)
         else:
             trxs = get_trx_from_addresses_opt(connection, address)
         toc = time.perf_counter()
@@ -1234,7 +1236,8 @@ def test_function_2(params):
     tic = time.perf_counter()
     # data = get_trx_from_addresses_opt_bkp(connection, address)
     # data = get_funders_creators(connection, address)
-    data = get_trx_from_addresses_research(connection, address, params=params)
+    # data = get_trx_from_addresses_research(connection, address, params=params)
+    data = get_nodes_links_bd(connection, address, params=params)
     # data = get_tags_labels(connection, address)
     toc = time.perf_counter()
     logger.info(f"Execute test_2 in {toc - tic:0.4f} seconds")
@@ -3543,6 +3546,7 @@ def store_nodes_links_db(conn, address_central, params=[],
     df_all['timeStamp'] = df_all['decimal'].astype('int64')
     df_all['isError'] = df_all['isError'].astype('int64')
     df_all['timeStamp'] = pd.to_datetime(df_all['timeStamp'], unit='s')
+    stat_err = len(df_all[df_all['isError'] != 0])
     df_all = df_all[df_all['isError'] == 0]
 
     # for index, row in df_all.iterrows():
@@ -3554,7 +3558,7 @@ def store_nodes_links_db(conn, address_central, params=[],
     stat_trx = 0
     stat_int = 0
     stat_tra = 0
-    stat_err = 0
+    # stat_err = 0
     stat_con = 0
     stat_wal = 0
     # stat_coo = 0  # TODO: Contract owned
@@ -3980,11 +3984,6 @@ def store_nodes_links_db(conn, address_central, params=[],
         json.dump({"nodes": nodes, "links": links}, file, ensure_ascii=False, indent=4)
 
     # INFO: Write nodes and links in db
-    # TODO:
-    # - Store nodes (if it exist?)
-    #   - Convert nodes to List
-    #   - Convert nodes to Dataframe
-    # - Store links (If ir exist? What about detail field?)
     nodes_list = list(nodes.values())
     links_list = list(links.values())
     df_nodes = pd.DataFrame(nodes_list)
@@ -3992,15 +3991,149 @@ def store_nodes_links_db(conn, address_central, params=[],
     df_nodes['tag'] = df_nodes['tag'].apply(lambda x: json.dumps(x))
     df_nodes['label'] = df_nodes['label'].apply(lambda x: json.dumps(x))
     df_links['detail'] = df_links['detail'].apply(lambda x: json.dumps(x))
-    print("=================================================================")
-    print(df_links.info())
-    print(df_links.head())
-    print("=================================================================")
     df_nodes.to_sql('t_nodes_classification', conn, if_exists='append', index=False, method=insert_with_ignore)
     df_links.to_sql('t_links_classification', conn, if_exists='append', index=False, method=insert_with_ignore)
 
+    # INFO: Generate stat table
+    query = """
+        SELECT *
+        FROM t_stats
+    """
+    df_stats = pd.read_sql_query(query, conn)
+    if (df_stats.empty):
+        initialize = pd.Series([0]*10, index=df_stats.columns)
+        df_stats.loc[0] = initialize
+
+    type_counts = df_all['type'].value_counts()
+    stat_trx = type_counts.get('transaction', 0)
+    stat_int = type_counts.get('internals', 0)
+    stat_tra = type_counts.get('transfers', 0)
+    stat_nft = type_counts.get('nfts', 0)
+    stat_mul = type_counts.get('multitokens', 0)
+    stat_tot = stat_trx + stat_int + stat_tra + stat_nft + stat_mul + stat_err
+
+    df_stats.loc[0, 'stat_tot'] = df_stats.loc[0, 'stat_tot'] + stat_tot
+    df_stats.loc[0, 'stat_trx'] = df_stats.loc[0, 'stat_trx'] + stat_trx
+    df_stats.loc[0, 'stat_tra'] = df_stats.loc[0, 'stat_tra'] + stat_tra
+    df_stats.loc[0, 'stat_err'] = df_stats.loc[0, 'stat_err'] + stat_err
+    df_stats.loc[0, 'stat_int'] = df_stats.loc[0, 'stat_int'] + stat_int
+    df_stats.loc[0, 'stat_wal'] = df_stats.loc[0, 'stat_wal'] + stat_wal
+    df_stats.loc[0, 'stat_con'] = df_stats.loc[0, 'stat_con'] + stat_con
+    # df_stats.loc[0, 'stat_coo'] = df_stats.loc[0, 'stat_coo'] + stat_coo
+    df_stats.loc[0, 'stat_nft'] = df_stats.loc[0, 'stat_nft'] + stat_nft
+    df_stats.loc[0, 'stat_mul'] = df_stats.loc[0, 'stat_mul'] + stat_mul
+
+    df_stats.to_sql('t_stats', conn, if_exists='replace', index=False, method=insert_with_ignore)
 
     return {"process": "ok"}
 
 
+def get_nodes_links_bd(conn, address_central, params=[]):
+    tic = time.perf_counter()
 
+    # INFO: Config Log Level
+    if params:
+        log_format = '%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s'
+        coloredlogs.install(level=params['config']['level'], fmt=log_format, logger=logger)
+        logger.propagate = False  # INFO: To prevent duplicates with flask
+
+    logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+    logger.debug(f"+ Address: {address_central}")
+    logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+
+    address_central = address_central[1]
+
+    # TODO: Query nodes
+    query = """
+        SELECT *
+        FROM t_nodes_classification
+    """
+    df_nodes = pd.read_sql_query(query, conn)
+    # df_nodes['tag'] = df_nodes['tag'].sapply(lambda x: json.dumps(x))
+    # df_nodes['label'] = df_nodes['label'].apply(lambda x: json.dumps(x))
+    df_nodes['tag'] = df_nodes['tag'].apply(json.loads)
+    df_nodes['label'] = df_nodes['label'].apply(json.loads)
+    # print("=================================================================")
+    # print(df_nodes.info())
+    # print(df_nodes.head())
+    # print("=================================================================")
+    nodes_list = json.loads(df_nodes.to_json(orient = "records"))
+    # print(nodes_list)
+
+    # with open(f"./nodes.json", 'w', encoding='utf-8') as file:
+    #     json.dump({"nodes": nodes_list}, file, ensure_ascii=False, indent=4)
+
+    # TODO: Query links
+    query = """
+        SELECT *
+        FROM t_links_classification
+    """
+    df_links = pd.read_sql_query(query, conn)
+    df_links['detail'] = df_links['detail'].apply(json.loads)
+    # print("=================================================================")
+    # print(df_links.info())
+    # print(df_links.head())
+    # print("=================================================================")
+    links_list = json.loads(df_links.to_json(orient = "records"))
+    # print(links_list)
+
+    # with open(f"./links.json", 'w', encoding='utf-8') as file:
+    #     json.dump({"links": links_list}, file, ensure_ascii=False, indent=4)
+
+    transactions = {"nodes": nodes_list, "links": links_list}
+
+    # TODO: Query stats
+
+    # INFO: Get all Trx, Transfers, internals, nfts and multitoken
+    query = """
+        SELECT blockChain, type, hash, `from`, `to`, value, contractAddress, symbol, name, decimal, valConv, timeStamp, isError, methodId, functionName
+        FROM (
+            SELECT blockChain, 'transaction' as 'type', hash, `from`, `to`, value, contractAddress, 'ETH' as 'symbol', 
+			'Ether' as 'name', 18 as 'decimal', value / POWER(10, 18) as valConv, timeStamp, isError, methodId, functionName
+            FROM t_transactions
+            UNION ALL
+            SELECT blockChain, 'internals', hash, `from`, `to`, value, 
+                contractAddress, 'ETH', 'Ether', 18, value / POWER(10, 18), timeStamp, isError, '0x', ''
+            FROM t_internals
+            UNION ALL
+            SELECT blockChain, 'transfers', hash, `from`, `to`, value,
+                contractAddress, tokenSymbol, tokenName, tokenDecimal, value / POWER(10, tokenDecimal), timeStamp, 0, '0x', ''
+            FROM t_transfers
+            UNION ALL
+            SELECT blockChain, 'nfts', hash, `from`, `to`, tokenID,
+                contractAddress, tokenSymbol, tokenName, tokenDecimal, tokenID, timeStamp, 0, '0x', ''
+            FROM t_nfts
+            UNION ALL
+            SELECT blockChain, 'multitoken', hash, `from`, `to`, tokenID,
+                contractAddress, tokenSymbol, tokenName, tokenValue, tokenID, timeStamp, 0, '0x', ''
+            FROM t_multitoken
+        ) AS combined
+        ORDER BY timeStamp ASC
+    """
+    df_all = pd.read_sql_query(query, conn)
+
+    # INFO: Convert to datetime
+    df_all['timeStamp'] = pd.to_datetime(df_all['timeStamp'], unit='s')
+    df_all = df_all[df_all['isError'] == 0]
+
+    list_trans = df_all.loc[(df_all["from"] == address_central) | (df_all["to"] == address_central)].to_json(orient = "records")
+
+    # stat = ""  # FIX: Remove
+
+    query = """
+        SELECT *
+        FROM t_stats
+    """
+    df_stats = pd.read_sql_query(query, conn)
+    stat_json = df_stats.to_json(orient = "records")
+    print("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+    print(df_stats.info())
+    print(df_stats.head())
+    print("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+    print(stat_json)
+    print("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+
+    toc = time.perf_counter()
+    logger.info(f"Time to get nodes and links {toc - tic:0.4f} seconds")
+
+    return {"transactions": transactions, "list": list_trans, "stat": json.loads(stat_json)[0]}
