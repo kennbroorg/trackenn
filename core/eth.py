@@ -19,6 +19,7 @@ import sqlite3
 import traceback
 import pandas as pd
 import pandasql as psql
+from collections import defaultdict
 # from sqlalchemy import text
 from datetime import datetime
 from flask import jsonify
@@ -1217,8 +1218,8 @@ def test_function_1(params):
     # trxs = get_trx_from_address(connection, address)
 
     tic = time.perf_counter()
-    data = get_trx_from_addresses_experimental(connection, address, params=params)
-    # data = get_balance_and_gas(connection, address, 'wallet', '')
+    # data = get_trx_from_addresses_experimental(connection, address, params=params)
+    data = get_balance_and_gas(connection, address, 'wallet', '')
     toc = time.perf_counter()
     logger.info(f"Execute test_1 in {toc - tic:0.4f} seconds")
 
@@ -1648,1840 +1649,65 @@ def get_tags_labels(conn, address_central):
     return {"tags": df_tags, "labels": df_labels}
 
 
-# TODO: 
-# - [X] Group transaction, internals, transfers, nfts, multitokens by hash
-# - [X] Separate complete trxs from incomplete one
-# - [X] Count isError
-# - [X] Count different type
-# - [ ] Collect functionName and store in nodes in form of list
-#         In node or link???
-# - [ ] Implement incomplete transactions
-# - [ ] Do we show the token contract? Or do we embed it in the link as a url?
-# - [ ] Normalize all debug messages
-# - [ ] Document each case (draw)
-# - [ ] Port this function to bsc.py
-
-# PERF:
-# - [ ] After documenting and drawing each case, seek to unify cases
-# - [ ] Move node and link creation to the part following store
-#         Pay special attention not to store duplicates
-# - [ ] Store preprocessed information in temp tables
-
-def get_trx_from_addresses_experimental(conn, address_central, params=[]):
-
-    # INFO: Config Log Level
-    if params:
-        log_format = '%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s'
-        coloredlogs.install(level=params['config']['level'], fmt=log_format, logger=logger)
-        logger.propagate = False  # INFO: To prevent duplicates with flask
-
-    logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
-    logger.debug(f"+ Address: {address_central}")
-    logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
-
-    address_central = address_central[1]
-
-    nodes = []
-    nodes_list = []
-    links = []
-    stat_tot = 0
-    stat_trx = 0
-    stat_int = 0
-    stat_tra = 0
-    stat_err = 0
-    stat_con = 0
-    stat_wal = 0
-    # stat_coo = 0  # TODO: Contract owned
-    # max_qty = 0
-
-    # INFO: Tagging: Here exclude wallets and contracts
-    df_tags = pd.read_sql_query("SELECT address, tag FROM t_tags WHERE tag NOT IN ('wallet', 'contract')", conn)
-    tags_grouped = df_tags.groupby('address')['tag'].apply(list).reset_index(name='tags')
-    tags_dict = pd.Series(tags_grouped.tags.values,index=tags_grouped.address).to_dict()
-
-    # INFO: Labels
-    df_labels = pd.read_sql_query("SELECT * FROM t_labels WHERE blockChain = 'ethereum'", conn)
-    labels_dict = df_labels.set_index('address').apply(lambda row: row.to_dict(), axis=1).to_dict()
-
-    # INFO: Get all Trx, Transfers, internals, nfts and multitoken
-    query = """
-        SELECT blockChain, type, hash, `from`, `to`, value, contractAddress, symbol, name, decimal, valConv, timeStamp, isError, methodId, functionName
-        FROM (
-            SELECT blockChain, 'transaction' as 'type', hash, `from`, `to`, value, contractAddress, 'ETH' as 'symbol', 
-			'Ether' as 'name', 18 as 'decimal', value / POWER(10, 18) as valConv, timeStamp, isError, methodId, functionName
-            FROM t_transactions
-            UNION ALL
-            SELECT blockChain, 'internals', hash, `from`, `to`, value, 
-                contractAddress, 'ETH', 'Ether', 18, value / POWER(10, 18), timeStamp, isError, '0x', ''
-            FROM t_internals
-            UNION ALL
-            SELECT blockChain, 'transfers', hash, `from`, `to`, value,
-                contractAddress, tokenSymbol, tokenName, tokenDecimal, value / POWER(10, tokenDecimal), timeStamp, 0, '0x', ''
-            FROM t_transfers
-            UNION ALL
-            SELECT blockChain, 'nfts', hash, `from`, `to`, tokenID,
-                contractAddress, tokenSymbol, tokenName, tokenDecimal, tokenID, timeStamp, 0, '0x', ''
-            FROM t_nfts
-            UNION ALL
-            SELECT blockChain, 'multitoken', hash, `from`, `to`, tokenID,
-                contractAddress, tokenSymbol, tokenName, tokenValue, tokenID, timeStamp, 0, '0x', ''
-            FROM t_multitoken
-        ) AS combined
-        ORDER BY timeStamp ASC
-    """
-    df_all = pd.read_sql_query(query, conn)
-
-    # INFO: Convert to datetime
-    df_all['timeStamp'] = pd.to_datetime(df_all['timeStamp'], unit='s')
-    stat_err = len(df_all[df_all['isError'] != 0])
-    df_all = df_all[df_all['isError'] == 0]
-
-    nodes = {}
-    links = {}
-
-    # for index, row in df_all.iterrows():
-    grouped = df_all.groupby('hash')
-
-    count = 0
-    for hash, group in grouped:
-
-        group_size = len(group)
-        has_transaction = 'transaction' in group['type'].values
-
-        # FIX: Remove after research
-        # INFO: Piece of code for classification
-        # print(f"TYPE: {type}")
-        # print(f"XFROM: {xfrom_address}")
-        # print(f"XTO: {xto_address}")
-        # print(f"XVALUE: {xvalue}")
-        # print(f"XSYMBOL: {xsymbol}")
-        # print(f"FROM: {from_address}")
-        # print(f"TO: {to_address}")
-        # print(f"CONTRACT ADDRESS: {row['contractAddress']}")
-        # print(f"VALUE: {value}")
-        # print(f"SYMBOL: {symbol}")
-
-        # INFO: Complete transaction and pure =======================================
-        if (group_size == 1) and (has_transaction):
-            logger.debug(f"== SIMPLE TRANSACTION ============================")
-            # TODO: Verify that transaction with functionName is complete
-
-            for _, row in group.iterrows():
-                from_address = row['from']
-                to_address = row['to']
-                symbol = row['symbol']
-                value = float(row['valConv'])
-                # Nodes
-                if from_address not in nodes:
-                    stat_wal += 1
-                    # PERF: Improve
-                    tag = tags_dict.get(from_address, [])  # Get tag
-                    tag.append('wallet')
-                    label = labels_dict.get(from_address, [])  # Get label
-                    nodes[from_address] = {
-                        "id": from_address, 
-                        "address": from_address,
-                        "tag": tag,
-                        "label": label,
-                    }
-
-                if to_address not in nodes:
-                    # PERF: Improve
-                    tag = tags_dict.get(to_address, [])  # Get tag
-                    if (row['functionName'] != ''):
-                        tag.append('contract')
-                        stat_con += 1
-                    else: 
-                        tag.append('wallet')
-                        stat_wal += 1
-
-                    label = labels_dict.get(to_address, [])  # Get label
-                    nodes[to_address] = {
-                        "id": to_address, 
-                        "address": to_address,
-                        "tag": tag,
-                        "label": label,
-                    }
-
-                # Links
-                link_key = f"{from_address}->{to_address}"
-                if link_key not in links:
-                    links[link_key] = {"source": from_address, "target": to_address, "detail": {}, "qty": 0}
-                if symbol in links[link_key]["detail"]:
-                    links[link_key]["detail"][symbol]["sum"] += value
-                    links[link_key]["detail"][symbol]["count"] += 1
-                else:
-                    links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                links[link_key]["qty"] += 1
-
-        # INFO: Complete transaction with one transfer (ERC20, nft, Multitoken) ======
-        elif (group_size == 2) and (has_transaction):
-            count += 1
-            logger.debug(f"== COMPLETE GROUP SIZE 2 =========================")
-            print(f"Hash: {hash}")
-            xfrom_address = xto_address = xsymbol = ''
-            xvalue = 0
-            for _, row in group.iterrows():
-                # INFO: x_from and z_from are wallets and the same 
-                type = row['type']
-                from_address = row['from']
-                to_address = row['to']
-                symbol = row['symbol']
-                value = float(row['valConv'])
-                # print(f"TYPE: {type}")
-                # print(f"FROM: {from_address}")
-                # print(f"TO: {to_address}")
-                # print(f"CONTRACT ADDRESS: {row['contractAddress']}")
-                # print(f"VALUE: {value}")
-                # print(f"SYMBOL: {symbol}")
-                # Nodes
-                # INFO: Transaction
-                if (type == 'transaction'):
-                    xfrom_address = from_address
-                    xto_address = to_address
-                    xvalue = value
-                    xsymbol = symbol
-                    if from_address not in nodes:
-                        stat_wal += 1
-                        # PERF: Improve
-                        tag = tags_dict.get(from_address, [])  # Get tag
-                        tag.append('wallet')
-                        label = labels_dict.get(from_address, [])  # Get label
-                        nodes[from_address] = {
-                            "id": from_address, 
-                            "address": from_address,
-                            "tag": tag,
-                            "label": label,
-                        }
-                    if to_address not in nodes:
-                        stat_con += 1
-                        # PERF: Improve
-                        tag = tags_dict.get(to_address, [])  # Get tag
-                        tag.append('contract')
-                        label = labels_dict.get(to_address, [])  # Get label
-                        nodes[to_address] = {
-                            "id": to_address, 
-                            "address": to_address,
-                            "tag": tag,
-                            "label": label,
-                        }
-
-                # INFO: Internals
-                if (type == 'internals'):
-                    contract_address = row['contractAddress']
-
-                    if (xfrom_address == ''):
-                        logger.error(f"XFROM ADDRESS is empty")
-
-                    elif (xto_address == ''):
-                        logger.error(f"XTO ADDRESS is empty")
-
-                    elif (xfrom_address == to_address): # REF: hash: 0xfe45d513dc4fc8fb844f7a4b4375b15e3e7ac0a1923fb8e9cf70b6428968a408
-                        logger.debug(f"INTERNAL FORM 74 - INTERNAL RECEIVE")
-                        if from_address not in nodes:
-                            stat_con += 1
-                            # PERF: Improve
-                            tag = tags_dict.get(contract_address, [])  # Get tag
-                            tag.append('contract')
-                            label = labels_dict.get(from_address, [])  # Get label
-                            nodes[from_address] = {
-                                "id": from_address, 
-                                "address": from_address,
-                                "tag": tag,
-                                "label": label,
-                            }
-
-                        # Links for internal receive
-                        link_key = f"{from_address}->{to_address}"
-                        logger.warning(f"INTERNAL LINK - RECEIVE INTERNAL ETHER {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": from_address, "target": to_address, "detail": {}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            links[link_key]["detail"][symbol]["sum"] += value
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                        links[link_key]["qty"] += 1
-
-                    else: 
-                        logger.error(f"INTERNALS NOT TYPIFIED")
-
-                # INFO: Transfers
-                if (type == 'transfers'):
-                    contract_address = row['contractAddress']
-
-                    if (xfrom_address == ''):
-                        logger.error(f"XFROM ADDRESS is empty")
-
-                    elif (xto_address == ''):
-                        logger.error(f"XTO ADDRESS is empty")
-
-                    elif (from_address == xfrom_address) and (to_address == xto_address): # REF: hash : 0x19fb9697dd7f42ba531d7ef9c07c7bf2a859111ce2915512bfadeb3c4badc344 deposit to contract
-                        logger.debug(f"FORM 3 (from_address == xfrom_address) and (to_address == xto_address)")
-                        if contract_address not in nodes:
-                            stat_con += 1
-                            # PERF: Improve
-                            tag = tags_dict.get(contract_address, [])  # Get tag
-                            tag.append('contract')
-                            label = labels_dict.get(contract_address, [])  # Get label
-                            nodes[contract_address] = {
-                                "id": contract_address, 
-                                "address": contract_address,
-                                "tag": tag,
-                                "label": label,
-                            }
-                        # Links to contract
-                        link_key = f"{xfrom_address}->{contract_address}"
-                        # logger.warning(f"LINK TRANSACTION {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": xfrom_address, "target": contract_address, "detail": {}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            links[link_key]["detail"][symbol]["sum"] += value
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                        links[link_key]["qty"] += 1
-                        # Links from contract
-                        link_key = f"{contract_address}->{to_address}" # xto_address is a contract
-                        # logger.warning(f"LINK TRANSFER {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": contract_address, "target": to_address, "detail": {}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            links[link_key]["detail"][symbol]["sum"] += value
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                        links[link_key]["qty"] += 1
-
-                    elif (from_address == xfrom_address) and (contract_address == xto_address): # REF: hash: 0xf01325b1b4c10b4cbe86c94cf65e459dde587b86bcdcbe50beaa8fa94df4b7e8 
-                        logger.debug(f"FORM 4 (from_address == xfrom_address) and (contract_address == xto_address) - Transfer ERC20 to wallet") 
-                        if to_address not in nodes:
-                            stat_wal += 1
-                            # PERF: Improve
-                            tag = tags_dict.get(to_address, [])  # Get tag
-                            tag.append('wallet')
-                            label = labels_dict.get(to_address, [])  # Get label
-                            nodes[to_address] = {
-                                "id": to_address, 
-                                "address": to_address,
-                                "tag": tag,
-                                "label": label,
-                            }
-                        # Links for transaction xfrom and xto (contract)
-                        link_key = f"{xfrom_address}->{xto_address}"
-                        # logger.warning(f"LINK TRANSACTION {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": xfrom_address, "target": xto_address, "detail": {}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            links[link_key]["detail"][symbol]["sum"] += value
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                        links[link_key]["qty"] += 1
-
-                        # Links from contract to wallet
-                        link_key = f"{contract_address}->{to_address}" # xto_address is a contract
-                        # logger.warning(f"LINK TRANSFER {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": contract_address, "target": to_address, "detail": {}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            links[link_key]["detail"][symbol]["sum"] += value
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                        links[link_key]["qty"] += 1
-
-                    elif (xfrom_address == to_address) and (xto_address == from_address): # REF: hash: 0xa54c6cacc1661abef5adf16d4227e5f5827519ed1038043882b0cf11e4299085
-                        logger.debug(f" FORM 5 (xfrom_address == to_address) and (xto_address == from_address)")
-                        if contract_address not in nodes:
-                            stat_con += 1
-                            # PERF: Improve
-                            tag = tags_dict.get(contract_address, [])  # Get tag
-                            tag.append('contract')
-                            label = labels_dict.get(contract_address, [])  # Get label
-                            nodes[contract_address] = {
-                                "id": contract_address, 
-                                "address": contract_address,
-                                "tag": tag,
-                                "label": label,
-                            }
-
-                        # Links for transaction xfrom and xto
-                        link_key = f"{from_address}->{contract_address}"
-                        # logger.warning(f"LINK 1 {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": from_address, "target": contract_address, "detail": {}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            links[link_key]["detail"][symbol]["sum"] += value
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                        links[link_key]["qty"] += 1
-
-                        # Links for FORM trx xfrom == zfrom and one transfer
-                        link_key = f"{contract_address}->{to_address}" # xto_address is a contract
-                        # logger.warning(f"LINK 2 {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": contract_address, "target": to_address, "detail": {}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            links[link_key]["detail"][symbol]["sum"] += value
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                        links[link_key]["qty"] += 1
-
-                    # FIXME: Review
-                    elif (xfrom_address == to_address) and (xto_address != from_address != contract_address):  # REF: hash: 0xb4aba176a2feebbc7f892a434b9ddb23fc074fc15cbba1fe8b13ca210f816335
-                        logger.debug(f" FORM 6 (xfrom_address == to_address) and (xto_address != from_address != contract_address) - Buy token ERC20 through ETH")
-                        for address in [from_address, contract_address]:
-                            if address not in nodes:
-                                stat_con += 1
-                                # PERF: Improve
-                                tag = tags_dict.get(address, [])  # Get tag
-                                tag.append('contract')
-                                label = labels_dict.get(address, [])  # Get label
-                                nodes[address] = {
-                                    "id": address, 
-                                    "address": address,
-                                    "tag": tag,
-                                    "label": label,
-                                }
-
-                        # Links for transaction xfrom and xto
-                        link_key = f"{xfrom_address}->{xto_address}"
-                        # logger.warning(f"LINK 1 {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": xfrom_address, "target": xto_address, "detail": {}, "qty": 0}
-                        if xsymbol in links[link_key]["detail"]:
-                            links[link_key]["detail"][xsymbol]["sum"] += xvalue
-                            links[link_key]["detail"][xsymbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][xsymbol] = {"sum": xvalue, "count": 1}
-                        links[link_key]["qty"] += 1
-
-                        # Links for transfer xto and from_address
-                        link_key = f"{xto_address}->{from_address}"
-                        # logger.warning(f"LINK 2 {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": xto_address, "target": from_address, "detail": {}, "qty": 0}
-                        if xsymbol in links[link_key]["detail"]:
-                            links[link_key]["detail"][xsymbol]["sum"] += xvalue
-                            links[link_key]["detail"][xsymbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][xsymbol] = {"sum": xvalue, "count": 1}
-                        links[link_key]["qty"] += 1
-
-                        # # Links for transfer from_address and contract_address 
-                        # link_key = f"{from_address}->{contract_address}" # xto_address is a contract
-                        # # logger.warning(f"LINK 3 {link_key}")
-                        # if link_key not in links:
-                        #     links[link_key] = {"source": from_address, "target": contract_address, "detail": {}, "qty": 0}
-                        # if symbol in links[link_key]["detail"]:
-                        #     links[link_key]["detail"][symbol]["sum"] += value
-                        #     links[link_key]["detail"][symbol]["count"] += 1
-                        # else:
-                        #     links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                        # links[link_key]["qty"] += 1
-
-                        # Links for transfer contract_address and to_address 
-                        link_key = f"{from_address}->{to_address}" # xto_address is a contract
-                        # logger.warning(f"LINK 4 {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": contract_address, "target": to_address, "detail": {}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            links[link_key]["detail"][symbol]["sum"] += value
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                        links[link_key]["qty"] += 1
-
-                    else: 
-                        logger.error(f"ERC20 TRANSFER NOT TYPIFIED")
-
-                # INFO: nfts
-                if (type == 'nfts'):
-                    contract_address = row['contractAddress']
-
-                    if (xfrom_address == ''):
-                        logger.error(f"XFROM ADDRESS is empty")
-
-                    elif (xto_address == ''):
-                        logger.error(f"XTO ADDRESS is empty")
-
-                    elif (xfrom_address == to_address) and (xto_address == contract_address) and \
-                         (from_address == "0x0000000000000000000000000000000000000000"): # REF: hash : 0xf758e2b6a9ed20f3431ef36f57493cf2d6b81e4bc6e2e21921c690bc81b907dd
-                        logger.debug(f"NFTS FORM 3 (xfrom_address == to_address) and (xto_address == contract_address) and (from_address == 0x00..) - Mint of NFT")
-                        # if contract_address not in nodes:  # INFO: This isn't neccesary
-                        #     stat_con += 1
-                        #     tag = tags_dict.get(contract_address, [])  # Get tag
-                        #     tag.append('contract')
-                        #     label = labels_dict.get(contract_address, [])  # Get label
-                        #     nodes[contract_address] = {
-                        #         "id": contract_address, 
-                        #         "address": contract_address,
-                        #         "tag": tag,
-                        #         "label": label,
-                        #     }
-                        # Links from contract to to_address (This is a mint of NFT)
-                        link_key = f"{contract_address}->{to_address}"
-                        # logger.warning(f"LINK NFT MINT {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": contract_address, "target": to_address, "detail": {"type": "nft"}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            # TODO: Add name?
-                            links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"nft": [], "count": 1}
-                            links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                        links[link_key]["qty"] += 1
-
-                    elif (from_address == xfrom_address) and (contract_address == xto_address): # REF: hash: 0xed609d5d6ccbd68138d8733da0c2711c102265fb8d47c9e4408139e794072913
-                        logger.debug(f"NFTS FORM 4 (from_address == xfrom_address) and (contract_address == xto_address) - Transfer NFT ->") 
-                        if to_address not in nodes:
-                            stat_wal += 1
-                            # PERF: Improve
-                            tag = tags_dict.get(to_address, [])  # Get tag
-                            tag.append('wallet')
-                            label = labels_dict.get(to_address, [])  # Get label
-                            nodes[to_address] = {
-                                "id": to_address, 
-                                "address": to_address,
-                                "tag": tag,
-                                "label": label,
-                            }
-                        # Links from wallet (xfrom_address to contract (or xto_address)
-                        link_key = f"{xfrom_address}->{xto_address}"
-                        # logger.warning(f"LINK TRANSFER NFT {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": contract_address, "target": to_address, "detail": {"type": "nft"}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            # TODO: Add name?
-                            links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"nft": [], "count": 1}
-                            links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                        links[link_key]["qty"] += 1
-
-                        # Links from contract (xto_address) to wallet to_address
-                        link_key = f"{contract_address}->{to_address}"
-                        # logger.warning(f"LINK TRANSFER NFT {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": contract_address, "target": to_address, "detail": {"type": "nft"}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            # TODO: Add name?
-                            links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"nft": [], "count": 1}
-                            links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                        links[link_key]["qty"] += 1
-
-                    elif (xfrom_address == to_address) and (xto_address != from_address != contract_address):  # REF: hash: 0xea91b02882a88fe588054fc2c2dbdaff8c24a5a9d30588512595ad8016aa91bd
-                        logger.debug(f"NFTS FORM 5 (xfrom_address == to_address) and (xto_address != from_address != contract_address) <- Buy NFT to another wallet")
-                        if from_address not in nodes:
-                            stat_con += 1
-                            # PERF: Improve
-                            tag = tags_dict.get(from_address, [])  # Get tag
-                            tag.append('wallet')
-                            label = labels_dict.get(from_address, [])  # Get label
-                            nodes[from_address] = {
-                                "id": from_address, 
-                                "address": from_address,
-                                "tag": tag,
-                                "label": label,
-                            }
-                        if contract_address not in nodes:
-                            stat_con += 1
-                            # PERF: Improve
-                            tag = tags_dict.get(contract_address, [])  # Get tag
-                            tag.append('contract')
-                            label = labels_dict.get(contract_address, [])  # Get label
-                            nodes[contract_address] = {
-                                "id": contract_address, 
-                                "address": contract_address,
-                                "tag": tag,
-                                "label": label,
-                            }
-
-                        # Links wallet buy NFT from DEX
-                        link_key = f"{xfrom_address}->{xto_address}"
-                        # logger.warning(f"NFT LINK - BUY NFT FROM DEX {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": xfrom_address, "target": xto_address, "detail": {}, "qty": 0}
-                        if xsymbol in links[link_key]["detail"]:
-                            links[link_key]["detail"][xsymbol]["sum"] += xvalue
-                            links[link_key]["detail"][xsymbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][xsymbol] = {"sum": xvalue, "count": 1}
-                        links[link_key]["qty"] += 1
-
-                        # Links for transfer xto and from_address
-                        link_key = f"{xto_address}->{from_address}"
-                        # logger.warning(f"NFT LINK - DEX TRANSFER ETH TO WALLET {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": xto_address, "target": from_address, "detail": {}, "qty": 0}
-                        if xsymbol in links[link_key]["detail"]:
-                            links[link_key]["detail"][xsymbol]["sum"] += xvalue
-                            links[link_key]["detail"][xsymbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][xsymbol] = {"sum": xvalue, "count": 1}
-                        links[link_key]["qty"] += 1
-
-                        # Links for transfer from_address and contract_address  # HACK: This could be hide in a url inside the merge this with the next link
-                        link_key = f"{from_address}->{contract_address}"
-                        # logger.warning(f"NFT LINK - from wallet through contract {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": contract_address, "target": to_address, "detail": {"type": "nft"}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            # TODO: Add name?
-                            links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"nft": [], "count": 1}
-                            links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                        links[link_key]["qty"] += 1
-
-                        # Links for transfer contract_address and to_address 
-                        link_key = f"{contract_address}->{to_address}" # xto_address is a contract
-                        # logger.warning(f"NFT LINK - FROM CONTRACT TRANSFER NFT TO WALLET {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": contract_address, "target": to_address, "detail": {"type": "nft"}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            # TODO: Add name?
-                            links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"nft": [], "count": 1}
-                            links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                        links[link_key]["qty"] += 1
-
-                    elif (from_address == xfrom_address) and (contract_address != xto_address): # REF: hash: 0x6beb31076d54d69f11fa2bf69faf50c6679a43c6e46932406e914d3995b509ae
-                        logger.debug(f"NFTS FORM 104 (from_address == xfrom_address) and (contract_address != xto_address) - Transfer NFT ->") 
-                        if to_address not in nodes:
-                            stat_wal += 1
-                            # PERF: Improve
-                            tag = tags_dict.get(to_address, [])  # Get tag
-                            tag.append('wallet')
-                            label = labels_dict.get(to_address, [])  # Get label
-                            nodes[to_address] = {
-                                "id": to_address, 
-                                "address": to_address,
-                                "tag": tag,
-                                "label": label,
-                            }
-                        # Links from wallet to wallet of NFT
-                        link_key = f"{xfrom_address}->{xto_address}"
-                        logger.warning(f"LINK TRANSFER NFT {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": contract_address, "target": to_address, "detail": {"type": "nft"}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            # TODO: Add name?
-                            links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"nft": [], "count": 1}
-                            links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                        links[link_key]["qty"] += 1
-
-                        # Links from contract (xto_address) to wallet to_address
-                        link_key = f"{contract_address}->{to_address}"
-                        # logger.warning(f"LINK TRANSFER NFT {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": contract_address, "target": to_address, "detail": {"type": "nft"}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            # TODO: Add name?
-                            links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"nft": [], "count": 1}
-                            links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                        links[link_key]["qty"] += 1
-
-                    else: 
-                        logger.error(f"NFTS TRANSFER NOT TYPIFIED")
-
-                # INFO: Multitoken
-                if (type == 'multitoken'):
-                    contract_address = row['contractAddress']
-                    # print(f"TYPE: {type}")
-                    # print(f"XFROM: {xfrom_address}")
-                    # print(f"XTO: {xto_address}")
-                    # print(f"XVALUE: {xvalue}")
-                    # print(f"XSYMBOL: {xsymbol}")
-                    # print(f"FROM: {from_address}")
-                    # print(f"TO: {to_address}")
-                    # print(f"CONTRACT ADDRESS: {row['contractAddress']}")
-                    # print(f"VALUE: {value}")
-                    # print(f"SYMBOL: {symbol}")
-
-                    if (xfrom_address == ''):
-                        logger.error(f"XFROM ADDRESS is empty")
-
-                    elif (xto_address == ''):
-                        logger.error(f"XTO ADDRESS is empty")
-
-                    elif (xfrom_address == to_address) and (xto_address == contract_address) and \
-                         (from_address == "0x0000000000000000000000000000000000000000"): # REF: hash : 0xc86c7f7fa143321e574bfbd99b07681dde16e003042982c9f12ee918a0776930
-                        logger.debug(f"NFTS FORM 3 (xfrom_address == to_address) and (xto_address == contract_address) and (from_address == 0x00..) - Mint of NFT in multitoken")
-                        # if contract_address not in nodes:  # INFO: This isn't neccesary
-                        #     stat_con += 1
-                        #     tag = tags_dict.get(contract_address, [])  # Get tag
-                        #     tag.append('contract')
-                        #     label = labels_dict.get(contract_address, [])  # Get label
-                        #     nodes[contract_address] = {
-                        #         "id": contract_address, 
-                        #         "address": contract_address,
-                        #         "tag": tag,
-                        #         "label": label,
-                        #     }
-                        # Links from contract to to_address (This is a mint of NFT)
-                        link_key = f"{contract_address}->{to_address}"
-                        # logger.warning(f"LINK MULTITOKEN - MINT NFT {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": contract_address, "target": to_address, "detail": {"type": "multitoken"}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            # TODO: Add name?
-                            links[link_key]["detail"][symbol]["multitoken"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"multitoken": [], "count": 1}
-                            links[link_key]["detail"][symbol]["multitoken"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                        links[link_key]["qty"] += 1
-
-                    elif (xfrom_address == from_address) and (xto_address == contract_address) and \
-                         (to_address == "0x0000000000000000000000000000000000000000"): # REF: hash : 0x8bbf660270e17ecc774be01d65d63e68a6480f8a102e684bf928e1d3c88d5570
-                        logger.debug(f"NFTS FORM 4 (xfrom_address == from_address) and (xto_address == contract_address) and (to_address == 0x00..) - Burn of NFT in multitoken")
-                        # if contract_address not in nodes:  # INFO: This isn't neccesary
-                        #     stat_con += 1
-                        #     tag = tags_dict.get(contract_address, [])  # Get tag
-                        #     tag.append('contract')
-                        #     label = labels_dict.get(contract_address, [])  # Get label
-                        #     nodes[contract_address] = {
-                        #         "id": contract_address, 
-                        #         "address": contract_address,
-                        #         "tag": tag,
-                        #         "label": label,
-                        #     }
-                        # Links from contract to to_address (This is a mint of NFT)
-                        link_key = f"{from_address}->{contract_address}"
-                        # logger.warning(f"LINK MULTITOKEN - BURN NFT {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": from_address, "target": contract_address, "detail": {"type": "multitoken"}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            # TODO: Add name?
-                            links[link_key]["detail"][symbol]["multitoken"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"multitoken": [], "count": 1}
-                            links[link_key]["detail"][symbol]["multitoken"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                        links[link_key]["qty"] += 1
-
-                    elif (xfrom_address == to_address) and (xto_address != from_address != contract_address):  # REF: hash: 0x7dcef56e5ea86475bc24ae59387c278b56ed3432ca39d68d67f150e61266bd6d
-                        logger.debug(f"NFTS FORM 5 (xfrom_address == to_address) and (xto_address != from_address != contract_address) <- Buy NFT to another wallet")
-                        if from_address not in nodes:
-                            stat_con += 1
-                            # PERF: Improve
-                            tag = tags_dict.get(from_address, [])  # Get tag
-                            tag.append('wallet')
-                            label = labels_dict.get(from_address, [])  # Get label
-                            nodes[from_address] = {
-                                "id": from_address, 
-                                "address": from_address,
-                                "tag": tag,
-                                "label": label,
-                            }
-                        if contract_address not in nodes:
-                            stat_con += 1
-                            # PERF: Improve
-                            tag = tags_dict.get(contract_address, [])  # Get tag
-                            tag.append('contract')
-                            label = labels_dict.get(contract_address, [])  # Get label
-                            nodes[contract_address] = {
-                                "id": contract_address, 
-                                "address": contract_address,
-                                "tag": tag,
-                                "label": label,
-                            }
-
-                        # Links wallet buy NFT from DEX
-                        link_key = f"{xfrom_address}->{xto_address}"
-                        # logger.warning(f"MULTITOKEN LINK - BUY NFT FROM DEX {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": xfrom_address, "target": xto_address, "detail": {}, "qty": 0}
-                        if xsymbol in links[link_key]["detail"]:
-                            links[link_key]["detail"][xsymbol]["sum"] += xvalue
-                            links[link_key]["detail"][xsymbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][xsymbol] = {"sum": xvalue, "count": 1}
-                        links[link_key]["qty"] += 1
-
-                        # Links for transfer xto and from_address
-                        link_key = f"{xto_address}->{from_address}"
-                        # logger.warning(f"MULTITOKEN LINK - DEX TRANSFER ETH TO WALLET {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": xto_address, "target": from_address, "detail": {}, "qty": 0}
-                        if xsymbol in links[link_key]["detail"]:
-                            links[link_key]["detail"][xsymbol]["sum"] += xvalue
-                            links[link_key]["detail"][xsymbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][xsymbol] = {"sum": xvalue, "count": 1}
-                        links[link_key]["qty"] += 1
-
-                        # Links for transfer from_address and contract_address  # HACK: This could be hide in a url inside the merge this with the next link
-                        link_key = f"{from_address}->{contract_address}"
-                        # logger.warning(f"MULTITOKEN LINK - from wallet through contract {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": contract_address, "target": to_address, "detail": {"type": "multitoken"}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            # TODO: Add name?
-                            links[link_key]["detail"][symbol]["multitoken"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"multitoken": [], "count": 1}
-                            links[link_key]["detail"][symbol]["multitoken"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                        links[link_key]["qty"] += 1
-
-                        # Links for transfer contract_address and to_address 
-                        link_key = f"{contract_address}->{to_address}" # xto_address is a contract
-                        # logger.warning(f"MULTITOKEN LINK - FROM CONTRACT TRANSFER NFT TO WALLET {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": contract_address, "target": to_address, "detail": {"type": "multitoken"}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            # TODO: Add name?
-                            links[link_key]["detail"][symbol]["multitoken"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"multitoken": [], "count": 1}
-                            links[link_key]["detail"][symbol]["multitoken"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                        links[link_key]["qty"] += 1
-
-                    else: 
-                        logger.error(f"MULTITOKEN TRANSFER NOT TYPIFIED")
-
-        elif (group_size > 2) and (has_transaction):
-            logger.warning(f"== COMPLETE GROUP SIZE > 2 =========================")
-            print(f"Hash: {hash}")
-            xfrom_address = xto_address = xsymbol = ''
-            xvalue = 0
-            qty_row = len(group)
-            print(f"QTY: {qty_row}")
-            for _, row in group.iterrows():
-                # INFO: x_from and z_from are wallets and the same 
-                type = row['type']
-                from_address = row['from']
-                to_address = row['to']
-                symbol = row['symbol']
-                value = float(row['valConv'])
-                print(f"TYPE: {type}")
-                print(f"FROM: {from_address}")
-                print(f"TO: {to_address}")
-                print(f"CONTRACT ADDRESS: {row['contractAddress']}")
-                print(f"VALUE: {value}")
-                print(f"SYMBOL: {symbol}")
-                # Nodes
-                # INFO: Transaction
-                if (type == 'transaction'):
-                    xfrom_address = from_address
-                    xto_address = to_address
-                    xvalue = value
-                    xsymbol = symbol
-                    if from_address not in nodes:
-                        stat_wal += 1
-                        # PERF: Improve
-                        tag = tags_dict.get(from_address, [])  # Get tag
-                        tag.append('wallet')
-                        label = labels_dict.get(from_address, [])  # Get label
-                        nodes[from_address] = {
-                            "id": from_address, 
-                            "address": from_address,
-                            "tag": tag,
-                            "label": label,
-                        }
-                    if to_address not in nodes:
-                        stat_con += 1
-                        # PERF: Improve
-                        tag = tags_dict.get(to_address, [])  # Get tag
-                        tag.append('contract')
-                        label = labels_dict.get(to_address, [])  # Get label
-                        nodes[to_address] = {
-                            "id": to_address, 
-                            "address": to_address,
-                            "tag": tag,
-                            "label": label,
-                        }
-
-                # INFO: Internals
-                if (type == 'internals'):
-                    contract_address = row['contractAddress']
-
-                    if (xfrom_address == ''):
-                        logger.error(f"XFROM ADDRESS is empty")
-
-                    elif (xto_address == ''):
-                        logger.error(f"XTO ADDRESS is empty")
-
-                    elif (xfrom_address == to_address): # REF: hash: 0xfe45d513dc4fc8fb844f7a4b4375b15e3e7ac0a1923fb8e9cf70b6428968a408
-                        logger.debug(f"INTERNAL FORM 74 - INTERNAL RECEIVE")
-                        if from_address not in nodes:
-                            stat_con += 1
-                            # PERF: Improve
-                            tag = tags_dict.get(contract_address, [])  # Get tag
-                            tag.append('contract')
-                            label = labels_dict.get(from_address, [])  # Get label
-                            nodes[from_address] = {
-                                "id": from_address, 
-                                "address": from_address,
-                                "tag": tag,
-                                "label": label,
-                            }
-
-                        # Links for internal receive
-                        link_key = f"{from_address}->{to_address}"
-                        logger.warning(f"INTERNAL LINK - RECEIVE INTERNAL ETHER {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": from_address, "target": to_address, "detail": {}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            links[link_key]["detail"][symbol]["sum"] += value
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                        links[link_key]["qty"] += 1
-
-                    else: 
-                        logger.error(f"INTERNALS NOT TYPIFIED")
-
-                # INFO: Transfers
-                if (type == 'transfers'):
-                    contract_address = row['contractAddress']
-
-                    if (xfrom_address == ''):
-                        logger.error(f"XFROM ADDRESS is empty")
-
-                    elif (xto_address == ''):
-                        logger.error(f"XTO ADDRESS is empty")
-
-                    elif ((qty_row == 3) and # Quantity in group
-                         ((group.iloc[1]['type'] == "transfers") and (group.iloc[2]['type'] == "transfers")) and   # Validate types
-                         (xfrom_address == group.iloc[1]['from']) and
-                         (xfrom_address == group.iloc[2]['to'])): # REF: hash: 0xfff2a20407ec45aa55974a967da2fbb33d1a9590062570835f4afdcdf49ed52e
-
-                        logger.debug(f"FORM 33 - Token exchange")
-                        if (xfrom_address == from_address): # row 2
-                            if to_address not in nodes:
-                                stat_con += 1
-                                # PERF: Improve
-                                tag = tags_dict.get(to_address, [])  # Get tag
-                                tag.append('contract')
-                                label = labels_dict.get(to_address, [])  # Get label
-                                nodes[to_address] = {
-                                    "id": to_address, 
-                                    "address": to_address,
-                                    "tag": tag,
-                                    "label": label,
-                                }
-                            # Links from to token
-                            link_key = f"{from_address}->{to_address}"
-                            logger.warning(f"TRANSFER LINK 1 PAY WITH TOKEN {link_key}")
-                            if link_key not in links:
-                                links[link_key] = {"source": from_address, "target": to_address, "detail": {}, "qty": 0}
-                            if symbol in links[link_key]["detail"]:
-                                links[link_key]["detail"][symbol]["sum"] += value
-                                links[link_key]["detail"][symbol]["count"] += 1
-                            else:
-                                links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                            links[link_key]["qty"] += 1
-                            # Links to exchange
-                            link_key = f"{to_address}->{xto_address}"
-                            logger.warning(f"TRANSFER LINK TO EXCHANGE {link_key}")
-                            if link_key not in links:
-                                links[link_key] = {"source": to_address, "target": xto_address, "detail": {}, "qty": 0}
-                            if symbol in links[link_key]["detail"]:
-                                links[link_key]["detail"][symbol]["sum"] += value
-                                links[link_key]["detail"][symbol]["count"] += 1
-                            else:
-                                links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                            links[link_key]["qty"] += 1
-                        if (xfrom_address == to_address): # row 3
-                            if from_address not in nodes:
-                                stat_con += 1
-                                # PERF: Improve
-                                tag = tags_dict.get(from_address, [])  # Get tag
-                                tag.append('contract')
-                                label = labels_dict.get(from_address, [])  # Get label
-                                nodes[from_address] = {
-                                    "id": from_address, 
-                                    "address": from_address,
-                                    "tag": tag,
-                                    "label": label,
-                                }
-                            # Links from exchange to token
-                            link_key = f"{xto_address}->{from_address}"
-                            logger.warning(f"TRANSFER LINK 3 EXCHANGE TO NEW TOKEN {link_key}")
-                            if link_key not in links:
-                                links[link_key] = {"source": xto_address, "target": from_address, "detail": {}, "qty": 0}
-                            if symbol in links[link_key]["detail"]:
-                                links[link_key]["detail"][symbol]["sum"] += value
-                                links[link_key]["detail"][symbol]["count"] += 1
-                            else:
-                                links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                            links[link_key]["qty"] += 1
-                            # Links from new token to target
-                            link_key = f"{from_address}->{to_address}"
-                            logger.warning(f"TRANSFER LINK 4 NEW TOKEN TO TARGET WALLET {link_key}")
-                            if link_key not in links:
-                                links[link_key] = {"source": from_address, "target": to_address, "detail": {}, "qty": 0}
-                            if symbol in links[link_key]["detail"]:
-                                links[link_key]["detail"][symbol]["sum"] += value
-                                links[link_key]["detail"][symbol]["count"] += 1
-                            else:
-                                links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                            links[link_key]["qty"] += 1
-
-                    elif (xfrom_address == to_address) and (xto_address == from_address): # REF: hash: 0xfe45d513dc4fc8fb844f7a4b4375b15e3e7ac0a1923fb8e9cf70b6428968a408
-                        logger.debug(f" FORM 34 - FROM TOKEN CONTRACT TO WALLET")
-                        if contract_address not in nodes:
-                            stat_con += 1
-                            # PERF: Improve
-                            tag = tags_dict.get(contract_address, [])  # Get tag
-                            tag.append('contract')
-                            label = labels_dict.get(contract_address, [])  # Get label
-                            nodes[contract_address] = {
-                                "id": contract_address, 
-                                "address": contract_address,
-                                "tag": tag,
-                                "label": label,
-                            }
-
-                        # Links for transfer token 
-                        link_key = f"{xto_address}->{contract_address}"
-                        logger.warning(f" TRANSFER LINK - TRRANSFER TOKEN TO WALLET {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": xto_address, "target": contract_address, "detail": {}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            links[link_key]["detail"][symbol]["sum"] += value
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                        links[link_key]["qty"] += 1
-
-                        # Links for transfer token to wallet
-                        link_key = f"{contract_address}->{xfrom_address}" # xto_address is a contract
-                        # logger.warning(f"LINK 2 {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": contract_address, "target": xfrom_address, "detail": {}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            links[link_key]["detail"][symbol]["sum"] += value
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                        links[link_key]["qty"] += 1
-
-                #     elif (from_address == xfrom_address) and (contract_address == xto_address): # REF: hash: 0xf01325b1b4c10b4cbe86c94cf65e459dde587b86bcdcbe50beaa8fa94df4b7e8 
-                #         logger.debug(f"FORM 4 (from_address == xfrom_address) and (contract_address == xto_address) - Transfer ERC20 to wallet") 
-                #         if to_address not in nodes:
-                #             stat_wal += 1
-                #             # PERF: Improve
-                #             tag = tags_dict.get(to_address, [])  # Get tag
-                #             tag.append('wallet')
-                #             label = labels_dict.get(to_address, [])  # Get label
-                #             nodes[to_address] = {
-                #                 "id": to_address, 
-                #                 "address": to_address,
-                #                 "tag": tag,
-                #                 "label": label,
-                #             }
-                #         # Links for transaction xfrom and xto (contract)
-                #         link_key = f"{xfrom_address}->{xto_address}"
-                #         # logger.warning(f"LINK TRANSACTION {link_key}")
-                #         if link_key not in links:
-                #             links[link_key] = {"source": xfrom_address, "target": xto_address, "detail": {}, "qty": 0}
-                #         if symbol in links[link_key]["detail"]:
-                #             links[link_key]["detail"][symbol]["sum"] += value
-                #             links[link_key]["detail"][symbol]["count"] += 1
-                #         else:
-                #             links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                #         links[link_key]["qty"] += 1
-
-                #         # Links from contract to wallet
-                #         link_key = f"{contract_address}->{to_address}" # xto_address is a contract
-                #         # logger.warning(f"LINK TRANSFER {link_key}")
-                #         if link_key not in links:
-                #             links[link_key] = {"source": contract_address, "target": to_address, "detail": {}, "qty": 0}
-                #         if symbol in links[link_key]["detail"]:
-                #             links[link_key]["detail"][symbol]["sum"] += value
-                #             links[link_key]["detail"][symbol]["count"] += 1
-                #         else:
-                #             links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                #         links[link_key]["qty"] += 1
-
-                #     elif (xfrom_address == to_address) and (xto_address == from_address): # REF: hash: 0xa54c6cacc1661abef5adf16d4227e5f5827519ed1038043882b0cf11e4299085
-                #         logger.debug(f" FORM 5 (xfrom_address == to_address) and (xto_address == from_address)")
-                #         if contract_address not in nodes:
-                #             stat_con += 1
-                #             # PERF: Improve
-                #             tag = tags_dict.get(contract_address, [])  # Get tag
-                #             tag.append('contract')
-                #             label = labels_dict.get(contract_address, [])  # Get label
-                #             nodes[contract_address] = {
-                #                 "id": contract_address, 
-                #                 "address": contract_address,
-                #                 "tag": tag,
-                #                 "label": label,
-                #             }
-
-                #         # Links for transaction xfrom and xto
-                #         link_key = f"{from_address}->{contract_address}"
-                #         # logger.warning(f"LINK 1 {link_key}")
-                #         if link_key not in links:
-                #             links[link_key] = {"source": from_address, "target": contract_address, "detail": {}, "qty": 0}
-                #         if symbol in links[link_key]["detail"]:
-                #             links[link_key]["detail"][symbol]["sum"] += value
-                #             links[link_key]["detail"][symbol]["count"] += 1
-                #         else:
-                #             links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                #         links[link_key]["qty"] += 1
-
-                #         # Links for FORM trx xfrom == zfrom and one transfer
-                #         link_key = f"{contract_address}->{to_address}" # xto_address is a contract
-                #         # logger.warning(f"LINK 2 {link_key}")
-                #         if link_key not in links:
-                #             links[link_key] = {"source": contract_address, "target": to_address, "detail": {}, "qty": 0}
-                #         if symbol in links[link_key]["detail"]:
-                #             links[link_key]["detail"][symbol]["sum"] += value
-                #             links[link_key]["detail"][symbol]["count"] += 1
-                #         else:
-                #             links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                #         links[link_key]["qty"] += 1
-
-                    elif (xfrom_address == to_address) and (xto_address != from_address != contract_address):  # REF: hash: 0x6beb31076d54d69f11fa2bf69faf50c6679a43c6e46932406e914d3995b509ae
-                        logger.debug(f"TRANSFER FORM 46 (xfrom_address == to_address) and (xto_address != from_address != contract_address) - Buy token ERC20 through ETH")
-                        for address in [from_address]:
-                            if address not in nodes:
-                                stat_wal += 1
-                                # PERF: Improve
-                                tag = tags_dict.get(address, [])  # Get tag
-                                tag.append('wallet')
-                                label = labels_dict.get(address, [])  # Get label
-                                nodes[address] = {
-                                    "id": address, 
-                                    "address": address,
-                                    "tag": tag,
-                                    "label": label,
-                                }
-
-                        # Links for transaction xfrom and xto
-                        link_key = f"{xfrom_address}->{xto_address}"
-                        logger.warning(f"TRANSFER LINK 101 CALL TO EXCHANGE - {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": xfrom_address, "target": xto_address, "detail": {}, "qty": 0}
-                        if (xvalue != 0):
-                            if xsymbol in links[link_key]["detail"]:
-                                links[link_key]["detail"][xsymbol]["sum"] += xvalue
-                                links[link_key]["detail"][xsymbol]["count"] += 1
-                            else:
-                                links[link_key]["detail"][xsymbol] = {"sum": xvalue, "count": 1}
-                            links[link_key]["qty"] += 1
-                        else:
-                            if symbol in links[link_key]["detail"]:
-                                links[link_key]["detail"][symbol]["sum"] += value
-                                links[link_key]["detail"][symbol]["count"] += 1
-                            else:
-                                links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                            links[link_key]["qty"] += 1
-
-                        # Links for transfer xto and from_address
-                        link_key = f"{xto_address}->{from_address}"
-                        logger.warning(f"TRANSFER LINK 102 CALL TO EXCHANGE - {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": xto_address, "target": from_address, "detail": {}, "qty": 0}
-                        if (xvalue != 0):
-                            if xsymbol in links[link_key]["detail"]:
-                                links[link_key]["detail"][xsymbol]["sum"] += xvalue
-                                links[link_key]["detail"][xsymbol]["count"] += 1
-                            else:
-                                links[link_key]["detail"][xsymbol] = {"sum": xvalue, "count": 1}
-                            links[link_key]["qty"] += 1
-                        else:
-                            if symbol in links[link_key]["detail"]:
-                                links[link_key]["detail"][symbol]["sum"] += value
-                                links[link_key]["detail"][symbol]["count"] += 1
-                            else:
-                                links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                            links[link_key]["qty"] += 1
-
-                        # # Links for transfer from_address and contract_address 
-                        # link_key = f"{from_address}->{contract_address}" # xto_address is a contract
-                        # # logger.warning(f"LINK 3 {link_key}")
-                        # if link_key not in links:
-                        #     links[link_key] = {"source": from_address, "target": contract_address, "detail": {}, "qty": 0}
-                        # if symbol in links[link_key]["detail"]:
-                        #     links[link_key]["detail"][symbol]["sum"] += value
-                        #     links[link_key]["detail"][symbol]["count"] += 1
-                        # else:
-                        #     links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                        # links[link_key]["qty"] += 1
-
-                        # Links for transfer contract_address and to_address 
-                        link_key = f"{from_address}->{to_address}" # xto_address is a contract
-                        # logger.warning(f"LINK 4 {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": from_address, "target": to_address, "detail": {}, "qty": 0}
-                        if (xvalue != 0):
-                            if xsymbol in links[link_key]["detail"]:
-                                links[link_key]["detail"][xsymbol]["sum"] += xvalue
-                                links[link_key]["detail"][xsymbol]["count"] += 1
-                            else:
-                                links[link_key]["detail"][xsymbol] = {"sum": xvalue, "count": 1}
-                            links[link_key]["qty"] += 1
-                        else:
-                            if symbol in links[link_key]["detail"]:
-                                links[link_key]["detail"][symbol]["sum"] += value
-                                links[link_key]["detail"][symbol]["count"] += 1
-                            else:
-                                links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                            links[link_key]["qty"] += 1
-
-                    elif (from_address == xfrom_address): # REF: hash: 0x26bae55868fed567c6f865259156ff1c56891f2c2bb87ba5cdfa1903d3823d18
-                        logger.debug(f"TRANSFER FORM 44 - Swap ERC20 to token or ETHER") 
-                        if to_address not in nodes:
-                            stat_con += 1
-                            # PERF: Improve
-                            tag = tags_dict.get(to_address, [])  # Get tag
-                            tag.append('contract')
-                            label = labels_dict.get(to_address, [])  # Get label
-                            nodes[to_address] = {
-                                "id": to_address, 
-                                "address": to_address,
-                                "tag": tag,
-                                "label": label,
-                            }
-                        # Links for start to SWAP through DEX
-                        link_key = f"{xfrom_address}->{xto_address}"
-                        logger.warning(f"LINK TRANSFER - SWAP TOKEN ERC20 DEX {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": xfrom_address, "target": xto_address, "detail": {}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            links[link_key]["detail"][symbol]["sum"] += value
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                        links[link_key]["qty"] += 1
-                        # Links for start to SWAP from DEX to token ERC20
-                        link_key = f"{xto_address}->{to_address}"
-                        logger.warning(f"LINK TRANSFER - SWAP TOKEN ERC20 CONTRACT {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": xto_address, "target": to_address, "detail": {}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            links[link_key]["detail"][symbol]["sum"] += value
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"sum": value, "count": 1}
-                        links[link_key]["qty"] += 1
-
-                    else: 
-                        logger.error(f"ERC20 TRANSFER NOT TYPIFIED")
-
-                # INFO: nfts
-                if (type == 'nfts'):
-                    contract_address = row['contractAddress']
-
-                    if (xfrom_address == ''):
-                        logger.error(f"XFROM ADDRESS is empty")
-
-                    elif (xto_address == ''):
-                        logger.error(f"XTO ADDRESS is empty")
-
-                    elif (xfrom_address == to_address) and \
-                         (from_address == "0x0000000000000000000000000000000000000000"): # REF: hash : 0xf758e2b6a9ed20f3431ef36f57493cf2d6b81e4bc6e2e21921c690bc81b907dd
-                        logger.debug(f"NFTS FORM 3 (xfrom_address == to_address) and (xto_address == contract_address) and (from_address == 0x00..) - Mint of NFT")
-                        if contract_address not in nodes:  # INFO: This isn't neccesary
-                            stat_con += 1
-                            tag = tags_dict.get(contract_address, [])  # Get tag
-                            tag.append('contract')
-                            label = labels_dict.get(contract_address, [])  # Get label
-                            nodes[contract_address] = {
-                                "id": contract_address, 
-                                "address": contract_address,
-                                "tag": tag,
-                                "label": label,
-                            }
-                        # Links from contract to to_address (This is a mint of NFT)
-                        link_key = f"{contract_address}->{to_address}"
-                        logger.warning(f"LINK NFT MINT {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": contract_address, "target": to_address, "detail": {"type": "nft"}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            # TODO: Add name?
-                            links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"nft": [], "count": 1}
-                            links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                        links[link_key]["qty"] += 1
-
-                    elif (from_address == xfrom_address) and (contract_address != xto_address != to_address): # REF: hash: 0x6beb31076d54d69f11fa2bf69faf50c6679a43c6e46932406e914d3995b509ae
-                        logger.debug(f"NFTS FORM 400 - Transfer NFT ->") 
-                        if to_address not in nodes:
-                            stat_wal += 1
-                            # PERF: Improve
-                            tag = tags_dict.get(to_address, [])  # Get tag
-                            tag.append('wallet')
-                            label = labels_dict.get(to_address, [])  # Get label
-                            nodes[to_address] = {
-                                "id": to_address, 
-                                "address": to_address,
-                                "tag": tag,
-                                "label": label,
-                            }
-                        # Links from wallet (xfrom_address to contract (or xto_address)
-                        link_key = f"{xfrom_address}->{xto_address}"
-                        logger.warning(f"LINK TRANSFER NFT {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": contract_address, "target": to_address, "detail": {"type": "nft"}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            # TODO: Add name?
-                            links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"nft": [], "count": 1}
-                            links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                        links[link_key]["qty"] += 1
-
-                        # Links from contract (xto_address) to wallet to_address
-                        link_key = f"{xto_address}->{to_address}"
-                        logger.warning(f"LINK TRANSFER NFT {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": contract_address, "target": to_address, "detail": {"type": "nft"}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            # TODO: Add name?
-                            links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"nft": [], "count": 1}
-                            links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                        links[link_key]["qty"] += 1
-
-                #     elif (from_address == xfrom_address) and (contract_address == xto_address): # REF: hash: 0xed609d5d6ccbd68138d8733da0c2711c102265fb8d47c9e4408139e794072913
-                #         logger.debug(f"NFTS FORM 4 (from_address == xfrom_address) and (contract_address == xto_address) - Transfer NFT ->") 
-                #         if to_address not in nodes:
-                #             stat_wal += 1
-                #             # PERF: Improve
-                #             tag = tags_dict.get(to_address, [])  # Get tag
-                #             tag.append('wallet')
-                #             label = labels_dict.get(to_address, [])  # Get label
-                #             nodes[to_address] = {
-                #                 "id": to_address, 
-                #                 "address": to_address,
-                #                 "tag": tag,
-                #                 "label": label,
-                #             }
-                #         # Links from wallet (xfrom_address to contract (or xto_address)
-                #         link_key = f"{xfrom_address}->{xto_address}"
-                #         # logger.warning(f"LINK TRANSFER NFT {link_key}")
-                #         if link_key not in links:
-                #             links[link_key] = {"source": contract_address, "target": to_address, "detail": {"type": "nft"}, "qty": 0}
-                #         if symbol in links[link_key]["detail"]:
-                #             # TODO: Add name?
-                #             links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                #             links[link_key]["detail"][symbol]["count"] += 1
-                #         else:
-                #             links[link_key]["detail"][symbol] = {"nft": [], "count": 1}
-                #             links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                #         links[link_key]["qty"] += 1
-
-                #         # Links from contract (xto_address) to wallet to_address
-                #         link_key = f"{contract_address}->{to_address}"
-                #         # logger.warning(f"LINK TRANSFER NFT {link_key}")
-                #         if link_key not in links:
-                #             links[link_key] = {"source": contract_address, "target": to_address, "detail": {"type": "nft"}, "qty": 0}
-                #         if symbol in links[link_key]["detail"]:
-                #             # TODO: Add name?
-                #             links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                #             links[link_key]["detail"][symbol]["count"] += 1
-                #         else:
-                #             links[link_key]["detail"][symbol] = {"nft": [], "count": 1}
-                #             links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                #         links[link_key]["qty"] += 1
-
-                #     elif (xfrom_address == to_address) and (xto_address != from_address != contract_address):  # REF: hash: 0xea91b02882a88fe588054fc2c2dbdaff8c24a5a9d30588512595ad8016aa91bd
-                #         logger.debug(f"NFTS FORM 5 (xfrom_address == to_address) and (xto_address != from_address != contract_address) <- Buy NFT to another wallet")
-                #         if from_address not in nodes:
-                #             stat_con += 1
-                #             # PERF: Improve
-                #             tag = tags_dict.get(from_address, [])  # Get tag
-                #             tag.append('wallet')
-                #             label = labels_dict.get(from_address, [])  # Get label
-                #             nodes[from_address] = {
-                #                 "id": from_address, 
-                #                 "address": from_address,
-                #                 "tag": tag,
-                #                 "label": label,
-                #             }
-                #         if contract_address not in nodes:
-                #             stat_con += 1
-                #             # PERF: Improve
-                #             tag = tags_dict.get(contract_address, [])  # Get tag
-                #             tag.append('contract')
-                #             label = labels_dict.get(contract_address, [])  # Get label
-                #             nodes[contract_address] = {
-                #                 "id": contract_address, 
-                #                 "address": contract_address,
-                #                 "tag": tag,
-                #                 "label": label,
-                #             }
-
-                #         # Links wallet buy NFT from DEX
-                #         link_key = f"{xfrom_address}->{xto_address}"
-                #         # logger.warning(f"NFT LINK - BUY NFT FROM DEX {link_key}")
-                #         if link_key not in links:
-                #             links[link_key] = {"source": xfrom_address, "target": xto_address, "detail": {}, "qty": 0}
-                #         if xsymbol in links[link_key]["detail"]:
-                #             links[link_key]["detail"][xsymbol]["sum"] += xvalue
-                #             links[link_key]["detail"][xsymbol]["count"] += 1
-                #         else:
-                #             links[link_key]["detail"][xsymbol] = {"sum": xvalue, "count": 1}
-                #         links[link_key]["qty"] += 1
-
-                #         # Links for transfer xto and from_address
-                #         link_key = f"{xto_address}->{from_address}"
-                #         # logger.warning(f"NFT LINK - DEX TRANSFER ETH TO WALLET {link_key}")
-                #         if link_key not in links:
-                #             links[link_key] = {"source": xto_address, "target": from_address, "detail": {}, "qty": 0}
-                #         if xsymbol in links[link_key]["detail"]:
-                #             links[link_key]["detail"][xsymbol]["sum"] += xvalue
-                #             links[link_key]["detail"][xsymbol]["count"] += 1
-                #         else:
-                #             links[link_key]["detail"][xsymbol] = {"sum": xvalue, "count": 1}
-                #         links[link_key]["qty"] += 1
-
-                #         # Links for transfer from_address and contract_address  # HACK: This could be hide in a url inside the merge this with the next link
-                #         link_key = f"{from_address}->{contract_address}"
-                #         # logger.warning(f"NFT LINK - from wallet through contract {link_key}")
-                #         if link_key not in links:
-                #             links[link_key] = {"source": contract_address, "target": to_address, "detail": {"type": "nft"}, "qty": 0}
-                #         if symbol in links[link_key]["detail"]:
-                #             # TODO: Add name?
-                #             links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                #             links[link_key]["detail"][symbol]["count"] += 1
-                #         else:
-                #             links[link_key]["detail"][symbol] = {"nft": [], "count": 1}
-                #             links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                #         links[link_key]["qty"] += 1
-
-                #         # Links for transfer contract_address and to_address 
-                #         link_key = f"{contract_address}->{to_address}" # xto_address is a contract
-                #         # logger.warning(f"NFT LINK - FROM CONTRACT TRANSFER NFT TO WALLET {link_key}")
-                #         if link_key not in links:
-                #             links[link_key] = {"source": contract_address, "target": to_address, "detail": {"type": "nft"}, "qty": 0}
-                #         if symbol in links[link_key]["detail"]:
-                #             # TODO: Add name?
-                #             links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                #             links[link_key]["detail"][symbol]["count"] += 1
-                #         else:
-                #             links[link_key]["detail"][symbol] = {"nft": [], "count": 1}
-                #             links[link_key]["detail"][symbol]["nft"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                #         links[link_key]["qty"] += 1
-
-                    else: 
-                        logger.error(f"NFTS TRANSFER NOT TYPIFIED")
-
-                # INFO: Multitoken
-                if (type == 'multitoken'):
-                    contract_address = row['contractAddress']
-                    # print(f"TYPE: {type}")
-                    # print(f"XFROM: {xfrom_address}")
-                    # print(f"XTO: {xto_address}")
-                    # print(f"XVALUE: {xvalue}")
-                    # print(f"XSYMBOL: {xsymbol}")
-                    # print(f"FROM: {from_address}")
-                    # print(f"TO: {to_address}")
-                    # print(f"CONTRACT ADDRESS: {row['contractAddress']}")
-                    # print(f"VALUE: {value}")
-                    # print(f"SYMBOL: {symbol}")
-
-                    if (xfrom_address == ''):
-                        logger.error(f"XFROM ADDRESS is empty")
-
-                    elif (xto_address == ''):
-                        logger.error(f"XTO ADDRESS is empty")
-
-                    elif (xfrom_address == to_address) and \
-                         (from_address == "0x0000000000000000000000000000000000000000"): # REF: hash : 0xc86c7f7fa143321e574bfbd99b07681dde16e003042982c9f12ee918a0776930
-                        logger.debug(f"MULTITOKEN FORM 3 (xfrom_address == to_address) and (xto_address == contract_address) and (from_address == 0x00..) - Mint of NFT in multitoken")
-                        # if contract_address not in nodes:  # INFO: This isn't neccesary
-                        #     stat_con += 1
-                        #     tag = tags_dict.get(contract_address, [])  # Get tag
-                        #     tag.append('contract')
-                        #     label = labels_dict.get(contract_address, [])  # Get label
-                        #     nodes[contract_address] = {
-                        #         "id": contract_address, 
-                        #         "address": contract_address,
-                        #         "tag": tag,
-                        #         "label": label,
-                        #     }
-                        # Links from contract to to_address (This is a mint of NFT)
-                        link_key = f"{contract_address}->{to_address}"
-                        logger.warning(f"LINK MULTITOKEN - MINT NFT {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": contract_address, "target": to_address, "detail": {"type": "multitoken"}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            # TODO: Add name?
-                            links[link_key]["detail"][symbol]["multitoken"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"multitoken": [], "count": 1}
-                            links[link_key]["detail"][symbol]["multitoken"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                        links[link_key]["qty"] += 1
-
-                    elif (xfrom_address == from_address) and \
-                         (to_address == "0x0000000000000000000000000000000000000000"): # REF: hash : 0xd68d6af297161460a477f56e76d2fdfba2978e2d10de2853dd2d693a21720e06 (First multitoken trx)
-                        logger.debug(f"NFTS FORM 4 (xfrom_address == from_address) and (xto_address == contract_address) and (to_address == 0x00..) - Burn of NFT in multitoken")
-                        # if contract_address not in nodes:  # INFO: This isn't neccesary
-                        #     stat_con += 1
-                        #     tag = tags_dict.get(contract_address, [])  # Get tag
-                        #     tag.append('contract')
-                        #     label = labels_dict.get(contract_address, [])  # Get label
-                        #     nodes[contract_address] = {
-                        #         "id": contract_address, 
-                        #         "address": contract_address,
-                        #         "tag": tag,
-                        #         "label": label,
-                        #     }
-                        # Links for burn NFT
-                        link_key = f"{from_address}->{contract_address}"
-                        logger.warning(f"LINK MULTITOKEN - BURN NFT {link_key}")
-                        if link_key not in links:
-                            links[link_key] = {"source": from_address, "target": contract_address, "detail": {"type": "multitoken"}, "qty": 0}
-                        if symbol in links[link_key]["detail"]:
-                            # TODO: Add name?
-                            links[link_key]["detail"][symbol]["multitoken"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                            links[link_key]["detail"][symbol]["count"] += 1
-                        else:
-                            links[link_key]["detail"][symbol] = {"multitoken": [], "count": 1}
-                            links[link_key]["detail"][symbol]["multitoken"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                        links[link_key]["qty"] += 1
-
-                #     elif (xfrom_address == to_address) and (xto_address != from_address != contract_address):  # REF: hash: 0x7dcef56e5ea86475bc24ae59387c278b56ed3432ca39d68d67f150e61266bd6d
-                #         logger.debug(f"NFTS FORM 5 (xfrom_address == to_address) and (xto_address != from_address != contract_address) <- Buy NFT to another wallet")
-                #         if from_address not in nodes:
-                #             stat_con += 1
-                #             # PERF: Improve
-                #             tag = tags_dict.get(from_address, [])  # Get tag
-                #             tag.append('wallet')
-                #             label = labels_dict.get(from_address, [])  # Get label
-                #             nodes[from_address] = {
-                #                 "id": from_address, 
-                #                 "address": from_address,
-                #                 "tag": tag,
-                #                 "label": label,
-                #             }
-                #         if contract_address not in nodes:
-                #             stat_con += 1
-                #             # PERF: Improve
-                #             tag = tags_dict.get(contract_address, [])  # Get tag
-                #             tag.append('contract')
-                #             label = labels_dict.get(contract_address, [])  # Get label
-                #             nodes[contract_address] = {
-                #                 "id": contract_address, 
-                #                 "address": contract_address,
-                #                 "tag": tag,
-                #                 "label": label,
-                #             }
-
-                #         # Links wallet buy NFT from DEX
-                #         link_key = f"{xfrom_address}->{xto_address}"
-                #         # logger.warning(f"MULTITOKEN LINK - BUY NFT FROM DEX {link_key}")
-                #         if link_key not in links:
-                #             links[link_key] = {"source": xfrom_address, "target": xto_address, "detail": {}, "qty": 0}
-                #         if xsymbol in links[link_key]["detail"]:
-                #             links[link_key]["detail"][xsymbol]["sum"] += xvalue
-                #             links[link_key]["detail"][xsymbol]["count"] += 1
-                #         else:
-                #             links[link_key]["detail"][xsymbol] = {"sum": xvalue, "count": 1}
-                #         links[link_key]["qty"] += 1
-
-                #         # Links for transfer xto and from_address
-                #         link_key = f"{xto_address}->{from_address}"
-                #         # logger.warning(f"MULTITOKEN LINK - DEX TRANSFER ETH TO WALLET {link_key}")
-                #         if link_key not in links:
-                #             links[link_key] = {"source": xto_address, "target": from_address, "detail": {}, "qty": 0}
-                #         if xsymbol in links[link_key]["detail"]:
-                #             links[link_key]["detail"][xsymbol]["sum"] += xvalue
-                #             links[link_key]["detail"][xsymbol]["count"] += 1
-                #         else:
-                #             links[link_key]["detail"][xsymbol] = {"sum": xvalue, "count": 1}
-                #         links[link_key]["qty"] += 1
-
-                #         # Links for transfer from_address and contract_address  # HACK: This could be hide in a url inside the merge this with the next link
-                #         link_key = f"{from_address}->{contract_address}"
-                #         # logger.warning(f"MULTITOKEN LINK - from wallet through contract {link_key}")
-                #         if link_key not in links:
-                #             links[link_key] = {"source": contract_address, "target": to_address, "detail": {"type": "multitoken"}, "qty": 0}
-                #         if symbol in links[link_key]["detail"]:
-                #             # TODO: Add name?
-                #             links[link_key]["detail"][symbol]["multitoken"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                #             links[link_key]["detail"][symbol]["count"] += 1
-                #         else:
-                #             links[link_key]["detail"][symbol] = {"multitoken": [], "count": 1}
-                #             links[link_key]["detail"][symbol]["multitoken"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                #         links[link_key]["qty"] += 1
-
-                #         # Links for transfer contract_address and to_address 
-                #         link_key = f"{contract_address}->{to_address}" # xto_address is a contract
-                #         # logger.warning(f"MULTITOKEN LINK - FROM CONTRACT TRANSFER NFT TO WALLET {link_key}")
-                #         if link_key not in links:
-                #             links[link_key] = {"source": contract_address, "target": to_address, "detail": {"type": "multitoken"}, "qty": 0}
-                #         if symbol in links[link_key]["detail"]:
-                #             # TODO: Add name?
-                #             links[link_key]["detail"][symbol]["multitoken"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                #             links[link_key]["detail"][symbol]["count"] += 1
-                #         else:
-                #             links[link_key]["detail"][symbol] = {"multitoken": [], "count": 1}
-                #             links[link_key]["detail"][symbol]["multitoken"].append({"id": int(value), "url": f"https://etherscan.io/nft/{contract_address}/{int(value)}"})
-                #         links[link_key]["qty"] += 1
-
-                    else: 
-                        logger.error(f"MULTITOKEN TRANSFER NOT TYPIFIED")
-
-        # else:
-        #     print(f"== INCOMPLETE ====================================")
-        #     print(f"Hash: {hash}")
-        #     print(group)
-        #     print("\n")
-
-    nodes_list = list(nodes.values())
-    logger.debug(f"NODES QTY: {len(nodes_list)}")
-    logger.debug(f"COMPLETE: {count}")
-    links_list = list(links.values())
-
-    transactions = {"nodes": nodes_list, "links": links_list}
-
-    # list_trans = df_all[(df_all['from'] == address_central) | (df_all['to'] == address_central)].to_json(orient = "records")  # FIX: Add contractAddress ??
-    list_trans = df_all.loc[(df_all["from"] == address_central) | (df_all["to"] == address_central)].to_json(orient = "records")
-
-    type_counts = df_all['type'].value_counts()
-    stat_trx = type_counts.get('transaction', 0)
-    stat_int = type_counts.get('internals', 0)
-    stat_tra = type_counts.get('transfers', 0)
-    # TODO: Add nfts and multitoken
-    stat_tot = stat_trx + \
-               stat_int + \
-               stat_tra + \
-               stat_err
-
-    stat = {"stat_trx": int(stat_trx), "stat_int": int(stat_int), 
-            "stat_tra": int(stat_tra), "stat_wal": int(stat_wal),
-            "stat_tot": int(stat_tot), "stat_con": int(stat_con), 
-            "stat_err": int(stat_err), "stat_coo": int(stat_con)}  # FIX: repeating stat_con in stat_coo
-
-    return {"transactions": transactions, "list": list_trans, "stat": stat}
-
-# FIX : Remove
-def get_trx_from_addresses_research(conn, address_central, params=[]):
-
-    # INFO: Config Log Level
-    if params:
-        log_format = '%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s'
-        coloredlogs.install(level=params['config']['level'], fmt=log_format, logger=logger)
-        logger.propagate = False  # INFO: To prevent duplicates with flask
-
-    logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
-    logger.debug(f"+ Address: {address_central}")
-    logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
-
-    address_central = address_central[1]
-
-    # INFO: Get all Trx, Transfers, internals, nfts and multitoken
-    query = """
-        SELECT blockChain, type, hash, `from`, `to`, value, contractAddress, symbol, name, decimal, valConv, timeStamp, isError, methodId, functionName
-        FROM (
-            SELECT blockChain, 'transaction' as 'type', hash, `from`, `to`, value, contractAddress, 'ETH' as 'symbol', 
-			'Ether' as 'name', 18 as 'decimal', value / POWER(10, 18) as valConv, timeStamp, isError, methodId, functionName
-            FROM t_transactions
-            UNION ALL
-            SELECT blockChain, 'internals', hash, `from`, `to`, value, 
-                contractAddress, 'ETH', 'Ether', 18, value / POWER(10, 18), timeStamp, isError, '0x', ''
-            FROM t_internals
-            UNION ALL
-            SELECT blockChain, 'transfers', hash, `from`, `to`, value,
-                contractAddress, tokenSymbol, tokenName, tokenDecimal, value / POWER(10, tokenDecimal), timeStamp, 0, '0x', ''
-            FROM t_transfers
-            UNION ALL
-            SELECT blockChain, 'nfts', hash, `from`, `to`, tokenID,
-                contractAddress, tokenSymbol, tokenName, tokenDecimal, tokenID, timeStamp, 0, '0x', ''
-            FROM t_nfts
-            UNION ALL
-            SELECT blockChain, 'multitoken', hash, `from`, `to`, tokenID,
-                contractAddress, tokenSymbol, tokenName, tokenValue, tokenID, timeStamp, 0, '0x', ''
-            FROM t_multitoken
-        ) AS combined
-        ORDER BY timeStamp ASC
-    """
-    df_all = pd.read_sql_query(query, conn)
-
-    # INFO: Convert to datetime
-    df_all['timeStamp'] = pd.to_datetime(df_all['timeStamp'], unit='s')
-    df_all = df_all[df_all['isError'] == 0]
-
-    # for index, row in df_all.iterrows():
-    grouped = df_all.groupby('hash')
-
-    for hash, group in grouped:
-
-        # PERF: Process each row independently but try process like group in the future, if it's possible
-        group_size = len(group)
-        has_transaction = 'transaction' in group['type'].values
-        # print(f"+++++++++ {grouped[0]}")
-
-        # print(f"TYPE: {type}")
-        # print(f"XFROM: {xfrom_address}")
-        # print(f"XTO: {xto_address}")
-        # print(f"XVALUE: {xvalue}")
-        # print(f"XSYMBOL: {xsymbol}")
-        # print(f"FROM: {from_address}")
-        # print(f"TO: {to_address}")
-        # print(f"CONTRACT ADDRESS: {row['contractAddress']}")
-        # print(f"VALUE: {value}")
-        # print(f"SYMBOL: {symbol}")
-
-        # INFO: Complete transaction and pure =======================================
-        if (group_size == 1) and (has_transaction):
-            pass
-            # logger.debug(f"\n== SIMPLE TRANSACTION ============================")
-            # for _, row in group.iterrows():
-            #     print(f"TYPE: {row['type']} - HASH: {hash}")
-            #     print(f"XFROM: {row['from']} -> XTO: {row['to']} <--> CONTRACT: {row['contractAddress']}")
-            #     print(f"XVALUE: {row['valConv']} - XSYMBOL: {row['symbol']} - XMETHOD: {row['methodId']} - XFUNC: {row['functionName']}") 
-            #     if (float(row['value']) != 0.0) and (row['functionName'] == ''):
-            #         logger.warning(f"   ETHER MOVE ====================================")
-            #     elif (float(row['value']) == 0.0) and (row['functionName'] != ''):
-            #         logger.warning(f"   CONTRACT EXECUTION ============================")
-            #     elif (float(row['value']) != 0.0) and ('deposit' in row['functionName']):
-            #         logger.warning(f"   DEPOSIT =======================================")
-            #     elif (row['from'] == row['to']):
-            #         logger.warning(f"   SELF-DEPOSIT ==================================")
-            #     else:
-            #         logger.error(f"   NOT DETECTED ==================================")
-
-        # INFO: OTHERS
-        elif (group_size > 1) and (has_transaction):
-            pass
-            print(" ")
-            logger.debug(f"== NOT SIMPLE ====================================")
-            xfrom_address = xto_address = xsymbol = xfunc = ''
-            xvalue = 0
-            for _, row in group.iterrows():
-                if (row['type'] == 'transaction'):
-                    xfrom_address = row['from']
-                    xto_address = row['to']
-                    xvalue = row['valConv']
-                    xsymbol = row['symbol']
-                    xfunc = row['functionName'].split('(')[0]
-                    xparam = row['functionName'].split('(')[1]
-                    print(f"TYPE: {row['type']} - HASH: {hash}")
-                    print(f"XFROM: {xfrom_address} -> XTO: {xto_address}")
-                    print(f"XVALUE: {xvalue} - XSYMBOL: {xsymbol} - XFUNC: {xfunc}-{xparam}") 
-                else:
-                    logger.debug(f"   ERC - {row['type']} =============================")
-
-                    if (row['type'] == 'transfers') and (float(xvalue) == 0.0) and ("swap" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to'] == address_central):
-                        # WARN: Perhaps I must verify type of all ERC row
-                        # print(f"GROUP")
-                        # print(f"{group[['from', 'to', 'value', 'contractAddress']]}")
-                        # logger.warning(f"   SWAP TOKEN ====================================")
-                        break
-                    elif (row['type'] == 'transfers') and (float(xvalue) != 0.0) and ("swap" in xfunc) and (xfrom_address == row['to'] == address_central) and (xto_address != row['from'] != row['contractAddress']):
-                        pass
-                        # logger.warning(f"   SWAP ETHER TO TK ==============================")
-                    elif (row['type'] == 'transfers') and (float(xvalue) == 0.0) and ("deposit" in xfunc) and (xfrom_address == row['from'] == address_central) and (xto_address == row['to'] != row['contractAddress']):
-                        pass
-                        logger.warning(f"   DEPOSIT TOKEN =================================")
-                    # elif (row['type'] == 'nfts') and (xfrom_address == row['to'] == address_central) and (xto_address == row['contractAddress']) and (row['from'] == '0x0000000000000000000000000000000000000000'):
-                    #     pass
-                    #     logger.warning(f"   MINT NFT ======================================")
-                    elif (row['type'] == 'nfts') and (xfrom_address == row['to'] == address_central) and (row['from'] == '0x0000000000000000000000000000000000000000'):
-                        pass
-                        # logger.warning(f"   MINT NFT ======================================")
-                    elif (row['type'] == 'transfers') and (xfrom_address == row['from'] == address_central) and (xto_address == row['contractAddress']) and (row['to'] != '0x0000000000000000000000000000000000000000'):
-                        pass
-                        # logger.warning(f"   TRANSFER TK FROM WA ===========================")
-                    elif (row['type'] == 'nfts') and (xfrom_address == row['from'] == address_central) and (xto_address == row['contractAddress']) and (row['to'] != '0x0000000000000000000000000000000000000000'):
-                        pass
-                        # logger.warning(f"   TRANSFER NFT FROM WA ===========================")
-                    elif (row['type'] == 'nfts') and (xfrom_address == row['to'] == address_central) and (xto_address != row['to'] != row['contractAddress']) and (row['from'] != '0x0000000000000000000000000000000000000000'):
-                        pass
-                        # logger.warning(f"   BUY NFT ========================================")
-                    elif (row['type'] == 'transfers') and ("withdraw" in xfunc) and (xfrom_address == row['to'] == address_central) and (xto_address == row['from']):
-                        pass
-                        # logger.warning(f"   WITHDRAW TOKEN ================================")
-                    elif (row['type'] == 'internals') and ("withdraw" in xfunc) and (xfrom_address == row['to'] == address_central) and (xto_address == row['from']):
-                        pass
-                        # logger.warning(f"   UNWRAP INTERNAL ===============================")
-                    elif (row['type'] == 'multitoken') and (xfrom_address == row['to'] == address_central) and (row['from'] == '0x0000000000000000000000000000000000000000'):
-                        pass
-                        # logger.warning(f"   MULTITOKEN MINT NFT ===========================")
-                    elif (row['type'] == 'multitoken') and (xfrom_address == row['from'] == address_central) and (row['to'] == '0x0000000000000000000000000000000000000000'):
-                        pass
-                        # logger.warning(f"   MULTITOKEN BURN NFT ===========================")
-                    elif (row['type'] == 'transfers') and (xfrom_address == row['to'] == address_central) and (xto_address == row['from']):
-                        pass
-                        # logger.warning(f"   TRANSFER TK TO WA ===========================")
-                    elif (row['type'] == 'multitoken') and (xfrom_address == row['to'] == address_central) and (float(xvalue) > 0.0) and (xto_address != row['from'] != row['contractAddress']):
-                        # INFO: Implement mechanism to determine if it's transfer NFT or token
-                        # Perhaps you need to use Decimal fields
-                        pass
-                        # logger.warning(f"   MULTITOKEN BUY NFT ============================")
-                    elif (row['type'] == 'transfers') and (float(xvalue) == 0.0) and ("atomicMatch" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to']) and ((group['type'] == 'nfts').any()):
-                        # print(f"GROUP")
-                        # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-                        # logger.warning(f"   TRANSFER TOKEN BY NFT =========================")
-                        break
-                    elif (float(xvalue) == 0.0) and ("swap" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to']) and ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()):
-                        # print(f"GROUP")
-                        # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-                        # logger.warning(f"   BUY TOKEN WITH ETHER ==========================")
-                        break
-                    else:
-                        logger.error(f"   NOT DETECTED ==================================")
-                    print(f"FROM: {row['from']} -> TO: {row['to']} <-> CON: {row['contractAddress']}")
-                    print(f"VALUE: {row['valConv']} - SYMBOL: {row['symbol']} - FUNC: {row['functionName']}") 
-
-        elif (not has_transaction):
-            pass
-            # logger.debug(f"== INCOMPLETE ====================================")
-            # for _, row in group.iterrows():
-            #     print(f"TYPE: {row['type']} - HASH: {hash}")
-            #     print(f"XFROM: {row['from']}")
-            #     print(f"XTO: {row['to']}")
-            #     print(f"XVALUE: {row['valueConv']}")
-            #     print(f"XSYMBOL: {row['symbol']}")
-            #     print(f"CONTRACT ADDRESS: {row['contractAddress']}")
-        else:
-            pass
-            # logger.debug(f"== NOT CLASSIFIED ================================")
-            # for _, row in group.iterrows():
-            #     print(f"TYPE: {row['type']} - HASH: {hash}")
-            #     print(f"XFROM: {row['from']}")
-            #     print(f"XTO: {row['to']}")
-            #     print(f"XVALUE: {row['valueConv']}")
-            #     print(f"XSYMBOL: {row['symbol']}")
-            #     print(f"CONTRACT ADDRESS: {row['contractAddress']}")
-
-    return {"transactions": "ok"}
-
-
 def store_nodes_links_db(conn, address_central, params=[],
                          df_trx=[], df_int=[], df_trf=[], df_nft=[], df_mul=[]):
 
+    nodes = {}
+    links = {}
+    # TODO: Get nodes in db
+    # TODO: Get links in db
+    cursor = conn.cursor()
+    cursor.execute("SELECT address FROM t_nodes_classification")
+    nodes_sql = cursor.fetchall()
+    nodes_db = [address[0] for address in nodes_sql]
+    print(nodes_db)
+    cursor.execute("SELECT link_key FROM t_links_classification")
+    links_sql = cursor.fetchall()
+    links_db = [lk[0] for lk in links_sql]
+    print(links_db)
+
+    # INFO: Auxiliar function to add nodes to dict
+    def add_nodes(address, tag, label, stat_con, stat_wal, contract=False):
+        nonlocal nodes  # HACK: It is not local to this function
+        if address not in nodes:
+            if (contract) :
+                tag.append('contract')
+                stat_con += 1
+            else: 
+                tag.append('wallet')
+                stat_wal += 1
+
+            nodes[address] = {
+                "id": address, 
+                "address": address,
+                "tag": tag,
+                "label": label,
+            }
+        return stat_con, stat_wal
+
+    # INFO: Auxiliar function to add links to dict
+    def add_link(from_address, to_address, symbol, contract, value, action, type):
+        nonlocal links  # HACK: It is not local to this function
+        key = f"{from_address}->{to_address}-{symbol}"
+        # key = (from_address, to_address, symbol)
+        if key not in links:
+            links[key] = {}
+            links[key]['link_key'] = key
+            links[key]['source'] = from_address
+            links[key]['target'] = to_address
+            links[key]['symbol'] = symbol
+            links[key]['contract'] = ''
+            links[key]['count'] = 1
+            links[key]['sum'] = value
+            links[key]['action'] = [action]
+            links[key]['type'] = type
+        else:
+            links[key]['count'] += 1
+            links[key]['sum'] += value
+            if action not in links[key]["action"]:
+                links[key]['action'].append(action)
+
     tic = time.perf_counter()
-    # TODO: 
-    # - [ ] Get t_nodes through query to Dataframes
-    # - [ ] Get t_links through query to Dataframes
-    # - [ ] Generate new nodes
-    # - [ ] Generate new links
-    # - [ ] Classify
 
     # INFO: Config Log Level
     if params:
@@ -3551,9 +1777,6 @@ def store_nodes_links_db(conn, address_central, params=[],
 
     # for index, row in df_all.iterrows():
     grouped = df_all.groupby('hash')
-    inc = 0
-    nodes = {}
-    links = {}
     stat_tot = 0
     stat_trx = 0
     stat_int = 0
@@ -3571,43 +1794,31 @@ def store_nodes_links_db(conn, address_central, params=[],
 
         # INFO: Complete transaction and pure =======================================
         if (group_size == 1) and (has_transaction):
-            logger.info(colored(f"== SIMPLE ========================================", 'blue'))
+            # logger.info(colored(f"== SIMPLE ========================================", 'blue'))
             for _, row in group.iterrows():
                 from_address = row['from']
                 to_address = row['to']
                 symbol = row['symbol']
                 value = float(row['valConv'])
+                function = row['functionName']
+
                 # Nodes
-                if from_address not in nodes:
-                    stat_wal += 1
-                    # PERF: Improve - Use tagging calculated when is contract
-                    tag = tags_dict.get(from_address, [])  # Get tag
-                    tag.append('wallet')
-                    label = labels_dict.get(from_address, [])  # Get label
-                    nodes[from_address] = {
-                        "id": from_address, 
-                        "address": from_address,
-                        "tag": tag,
-                        "label": label,
-                    }
+                node_address = from_address
+                if (node_address not in nodes) and (node_address not in nodes_db):
+                    tag = tags_dict.get(node_address, [])  # Get tag
+                    label = labels_dict.get(node_address, [])  # Get label
+                    stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
 
-                if to_address not in nodes:
-                    # PERF: Improve - Use tagging calculated when is contract
-                    tag = tags_dict.get(to_address, [])  # Get tag
-                    if (row['functionName'] != ''):
-                        tag.append('contract')
-                        stat_con += 1
+                node_address = to_address
+                if (node_address not in nodes) and (node_address not in nodes_db):
+                    tag = tags_dict.get(node_address, [])  # Get tag
+                    label = labels_dict.get(node_address, [])  # Get label
+                    if (function != '') :
+                        stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
                     else: 
-                        tag.append('wallet')
-                        stat_wal += 1
+                        stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
 
-                    label = labels_dict.get(to_address, [])  # Get label
-                    nodes[to_address] = {
-                        "id": to_address, 
-                        "address": to_address,
-                        "tag": tag,
-                        "label": label,
-                    }
+
             #     logger.debug(colored(f"== DETAIL\nTYPE: {row['type']} - HASH: {hash}\nXFROM: {row['from']} -> XTO: {row['to']} " + 
             #                          f"<--> CONTRACT: {row['contractAddress']}\nXVALUE: {row['valConv']} - XSYMBOL: {row['symbol']} " +
             #                          f"- XMETHOD: {row['methodId']} - XFUNC: {row['functionName']}", 'blue'))
@@ -3632,21 +1843,10 @@ def store_nodes_links_db(conn, address_central, params=[],
                 else:
                     logger.error(f"++ NOT DETECTED = {row['type']} ==================")
 
-                # Link
-                link_key = f"{from_address}->{to_address}"
-                if link_key not in links:
-                    links[link_key] = {"source": from_address, "target": to_address, "detail": {}, "qty": 0}
-                if symbol in links[link_key]["detail"]:
-                    links[link_key]["detail"][symbol]["sum"] += value
-                    links[link_key]["detail"][symbol]["count"] += 1
-                    if action not in links[link_key]["detail"][symbol]["action"]:
-                        links[link_key]["detail"][symbol]["action"].append(action)
-                else:
-                    links[link_key]["detail"][symbol] = {"sum": value, "count": 1, "action": [action]}
-                links[link_key]["qty"] += 1
+                # Links
+                add_link(from_address, to_address, symbol, '', value, action, row['type'])
 
-            # logger.info(colored(f"==================================================\n", 'black'))
-                    # Links 
+            # # logger.info(colored(f"==================================================\n", 'black'))
 
         # INFO: OTHERS
         elif (group_size > 1) and (has_transaction):
@@ -3655,6 +1855,7 @@ def store_nodes_links_db(conn, address_central, params=[],
             xvalue = 0
             for _, row in group.iterrows():
                 if (row['type'] == 'transaction'):
+                    xtype = row['type']
                     xfrom_address = row['from']
                     xto_address = row['to']
                     xcontract = row['contractAddress']
@@ -3688,86 +1889,81 @@ def store_nodes_links_db(conn, address_central, params=[],
                             # logger.info(colored(f"++ WITHDRAW INTERNAL =(Do more research)==========", 'light_cyan'))  # NOTE: Checked
                             action = "withdraw internal (unwrap)"
                             # Nodes
-                            if xfrom_address not in nodes:
-                                stat_wal += 1
-                                # PERF: Improve - Use tagging calculated when is contract
-                                tag = tags_dict.get(xfrom_address, [])  # Get tag
-                                tag.append('wallet')
-                                label = labels_dict.get(xfrom_address, [])  # Get label
-                                nodes[xfrom_address] = {
-                                    "id": xfrom_address, 
-                                    "address": xfrom_address,
-                                    "tag": tag,
-                                    "label": label,
-                                }
-                            if xto_address not in nodes:
-                                # PERF: Improve - Use tagging calculated when is contract
-                                tag = tags_dict.get(xto_address, [])  # Get tag
-                                tag.append('contract')
-                                stat_con += 1
+                            node_address = xfrom_address
+                            if (node_address not in nodes) and (node_address not in nodes_db):
+                                tag = tags_dict.get(node_address, [])  # Get tag
+                                label = labels_dict.get(node_address, [])  # Get label
+                                stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
 
-                                label = labels_dict.get(xto_address, [])  # Get label
-                                nodes[xto_address] = {
-                                    "id": xto_address, 
-                                    "address": xto_address,
-                                    "tag": tag,
-                                    "label": label,
-                                }
+                            node_address = xto_address
+                            if (node_address not in nodes) and (node_address not in nodes_db):
+                                tag = tags_dict.get(node_address, [])  # Get tag
+                                label = labels_dict.get(node_address, [])  # Get label
+                                stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
+
                             # Links
-                            link_key = f"{xfrom_address}->{xto_address}"
-                            if link_key not in links:
-                                links[link_key] = {"source": xfrom_address, "target": xto_address, "detail": {}, "qty": 0}
-                            if symbol in links[link_key]["detail"]:
-                                links[link_key]["detail"][symbol]["sum"] += value
-                                links[link_key]["detail"][symbol]["count"] += 1
-                                if action not in links[link_key]["detail"][symbol]["action"]:
-                                    links[link_key]["detail"][symbol]["action"].append(action)
-                            else:
-                                links[link_key]["detail"][symbol] = {"sum": value, "count": 1, "action": [action]}
-                            links[link_key]["qty"] += 1
+                            add_link(xfrom_address, xto_address, xsymbol, '', xvalue, action, xtype)
+                            add_link(xto_address, xfrom_address, symbol, '', value, action, row['type'])
 
-                            link_key = f"{xto_address}->{xfrom_address}"
-                            if link_key not in links:
-                                links[link_key] = {"source": xto_address, "target": xfrom_address, "detail": {}, "qty": 0}
-                            if symbol in links[link_key]["detail"]:
-                                links[link_key]["detail"][symbol]["sum"] += value
-                                links[link_key]["detail"][symbol]["count"] += 1
-                                if action not in links[link_key]["detail"][symbol]["action"]:
-                                    links[link_key]["detail"][symbol]["action"].append(action)
-                            else:
-                                links[link_key]["detail"][symbol] = {"sum": value, "count": 1, "action": [action]}
-                            links[link_key]["qty"] += 1
                         # elif (float(xvalue) == 0.0) and ("swap" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to']) and ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()):
                         elif ("swap" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to']) and ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()):
-                            # print(f"GROUP")
+                            # 0x26bae55868fed567c6f865259156ff1c56891f2c2bb87ba5cdfa1903d3823d18
                             # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+                            print(f"{group[['type', 'from', 'to', 'value']]}")
                             # WARN: Group processed
-                            # WARN: There is a record “transfers” that is not shown but is in the group, due to the “break”.
+                            if (group.iloc[1]['from'] == address_central):
+                                action = "swap ether by token"
+                            else:
+                                action = "swap token by ether"
                             logger.info(colored(f"++ BUY TOKEN WITH ETHER ==========================", 'light_cyan'))  # NOTE: Checked
+                            # Nodes
+                            node_address = group.iloc[1]['from']
+                            if (node_address not in nodes) and (node_address not in nodes_db):
+                                tag = tags_dict.get(node_address, [])  # Get tag
+                                label = labels_dict.get(node_address, [])  # Get label
+                                if (node_address == address_central):
+                                    stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
+                                else:
+                                    stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
+
+                            node_address = group.iloc[1]['to']
+                            if (node_address not in nodes) and (node_address not in nodes_db):
+                                tag = tags_dict.get(node_address, [])  # Get tag
+                                label = labels_dict.get(node_address, [])  # Get label
+                                if (node_address == address_central):
+                                    stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
+                                else:
+                                    stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
+
+                            # Links
+                            add_link(group.iloc[1]['from'], group.iloc[1]['to'], group.iloc[1]['symbol'], group.iloc[1]['contractAddress'], group.iloc[1]['valConv'], action, group.iloc[1]['type'])
+                            add_link(group.iloc[-1]['from'], group.iloc[-1]['to'], group.iloc[-1]['symbol'], group.iloc[-1]['contractAddress'], group.iloc[-1]['valConv'], action, group.iloc[-1]['type'])
+
                             break
-                        elif ("swap" in xfunc or "multicall" in xfunc) and (group.iloc[1]['to'] == group.iloc[-1]['to']) and ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()) and (xvalue != 0):  # 0xf9358c40ad6b71c12d33139504c462c73d822ff58aaf968374858e139da0740b
-                            # print(f"GROUP")
-                            # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-                            # WARN: Group processed
-                            # WARN: There is a record “transfers” that is not shown but is in the group, due to the “break”.
-                            logger.info(colored(f"++ SWAP ETHER FOR TOKEN ==========================", 'light_cyan'))  # TODO: Checked
-                            break
-                        elif ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()) and  \
-                             (group.loc[group['type'] == 'transaction', 'from'].values[0] == group.loc[group['type'] == 'internals', 'to'].values[0] == group.loc[group['type'] == 'transfers', 'from'].values[0]):
-                            #  0xf8f8a9326e6e6f7bcdaca207e4ece32998cb9022dfd61235939693d892c836d9
-                            # print(f"group")
-                            # print(f"{group[['type', 'from', 'to', 'value', 'contractaddress']]}")
-                            # WARN: group processed
-                            # WARN: there is a record “transfers” that is not shown but is in the group, due to the “break”.
-                            logger.info(colored(f"++ SWAP TOKEN BY ETHER ===========================", 'light_cyan'))  # TODO: checked
-                            break
-                        elif ("exit" in xfunc) and (xfrom_address == row['to']) and (xvalue == 0):  # 0xef233f6abc71024c9894f3b83cb03c94a06efc1b3f7befac95017509a907b6f4
-                            logger.info(colored(f"++ BRIDGING (WITHDRAW) =(?)=======================", 'light_cyan'))  # TODO: Checked
-                        elif ("purchase" in xfunc) and (xfrom_address == row['to']) and (xvalue != 0):  # 0xe7bd55ddf0b6cd170b59f724ce2297a5c28d5837e7968a0885300970a4c8e7a7
-                            logger.info(colored(f"++ PURCHASE WITH ETHER ===========================", 'light_cyan'))  # TODO: Checked
-                        elif (xfrom_address == row['to'] == address_central):  # 0xc5d30d442ed9899304b6234230797cee8b0c0066407a5294a9531d758a2732c5
-                            # WARN: Super generic
-                            logger.info(colored(f"++ TRANSFER ETHER TO WA ===(Generic)============", 'light_cyan'))  # TODO: Checked
+
+                        # elif ("swap" in xfunc or "multicall" in xfunc) and (group.iloc[1]['to'] == group.iloc[-1]['to']) and ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()) and (xvalue != 0):  # 0xf9358c40ad6b71c12d33139504c462c73d822ff58aaf968374858e139da0740b
+                        #     # print(f"GROUP")
+                        #     # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+                        #     # WARN: Group processed
+                        #     # WARN: There is a record “transfers” that is not shown but is in the group, due to the “break”.
+                        #     logger.info(colored(f"++ SWAP ETHER FOR TOKEN ==========================", 'light_cyan'))  # TODO: Checked
+                        #     break
+                        # elif ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()) and  \
+                        #      (group.loc[group['type'] == 'transaction', 'from'].values[0] == group.loc[group['type'] == 'internals', 'to'].values[0] == group.loc[group['type'] == 'transfers', 'from'].values[0]):
+                        #     #  0xf8f8a9326e6e6f7bcdaca207e4ece32998cb9022dfd61235939693d892c836d9
+                        #     # print(f"group")
+                        #     # print(f"{group[['type', 'from', 'to', 'value', 'contractaddress']]}")
+                        #     # WARN: group processed
+                        #     # WARN: there is a record “transfers” that is not shown but is in the group, due to the “break”.
+                        #     logger.info(colored(f"++ SWAP TOKEN BY ETHER ===========================", 'light_cyan'))  # TODO: checked
+                        #     break
+                        # elif ("exit" in xfunc) and (xfrom_address == row['to']) and (xvalue == 0):  # 0xef233f6abc71024c9894f3b83cb03c94a06efc1b3f7befac95017509a907b6f4
+                        #     logger.info(colored(f"++ BRIDGING (WITHDRAW) =(?)=======================", 'light_cyan'))  # TODO: Checked
+                        # elif ("purchase" in xfunc) and (xfrom_address == row['to']) and (xvalue != 0):  # 0xe7bd55ddf0b6cd170b59f724ce2297a5c28d5837e7968a0885300970a4c8e7a7
+                        #     logger.info(colored(f"++ PURCHASE WITH ETHER ===========================", 'light_cyan'))  # TODO: Checked
+                        # elif (xfrom_address == row['to'] == address_central):  # 0xc5d30d442ed9899304b6234230797cee8b0c0066407a5294a9531d758a2732c5
+                        #     # WARN: Super generic
+                        #     logger.info(colored(f"++ TRANSFER ETHER TO WA ===(Generic)============", 'light_cyan'))  # TODO: Checked
                         else:
                             logger.error(f"++ NOT DETECTED = {row['type']} ==================")
                             logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
@@ -3905,7 +2101,8 @@ def store_nodes_links_db(conn, address_central, params=[],
             # logger.info(colored(f"==================================================\n", 'black'))
 
         elif (not has_transaction):
-            logger.info(colored(f"== INCOMPLETE ({inc}) == HASH: {group.iloc[0]['hash']} ==", 'magenta'))
+            # logger.info(colored(f"== INCOMPLETE ({inc}) == HASH: {group.iloc[0]['hash']} ==", 'magenta'))
+            pass
             # logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
             # inc += 1
             # for _, row in group.iterrows():
@@ -3969,30 +2166,42 @@ def store_nodes_links_db(conn, address_central, params=[],
             #         logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
             #         break
             # logger.info(colored(f"==================================================\n", 'black'))
-        else:
-            logger.error(f"== NOT CLASSIFIED ================================")
-            logger.error(f"== NOT CLASSIFIED ================================")
-            logger.error(f"GROUP: \n{group}")
-            logger.error(f"== NOT CLASSIFIED ================================")
-            logger.error(f"== NOT CLASSIFIED ================================")
-            raise Exception("== NOT CLASSIFIED ================================")
+        # else:
+        #     logger.error(f"== NOT CLASSIFIED ================================")
+        #     logger.error(f"== NOT CLASSIFIED ================================")
+        #     logger.error(f"GROUP: \n{group}")
+        #     logger.error(f"== NOT CLASSIFIED ================================")
+        #     logger.error(f"== NOT CLASSIFIED ================================")
+        #     raise Exception("== NOT CLASSIFIED ================================")
 
     toc = time.perf_counter()
     logger.info(f"Time to classification {toc - tic:0.4f} seconds")
 
-    with open(f"./classification.json", 'w', encoding='utf-8') as file:
-        json.dump({"nodes": nodes, "links": links}, file, ensure_ascii=False, indent=4)
+    # with open(f"./classification.json", 'w', encoding='utf-8') as file:
+    #     json.dump({"nodes": nodes, "links": links}, file, ensure_ascii=False, indent=4)
 
     # INFO: Write nodes and links in db
+    # nodes_list = list(nodes.values())
+    # links_list = list(links.values())
     nodes_list = list(nodes.values())
     links_list = list(links.values())
+    # df_nodes = pd.DataFrame(nodes_list)
+    # df_nodes['tag'] = df_nodes['tag'].apply(lambda x: json.dumps(x))
+    # df_nodes['label'] = df_nodes['label'].apply(lambda x: json.dumps(x))
+    # df_links = pd.DataFrame(links_list)
+    # df_links['detail'] = df_links['detail'].apply(lambda x: json.dumps(x))
     df_nodes = pd.DataFrame(nodes_list)
-    df_links = pd.DataFrame(links_list)
     df_nodes['tag'] = df_nodes['tag'].apply(lambda x: json.dumps(x))
     df_nodes['label'] = df_nodes['label'].apply(lambda x: json.dumps(x))
-    df_links['detail'] = df_links['detail'].apply(lambda x: json.dumps(x))
-    df_nodes.to_sql('t_nodes_classification', conn, if_exists='append', index=False, method=insert_with_ignore)
+    df_links = pd.DataFrame(links_list)
+    # print(df_links.info())
+    # print(df_links.head())
+    df_links['action'] = df_links['action'].apply(lambda x: json.dumps(x))
+
+    # df_nodes.to_sql('t_nodes_classification', conn, if_exists='append', index=False, method=insert_with_ignore)
+    # df_links.to_sql('t_links_classification', conn, if_exists='append', index=False, method=insert_with_ignore)
     df_links.to_sql('t_links_classification', conn, if_exists='append', index=False, method=insert_with_ignore)
+    df_nodes.to_sql('t_nodes_classification', conn, if_exists='append', index=False, method=insert_with_ignore)
 
     # INFO: Generate stat table
     query = """
@@ -4044,13 +2253,28 @@ def get_nodes_links_bd(conn, address_central, params=[]):
     address_central = address_central[1]
 
     # TODO: Query nodes
+
+    # query = """
+    #     SELECT *
+    #     FROM t_nodes_classification
+    # """
+    # df_nodes = pd.read_sql_query(query, conn)
+    # # df_nodes['tag'] = df_nodes['tag'].sapply(lambda x: json.dumps(x))
+    # # df_nodes['label'] = df_nodes['label'].apply(lambda x: json.dumps(x))
+    # df_nodes['tag'] = df_nodes['tag'].apply(json.loads)
+    # df_nodes['label'] = df_nodes['label'].apply(json.loads)
+    # # print("=================================================================")
+    # # print(df_nodes.info())
+    # # print(df_nodes.head())
+    # # print("=================================================================")
+    # nodes_list = json.loads(df_nodes.to_json(orient = "records"))
+    # # print(nodes_list)
+
     query = """
         SELECT *
         FROM t_nodes_classification
     """
     df_nodes = pd.read_sql_query(query, conn)
-    # df_nodes['tag'] = df_nodes['tag'].sapply(lambda x: json.dumps(x))
-    # df_nodes['label'] = df_nodes['label'].apply(lambda x: json.dumps(x))
     df_nodes['tag'] = df_nodes['tag'].apply(json.loads)
     df_nodes['label'] = df_nodes['label'].apply(json.loads)
     # print("=================================================================")
@@ -4069,17 +2293,56 @@ def get_nodes_links_bd(conn, address_central, params=[]):
         FROM t_links_classification
     """
     df_links = pd.read_sql_query(query, conn)
-    df_links['detail'] = df_links['detail'].apply(json.loads)
+    df_links['action'] = df_links['action'].apply(json.loads)
     # print("=================================================================")
     # print(df_links.info())
     # print(df_links.head())
     # print("=================================================================")
     links_list = json.loads(df_links.to_json(orient = "records"))
     # print(links_list)
+    grouped_data = defaultdict(lambda: {'source': '', 'target': '', 'detail': defaultdict(dict), 'qty': 0})
+    
+    for link in links_list:
+        key = (link['source'], link['target'])
+        symbol = link['symbol']
+        detail = {
+            'contract': link['contract'],
+            'count': link['count'],
+            'sum': link['sum'],
+            'action': link['action'],
+            'type': link['type']
+        }
+        
+        if grouped_data[key]['source'] == '':
+            grouped_data[key]['source'] = link['source']
+            grouped_data[key]['target'] = link['target']
+        
+        grouped_data[key]['detail'][symbol] = detail
+        grouped_data[key]['qty'] += link['count']
 
-    # with open(f"./links.json", 'w', encoding='utf-8') as file:
-    #     json.dump({"links": links_list}, file, ensure_ascii=False, indent=4)
+    links_list = list(grouped_data.values())
+    # import pprint
+    # pprint.pprint(links_list)
 
+    # TODO: Query links
+
+    # query = """
+    #     SELECT *
+    #     FROM t_links_classification
+    # """
+    # df_links = pd.read_sql_query(query, conn)
+    # df_links['detail'] = df_links['detail'].apply(json.loads)
+    # # print("=================================================================")
+    # # print(df_links.info())
+    # # print(df_links.head())
+    # # print("=================================================================")
+    # links_list = json.loads(df_links.to_json(orient = "records"))
+    # # print(links_list)
+
+    # # with open(f"./links.json", 'w', encoding='utf-8') as file:
+    # #     json.dump({"links": links_list}, file, ensure_ascii=False, indent=4)
+
+    # # transactions = {"nodes": nodes_list, "links": links_list, "link_detail": links}
     transactions = {"nodes": nodes_list, "links": links_list}
 
     # TODO: Query stats
@@ -4118,20 +2381,12 @@ def get_nodes_links_bd(conn, address_central, params=[]):
 
     list_trans = df_all.loc[(df_all["from"] == address_central) | (df_all["to"] == address_central)].to_json(orient = "records")
 
-    # stat = ""  # FIX: Remove
-
     query = """
         SELECT *
         FROM t_stats
     """
     df_stats = pd.read_sql_query(query, conn)
     stat_json = df_stats.to_json(orient = "records")
-    print("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
-    print(df_stats.info())
-    print(df_stats.head())
-    print("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
-    print(stat_json)
-    print("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
     toc = time.perf_counter()
     logger.info(f"Time to get nodes and links {toc - tic:0.4f} seconds")

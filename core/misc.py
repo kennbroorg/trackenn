@@ -399,12 +399,17 @@ def event_stream_checking(config):
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
             yield f"data:{data}\n\n"
             sql_create_links_c_table = """CREATE TABLE IF NOT EXISTS t_links_classification (
-                                           source text NOT NULL,
-                                           target text NOT NULL,
-                                           detail text NOT NULL, 
-                                           qty integer NOT NULL, 
-                                           UNIQUE(source, target)
-                                         );"""
+                                           link_key TEXT NOT NULL,
+                                           source TEXT NOT NULL,
+                                           target TEXT NOT NULL,
+                                           symbol TEXT NOT NULL,
+                                           contract TEXT NOT NULL,
+                                           count INTEGER NOT NULL,
+                                           sum REAL NOT NULL,
+                                           action TEXT NOT NULL,
+                                           type TEXT NOT NULL,
+                                          UNIQUE(source, target, symbol)
+                                        );"""
             cursor.execute(sql_create_links_c_table)
 
             message = "Creating Table t_stats"
