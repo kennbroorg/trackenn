@@ -403,6 +403,7 @@ def event_stream_checking(config):
                                            source TEXT NOT NULL,
                                            target TEXT NOT NULL,
                                            symbol TEXT NOT NULL,
+                                           name TEXT NOT NULL,
                                            contract TEXT NOT NULL,
                                            count INTEGER NOT NULL,
                                            sum REAL NOT NULL,
