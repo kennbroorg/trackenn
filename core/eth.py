@@ -1654,21 +1654,34 @@ def store_nodes_links_db(conn, address_central, params=[],
 
     nodes = {}
     links = {}
-    # TODO: Get nodes in db
-    # TODO: Get links in db
+    stat_tot = 0
+    stat_trx = 0
+    stat_int = 0
+    stat_tra = 0
+    # stat_err = 0
+    stat_con = 0
+    stat_wal = 0
+    # stat_coo = 0  # TODO: Contract owned
+    # max_qty = 0
+
+    # NOTE: Get nodes and links in db
     cursor = conn.cursor()
     cursor.execute("SELECT address FROM t_nodes_classification")
     nodes_sql = cursor.fetchall()
     nodes_db = [address[0] for address in nodes_sql]
-    print(nodes_db)
+    # print(nodes_db)
     cursor.execute("SELECT link_key FROM t_links_classification")
     links_sql = cursor.fetchall()
     links_db = [lk[0] for lk in links_sql]
-    print(links_db)
+    # print(links_db)
 
     # INFO: Auxiliar function to add nodes to dict
-    def add_nodes(address, tag, label, stat_con, stat_wal, contract=False):
-        nonlocal nodes  # HACK: It is not local to this function
+    def add_nodes(address, tag, label, contract=False):
+        nonlocal nodes     # HACK: It is not local to this function
+        nonlocal nodes_db  # HACK: It is not local to this function
+        nonlocal stat_wal  # HACK: It is not local to this function
+        nonlocal stat_con  # HACK: It is not local to this function
+
         if address not in nodes:
             if (contract) :
                 tag.append('contract')
@@ -1683,20 +1696,36 @@ def store_nodes_links_db(conn, address_central, params=[],
                 "tag": tag,
                 "label": label,
             }
-        return stat_con, stat_wal
+        return True
 
     # INFO: Auxiliar function to add links to dict
-    def add_link(from_address, to_address, symbol, contract, value, action, type):
-        nonlocal links  # HACK: It is not local to this function
+    def add_link(from_address, to_address, symbol, name, contract, value, action, type, node_create=True):
+        nonlocal links            # HACK: It is not local to this function
+        nonlocal links_db         # HACK: It is not local to this function
+        nonlocal address_central  # HACK: It is not local to this function 
+
+        if (node_create):
+            # Nodes
+            for node_address in [from_address, to_address]:
+                if (node_address not in nodes) and (node_address not in nodes_db):
+                    tag = tags_dict.get(node_address, [])  # Get tag
+                    label = labels_dict.get(node_address, [])  # Get label
+                    if (node_address == address_central):
+                        resp = add_nodes(node_address, tag, label, contract=False)
+                    else:
+                        resp = add_nodes(node_address, tag, label, contract=True)
+
         key = f"{from_address}->{to_address}-{symbol}"
         # key = (from_address, to_address, symbol)
-        if key not in links:
+        # if (key not in links) and (key not in links_db):
+        if (key not in links):
             links[key] = {}
             links[key]['link_key'] = key
             links[key]['source'] = from_address
             links[key]['target'] = to_address
             links[key]['symbol'] = symbol
-            links[key]['contract'] = ''
+            links[key]['name'] = name
+            links[key]['contract'] = contract
             links[key]['count'] = 1
             links[key]['sum'] = value
             links[key]['action'] = [action]
@@ -1706,6 +1735,7 @@ def store_nodes_links_db(conn, address_central, params=[],
             links[key]['sum'] += value
             if action not in links[key]["action"]:
                 links[key]['action'].append(action)
+        return True
 
     tic = time.perf_counter()
 
@@ -1777,15 +1807,6 @@ def store_nodes_links_db(conn, address_central, params=[],
 
     # for index, row in df_all.iterrows():
     grouped = df_all.groupby('hash')
-    stat_tot = 0
-    stat_trx = 0
-    stat_int = 0
-    stat_tra = 0
-    # stat_err = 0
-    stat_con = 0
-    stat_wal = 0
-    # stat_coo = 0  # TODO: Contract owned
-    # max_qty = 0
 
     for hash, group in grouped:
 
@@ -1799,25 +1820,9 @@ def store_nodes_links_db(conn, address_central, params=[],
                 from_address = row['from']
                 to_address = row['to']
                 symbol = row['symbol']
+                name = row['name']
                 value = float(row['valConv'])
                 function = row['functionName']
-
-                # Nodes
-                node_address = from_address
-                if (node_address not in nodes) and (node_address not in nodes_db):
-                    tag = tags_dict.get(node_address, [])  # Get tag
-                    label = labels_dict.get(node_address, [])  # Get label
-                    stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
-
-                node_address = to_address
-                if (node_address not in nodes) and (node_address not in nodes_db):
-                    tag = tags_dict.get(node_address, [])  # Get tag
-                    label = labels_dict.get(node_address, [])  # Get label
-                    if (function != '') :
-                        stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
-                    else: 
-                        stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
-
 
             #     logger.debug(colored(f"== DETAIL\nTYPE: {row['type']} - HASH: {hash}\nXFROM: {row['from']} -> XTO: {row['to']} " + 
             #                          f"<--> CONTRACT: {row['contractAddress']}\nXVALUE: {row['valConv']} - XSYMBOL: {row['symbol']} " +
@@ -1843,15 +1848,31 @@ def store_nodes_links_db(conn, address_central, params=[],
                 else:
                     logger.error(f"++ NOT DETECTED = {row['type']} ==================")
 
+                # Nodes
+                node_address = from_address
+                if (node_address not in nodes) and (node_address not in nodes_db):
+                    tag = tags_dict.get(node_address, [])  # Get tag
+                    label = labels_dict.get(node_address, [])  # Get label
+                    resp = add_nodes(node_address, tag, label, contract=False)
+
+                node_address = to_address
+                if (node_address not in nodes) and (node_address not in nodes_db):
+                    tag = tags_dict.get(node_address, [])  # Get tag
+                    label = labels_dict.get(node_address, [])  # Get label
+                    if (function != '') :
+                        resp = add_nodes(node_address, tag, label, contract=True)
+                    else: 
+                        resp = add_nodes(node_address, tag, label, contract=False)
+
                 # Links
-                add_link(from_address, to_address, symbol, '', value, action, row['type'])
+                add_link(from_address, to_address, symbol, name, '', value, action, row['type'], node_create=False)
 
             # # logger.info(colored(f"==================================================\n", 'black'))
 
         # INFO: OTHERS
         elif (group_size > 1) and (has_transaction):
             logger.info(colored(f"== COMPLEX =======================================", 'cyan'))
-            xfrom_address = xto_address = xsymbol = xfunc = ''
+            xfrom_address = xto_address = xsymbol = xname = xfunc = xtype = xparam = ''
             xvalue = 0
             for _, row in group.iterrows():
                 if (row['type'] == 'transaction'):
@@ -1861,6 +1882,7 @@ def store_nodes_links_db(conn, address_central, params=[],
                     xcontract = row['contractAddress']
                     xvalue = row['valConv']
                     xsymbol = row['symbol']
+                    xname = row['name']
                     if (row['functionName']):
                         xfunc = row['functionName'].split('(')[0]
                         xparam = row['functionName'].split('(')[1]
@@ -1876,108 +1898,259 @@ def store_nodes_links_db(conn, address_central, params=[],
                     contract = row['contractAddress']
                     value = row['valConv']
                     symbol = row['symbol']
+                    name = row['name']
 
                     # INFO: Internals
                     if (row['type'] == 'internals'):
-                        # FIX: Remove after code
-                        logger.debug(colored(f"   ERC - {row['type']} =============================== \n" + 
-                                             f"FROM: {row['from']} -> TO: {row['to']} <-> CON: {row['contractAddress']}\n" + 
-                                             f"VALUE: {row['valConv']} - SYMBOL: {row['symbol']} - FUNC: {row['functionName']}", 'cyan'))
-
                         if ("withdraw" in xfunc) and (xfrom_address == row['to'] == address_central) and (xto_address == row['from']):
                             # 0x344bc8fcc078e736944f728d29f1a5a04303588c793417143e8f5852e5e04b22
                             # logger.info(colored(f"++ WITHDRAW INTERNAL =(Do more research)==========", 'light_cyan'))  # NOTE: Checked
                             action = "withdraw internal (unwrap)"
-                            # Nodes
-                            node_address = xfrom_address
-                            if (node_address not in nodes) and (node_address not in nodes_db):
-                                tag = tags_dict.get(node_address, [])  # Get tag
-                                label = labels_dict.get(node_address, [])  # Get label
-                                stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
+                            # # Nodes
+                            # node_address = xfrom_address
+                            # if (node_address not in nodes) and (node_address not in nodes_db):
+                            #     tag = tags_dict.get(node_address, [])  # Get tag
+                            #     label = labels_dict.get(node_address, [])  # Get label
+                            #     stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
 
-                            node_address = xto_address
-                            if (node_address not in nodes) and (node_address not in nodes_db):
-                                tag = tags_dict.get(node_address, [])  # Get tag
-                                label = labels_dict.get(node_address, [])  # Get label
-                                stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
+                            # node_address = xto_address
+                            # if (node_address not in nodes) and (node_address not in nodes_db):
+                            #     tag = tags_dict.get(node_address, [])  # Get tag
+                            #     label = labels_dict.get(node_address, [])  # Get label
+                            #     stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
 
                             # Links
-                            add_link(xfrom_address, xto_address, xsymbol, '', xvalue, action, xtype)
-                            add_link(xto_address, xfrom_address, symbol, '', value, action, row['type'])
+                            add_link(xfrom_address, xto_address, xsymbol, xname, '', xvalue, action, xtype, node_create=True)
+                            add_link(xto_address, xfrom_address, symbol, name, '', value, action, row['type'], node_create=False)
 
                         # elif (float(xvalue) == 0.0) and ("swap" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to']) and ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()):
                         elif ("swap" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to']) and ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()):
                             # 0x26bae55868fed567c6f865259156ff1c56891f2c2bb87ba5cdfa1903d3823d18
                             # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-                            print(f"{group[['type', 'from', 'to', 'value']]}")
                             # WARN: Group processed
                             if (group.iloc[1]['from'] == address_central):
                                 action = "swap ether by token"
                             else:
                                 action = "swap token by ether"
-                            logger.info(colored(f"++ BUY TOKEN WITH ETHER ==========================", 'light_cyan'))  # NOTE: Checked
-                            # Nodes
-                            node_address = group.iloc[1]['from']
-                            if (node_address not in nodes) and (node_address not in nodes_db):
-                                tag = tags_dict.get(node_address, [])  # Get tag
-                                label = labels_dict.get(node_address, [])  # Get label
-                                if (node_address == address_central):
-                                    stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
-                                else:
-                                    stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
+                            # logger.info(colored(f"++ BUY TOKEN WITH ETHER ==========================", 'light_cyan'))  # NOTE: Checked
+                            # # Nodes
+                            # node_address = group.iloc[1]['from']
+                            # if (node_address not in nodes) and (node_address not in nodes_db):
+                            #     tag = tags_dict.get(node_address, [])  # Get tag
+                            #     label = labels_dict.get(node_address, [])  # Get label
+                            #     if (node_address == address_central):
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
+                            #     else:
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
 
-                            node_address = group.iloc[1]['to']
-                            if (node_address not in nodes) and (node_address not in nodes_db):
-                                tag = tags_dict.get(node_address, [])  # Get tag
-                                label = labels_dict.get(node_address, [])  # Get label
-                                if (node_address == address_central):
-                                    stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
-                                else:
-                                    stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
+                            # node_address = group.iloc[1]['to']
+                            # if (node_address not in nodes) and (node_address not in nodes_db):
+                            #     tag = tags_dict.get(node_address, [])  # Get tag
+                            #     label = labels_dict.get(node_address, [])  # Get label
+                            #     if (node_address == address_central):
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
+                            #     else:
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
 
                             # Links
-                            add_link(group.iloc[1]['from'], group.iloc[1]['to'], group.iloc[1]['symbol'], group.iloc[1]['contractAddress'], group.iloc[1]['valConv'], action, group.iloc[1]['type'])
-                            add_link(group.iloc[-1]['from'], group.iloc[-1]['to'], group.iloc[-1]['symbol'], group.iloc[-1]['contractAddress'], group.iloc[-1]['valConv'], action, group.iloc[-1]['type'])
-
+                            add_link(group.iloc[1]['from'], group.iloc[1]['to'], group.iloc[1]['symbol'], group.iloc[1]['name'], group.iloc[1]['contractAddress'], group.iloc[1]['valConv'], action, group.iloc[1]['type'], node_create=True)
+                            add_link(group.iloc[-1]['from'], group.iloc[-1]['to'], group.iloc[-1]['symbol'], group.iloc[-1]['name'], group.iloc[-1]['contractAddress'], group.iloc[-1]['valConv'], action, group.iloc[-1]['type'], node_create=False)
                             break
 
-                        # elif ("swap" in xfunc or "multicall" in xfunc) and (group.iloc[1]['to'] == group.iloc[-1]['to']) and ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()) and (xvalue != 0):  # 0xf9358c40ad6b71c12d33139504c462c73d822ff58aaf968374858e139da0740b
-                        #     # print(f"GROUP")
-                        #     # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-                        #     # WARN: Group processed
-                        #     # WARN: There is a record “transfers” that is not shown but is in the group, due to the “break”.
-                        #     logger.info(colored(f"++ SWAP ETHER FOR TOKEN ==========================", 'light_cyan'))  # TODO: Checked
-                        #     break
-                        # elif ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()) and  \
-                        #      (group.loc[group['type'] == 'transaction', 'from'].values[0] == group.loc[group['type'] == 'internals', 'to'].values[0] == group.loc[group['type'] == 'transfers', 'from'].values[0]):
-                        #     #  0xf8f8a9326e6e6f7bcdaca207e4ece32998cb9022dfd61235939693d892c836d9
-                        #     # print(f"group")
-                        #     # print(f"{group[['type', 'from', 'to', 'value', 'contractaddress']]}")
-                        #     # WARN: group processed
-                        #     # WARN: there is a record “transfers” that is not shown but is in the group, due to the “break”.
-                        #     logger.info(colored(f"++ SWAP TOKEN BY ETHER ===========================", 'light_cyan'))  # TODO: checked
-                        #     break
-                        # elif ("exit" in xfunc) and (xfrom_address == row['to']) and (xvalue == 0):  # 0xef233f6abc71024c9894f3b83cb03c94a06efc1b3f7befac95017509a907b6f4
-                        #     logger.info(colored(f"++ BRIDGING (WITHDRAW) =(?)=======================", 'light_cyan'))  # TODO: Checked
-                        # elif ("purchase" in xfunc) and (xfrom_address == row['to']) and (xvalue != 0):  # 0xe7bd55ddf0b6cd170b59f724ce2297a5c28d5837e7968a0885300970a4c8e7a7
-                        #     logger.info(colored(f"++ PURCHASE WITH ETHER ===========================", 'light_cyan'))  # TODO: Checked
-                        # elif (xfrom_address == row['to'] == address_central):  # 0xc5d30d442ed9899304b6234230797cee8b0c0066407a5294a9531d758a2732c5
-                        #     # WARN: Super generic
-                        #     logger.info(colored(f"++ TRANSFER ETHER TO WA ===(Generic)============", 'light_cyan'))  # TODO: Checked
+                        # WARN: REVIEW
+                        elif ("swap" in xfunc or "multicall" in xfunc) and (group.iloc[1]['to'] == group.iloc[-1]['to']) and ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()) and (xvalue != 0):  # 0xf9358c40ad6b71c12d33139504c462c73d822ff58aaf968374858e139da0740b
+                            # 0x4a7e69831f25c741b0837ba008daf16d6a4782573729ccbe1ce9486c420c54f7
+                            # print(f"GROUP")
+                            print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+                            # WARN: Group processed
+                            # WARN: There is a record “transfers” that is not shown but is in the group, due to the “break”.
+                            action = "swap ether for token"
+                            # logger.info(colored(f"++ SWAP ETHER FOR TOKEN ==========================", 'light_cyan'))  # TODO: Checked
+                            # # Nodes
+                            # node_address = xfrom_address
+                            # if (node_address not in nodes) and (node_address not in nodes_db):
+                            #     tag = tags_dict.get(node_address, [])  # Get tag
+                            #     label = labels_dict.get(node_address, [])  # Get label
+                            #     if (node_address == address_central):
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
+                            #     else:
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
+
+                            # node_address = xto_address
+                            # if (node_address not in nodes) and (node_address not in nodes_db):
+                            #     tag = tags_dict.get(node_address, [])  # Get tag
+                            #     label = labels_dict.get(node_address, [])  # Get label
+                            #     if (node_address == address_central):
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
+                            #     else:
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
+
+                            # Links
+                            add_link(xfrom_address, xto_address, xsymbol, xname, '', value, action, 'transaction', node_create=True)
+                            add_link(xto_address, xfrom_address, group.iloc[-1]['symbol'], group.iloc[-1]['name'], group.iloc[-1]['contractAddress'], group.iloc[-1]['valConv'], action, group.iloc[-1]['type'], node_create=False)
+                            break
+
+                        elif ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()) and  \
+                             (group.loc[group['type'] == 'transaction', 'from'].values[0] == group.loc[group['type'] == 'internals', 'to'].values[0] == group.loc[group['type'] == 'transfers', 'from'].values[0]):
+                            #  0xf8f8a9326e6e6f7bcdaca207e4ece32998cb9022dfd61235939693d892c836d9
+                            # print(f"{group}")
+                            # print(f"{group[['type', 'from', 'to', 'value']]}")
+                            # WARN: group processed
+                            # WARN: there is a record “transfers” that is not shown but is in the group, due to the “break”.
+                            action = "swap token by ether"
+                            # logger.info(colored(f"++ SWAP TOKEN BY ETHER ===========================", 'light_cyan'))  # TODO: checked
+                            # # Nodes
+                            # node_address = xfrom_address
+                            # if (node_address not in nodes) and (node_address not in nodes_db):
+                            #     tag = tags_dict.get(node_address, [])  # Get tag
+                            #     label = labels_dict.get(node_address, [])  # Get label
+                            #     if (node_address == address_central):
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
+                            #     else:
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
+
+                            # node_address = xto_address
+                            # if (node_address not in nodes) and (node_address not in nodes_db):
+                            #     tag = tags_dict.get(node_address, [])  # Get tag
+                            #     label = labels_dict.get(node_address, [])  # Get label
+                            #     if (node_address == address_central):
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
+                            #     else:
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
+
+                            # Links
+                            add_link(xfrom_address, xto_address, xsymbol, xname, '', value, action, 'transaction', node_create=True)
+                            add_link(xto_address, xfrom_address, group.iloc[-1]['symbol'], group.iloc[-1]['name'], group.iloc[-1]['contractAddress'], group.iloc[-1]['valConv'], action, group.iloc[-1]['type'], node_create=False)
+                            break
+
+                        elif ("purchase" in xfunc) and (xfrom_address == row['to'] == address_central) and (xvalue != 0) and \
+                                (group['type'] == 'nfts').any() and (group.iloc[-1]['from'] == '0x0000000000000000000000000000000000000000'):
+                            # 0xe7bd55ddf0b6cd170b59f724ce2297a5c28d5837e7968a0885300970a4c8e7a7
+                            # print(f"{group}")
+                            # print(f"{group[['type', 'from', 'to', 'value']]}")
+                            # WARN: group processed
+                            # WARN: there is a record “nfts” that is not shown but is in the group, due to the “break”.
+                            action = "purchase nft with ether"
+                            # logger.info(colored(f"++ PURCHASE NFT WITH ETHER =======================", 'light_cyan'))  # TODO: Checked
+                            # # Nodes
+                            # node_address = xfrom_address
+                            # if (node_address not in nodes) and (node_address not in nodes_db):
+                            #     tag = tags_dict.get(node_address, [])  # Get tag
+                            #     label = labels_dict.get(node_address, [])  # Get label
+                            #     stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
+
+                            # node_address = xto_address
+                            # if (node_address not in nodes) and (node_address not in nodes_db):
+                            #     tag = tags_dict.get(node_address, [])  # Get tag
+                            #     label = labels_dict.get(node_address, [])  # Get label
+                            #     stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
+
+                            # Links
+                            add_link(xfrom_address, xto_address, xsymbol, xname, '', xvalue - value, action, 'transaction', node_create=True)
+                            add_link(xto_address, xfrom_address, group.iloc[-1]['symbol'], group.iloc[-1]['name'], group.iloc[-1]['contractAddress'], group.iloc[-1]['valConv'], action, 'nfts', node_create=False)
+                            break
+
+                        elif ("exit" in xfunc) and (xfrom_address == row['to']) and (xvalue == 0):  
+                            # 0xef233f6abc71024c9894f3b83cb03c94a06efc1b3f7befac95017509a907b6f4
+                            action = "bridging in"
+                            # logger.info(colored(f"++ BRIDGING (WITHDRAW) =(?)=======================", 'light_cyan'))  # NOTE: Checked - Bridging
+                            # # Nodes
+                            # node_address = row['from']
+                            # if (node_address not in nodes) and (node_address not in nodes_db):
+                            #     tag = tags_dict.get(node_address, [])  # Get tag
+                            #     label = labels_dict.get(node_address, [])  # Get label
+                            #     if (node_address == address_central):
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
+                            #     else:
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
+
+                            # node_address = row['to']
+                            # if (node_address not in nodes) and (node_address not in nodes_db):
+                            #     tag = tags_dict.get(node_address, [])  # Get tag
+                            #     label = labels_dict.get(node_address, [])  # Get label
+                            #     if (node_address == address_central):
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
+                            #     else:
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
+
+                            # Links
+                            add_link(row['from'], row['to'], row['symbol'], row['name'], '', row['valConv'], action, row['type'], node_create=True)
+
+                        elif ("purchase" in xfunc) and (xfrom_address == row['to']) and (xvalue != 0):  # NOTE: Generic
+                            # ?
+                            logger.info(colored(f"++ {hash}", 'red'))  # FIX: Checked
+                            logger.info(colored(f"++ PURCHASE WITH ETHER ===========================", 'light_cyan'))  # TODO: Checked
+
+                        elif (xfrom_address == row['to'] == address_central):  
+                            # 0xc5d30d442ed9899304b6234230797cee8b0c0066407a5294a9531d758a2732c5
+                            # WARN: Super generic
+                            action = 'Transfer ether to wa'
+                            # logger.info(colored(f"++ TRANSFER ETHER TO WA ===(Generic)============", 'light_cyan'))  # TODO: Checked
+                            # # Nodes
+                            # node_address = row['from']
+                            # if (node_address not in nodes) and (node_address not in nodes_db):
+                            #     tag = tags_dict.get(node_address, [])  # Get tag
+                            #     label = labels_dict.get(node_address, [])  # Get label
+                            #     if (node_address == address_central):
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
+                            #     else:
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
+
+                            # node_address = row['to']
+                            # if (node_address not in nodes) and (node_address not in nodes_db):
+                            #     tag = tags_dict.get(node_address, [])  # Get tag
+                            #     label = labels_dict.get(node_address, [])  # Get label
+                            #     if (node_address == address_central):
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
+                            #     else:
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
+
+                            # Links
+                            add_link(row['from'], row['to'], row['symbol'], row['name'], '', row['valConv'], action, row['type'], node_create=True)
+
                         else:
                             logger.error(f"++ NOT DETECTED = {row['type']} ==================")
                             logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
                             break
 
-            #         # INFO: Transfers
-            #         elif (row['type'] == 'transfers'):
-            #             if (float(xvalue) == 0.0) and ("swap" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to'] == address_central):
-            #                 # WARN: Group processed
-            #                 # WARN: Perhaps I must verify type of all ERC row
-            #                 # print(f"GROUP")
-            #                 # print(f"{group[['from', 'to', 'value', 'contractAddress']]}")
-            #                 logger.info(colored(f"++ SWAP TOKEN ====================================", 'light_cyan'))  # NOTE: Checked
-            #                 break
+                    # INFO: Transfers
+                    elif (row['type'] == 'transfers'):
+                        # FIX: Remove after code
+                        logger.debug(colored(f"   ERC - {row['type']} =============================== \n" + 
+                                             f"FROM: {row['from']} -> TO: {row['to']} <-> CON: {row['contractAddress']}\n" + 
+                                             f"VALUE: {row['valConv']} - SYMBOL: {row['symbol']} - FUNC: {row['functionName']}", 'cyan'))
+
+                        # TODO: Exclude nfts and multitoken
+                        if (float(xvalue) == 0.0) and ("swap" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to'] == address_central) and \
+                                (not (group['type'] == 'multitoken').any() and (not (group['type'] == 'nfts').any())):
+                            # 0xfff2a20407ec45aa55974a967da2fbb33d1a9590062570835f4afdcdf49ed52e
+                            # WARN: Group processed
+                            # print(f"{group[['from', 'to', 'value', 'contractAddress']]}")
+                            action = 'swap tokens'
+                            logger.info(colored(f"++ SWAP TOKEN ====================================", 'light_cyan'))  # NOTE: Checked
+                            # # Nodes
+                            # node_address = xfrom_address
+                            # if (node_address not in nodes) and (node_address not in nodes_db):
+                            #     tag = tags_dict.get(node_address, [])  # Get tag
+                            #     label = labels_dict.get(node_address, [])  # Get label
+                            #     if (node_address == address_central):
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
+                            #     else:
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
+
+                            # node_address = xto_address
+                            # if (node_address not in nodes) and (node_address not in nodes_db):
+                            #     tag = tags_dict.get(node_address, [])  # Get tag
+                            #     label = labels_dict.get(node_address, [])  # Get label
+                            #     if (node_address == address_central):
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
+                            #     else:
+                            #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
+
+                            # Links
+                            add_link(xfrom_address, xto_address, group.iloc[1]['symbol'], group.iloc[1]['name'], group.iloc[1]['contractAddress'], group.iloc[1]['valConv'], action, group.iloc[1]['type'], node_create=True)
+                            add_link(xto_address, xfrom_address, group.iloc[-1]['symbol'], group.iloc[-1]['name'], group.iloc[-1]['contractAddress'], group.iloc[-1]['valConv'], action, group.iloc[-1]['type'], node_create=False)
+                            break
             #             # elif (float(xvalue) == 0.0) and ("atomicMatch" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to']) and ((group['type'] == 'nfts').any()):
             #             #     print(f"GROUP")
             #             #     print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
@@ -2307,6 +2480,7 @@ def get_nodes_links_bd(conn, address_central, params=[]):
         symbol = link['symbol']
         detail = {
             'contract': link['contract'],
+            'name': link['name'],
             'count': link['count'],
             'sum': link['sum'],
             'action': link['action'],
