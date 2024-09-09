@@ -23,7 +23,7 @@ from collections import defaultdict
 
 # from sqlalchemy import text
 # from datetime import datetime
-# from flask import jsonify                     #pyright: ignore
+# from flask import jsonify
 
 from termcolor import colored  # pyright: ignore
 import coloredlogs  # pyright: ignore
@@ -34,9 +34,7 @@ logger = logging.getLogger(__name__)
 
 def insert_with_ignore(table, conn, keys, data_iter):
     # INFO: This escape is for reserved words
-    escaped_keys = [
-        f'"{k}"' if (k.lower() == "from") or (k.lower() == "to") else k for k in keys
-    ]
+    escaped_keys = [f'"{k}"' if (k.lower() == "from") or (k.lower() == "to") else k for k in keys]
 
     columns = ",".join(escaped_keys)
     placeholders = ",".join([f":{k}" for k in keys])
@@ -142,12 +140,7 @@ def event_stream_ether(params):
     logger.propagate = False  # INFO: To prevent duplicates with flask
 
     logger.info("Getting information")
-    data = json.dumps({
-        "msg": "Getting information",
-        "end": False,
-        "error": False,
-        "content": {},
-    })
+    data = json.dumps({"msg": "Getting information", "end": False, "error": False, "content": {}})
     yield f"data:{data}\n\n"
 
     message = "<strong>Blockchain</strong> - Ethereum"
@@ -157,12 +150,7 @@ def event_stream_ether(params):
 
     # Checking params
     logger.info("Checking params")
-    data = json.dumps({
-        "msg": "Checking params",
-        "end": False,
-        "error": False,
-        "content": {},
-    })
+    data = json.dumps({"msg": "Checking params", "end": False, "error": False, "content": {}})
     yield f"data:{data}\n\n"
     if params.get("address", "") == "":
         message = "<strong>Param address is mandatory</strong>"
@@ -205,40 +193,23 @@ def event_stream_ether(params):
         cursor = connection.cursor()
 
         # INFO: Get blockchain param
-        if (params.get("network", "") == "") or (
-            params.get("network", "") == "undefined"
-        ):
+        if (params.get("network", "") == "") or (params.get("network", "") == "undefined"):
             # INFO: ERROR
             blockchain = ""
             connection.close()
             message = "<strong>Error...</strong>"
             logger.error(f"{message}")
-            data = json.dumps({
-                "msg": f"{message}",
-                "end": False,
-                "error": False,
-                "content": {},
-            })
+            data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
             yield f"data:{data}\n\n"
 
             message = "<strong>Blockchain must be informed</strong>"
             logger.error(f"{message}")
-            data = json.dumps({
-                "msg": f"{message}",
-                "end": False,
-                "error": False,
-                "content": {},
-            })
+            data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
             yield f"data:{data}\n\n"
 
             message = " "
             logger.error(f"{message}")
-            data = json.dumps({
-                "msg": f"{message}",
-                "end": True,
-                "error": True,
-                "content": {},
-            })
+            data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
             yield f"data:{data}\n\n"
             raise Exception("Blockchain must be informed")
         else:
@@ -246,17 +217,10 @@ def event_stream_ether(params):
         logger.debug(f"Blockchain: {blockchain}")
 
         # INFO: Warning message about API
-        if (params["config"]["ethscan"] == "") or (
-            params["config"]["ethscan"] == "XXX"
-        ):
+        if (params["config"]["ethscan"] == "") or (params["config"]["ethscan"] == "XXX"):
             message = "<strong>Etherscan.io api key possibly unconfigured</strong>"
             logger.error(message.replace("<strong>", "").replace("</strong>", ""))
-            data = json.dumps({
-                "msg": f"{message}",
-                "end": False,
-                "error": False,
-                "content": {},
-            })
+            data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
             yield f"data:{data}\n\n"
 
         # INFO: Update central address
@@ -294,72 +258,17 @@ def event_stream_ether(params):
 
         # Inicialize DataFrames
         df_trx_store = pd.DataFrame(
-            columns=[
-                "blockChain",
-                "hash",
-                "from",
-                "to",
-                "value",
-                "contractAddress",
-                "timeStamp",
-                "isError",
-                "methodId",
-                "functionName",
-            ]
+            columns=["blockChain", "hash", "from", "to", "value", "contractAddress", "timeStamp", "isError", "methodId", "functionName"]
         )
-        df_internals_store = pd.DataFrame(
-            columns=[
-                "blockChain",
-                "hash",
-                "from",
-                "to",
-                "value",
-                "contractAddress",
-                "timeStamp",
-                "isError",
-            ]
-        )
+        df_internals_store = pd.DataFrame(columns=["blockChain", "hash", "from", "to", "value", "contractAddress", "timeStamp", "isError"])
         df_transfers_store = pd.DataFrame(
-            columns=[
-                "blockChain",
-                "hash",
-                "from",
-                "to",
-                "value",
-                "contractAddress",
-                "tokenSymbol",
-                "tokenName",
-                "tokenDecimal",
-                "timeStamp",
-            ]
+            columns=["blockChain", "hash", "from", "to", "value", "contractAddress", "tokenSymbol", "tokenName", "tokenDecimal", "timeStamp"]
         )
         df_nfts_store = pd.DataFrame(
-            columns=[
-                "blockChain",
-                "hash",
-                "from",
-                "to",
-                "tokenID",
-                "contractAddress",
-                "tokenSymbol",
-                "tokenName",
-                "tokenDecimal",
-                "timeStamp",
-            ]
+            columns=["blockChain", "hash", "from", "to", "tokenID", "contractAddress", "tokenSymbol", "tokenName", "tokenDecimal", "timeStamp"]
         )
         df_multitoken_store = pd.DataFrame(
-            columns=[
-                "blockChain",
-                "hash",
-                "from",
-                "to",
-                "tokenID",
-                "contractAddress",
-                "tokenSymbol",
-                "tokenName",
-                "tokenValue",
-                "timeStamp",
-            ]
+            columns=["blockChain", "hash", "from", "to", "tokenID", "contractAddress", "tokenSymbol", "tokenName", "tokenValue", "timeStamp"]
         )
 
         logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
@@ -382,58 +291,29 @@ def event_stream_ether(params):
                 if json_message == "NOTOK":
                     message = "<strong>Error...</strong>"
                     logger.error(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     message = f"<strong>{json_result}</strong>"
                     logger.error(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     message = " "
                     logger.error(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": True,
-                        "error": True,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
                     raise Exception(json_result)
                 elif json_status == "1":
                     type = "contract"
                     message = "<strong>ADDRESS</strong> - Contract"
-                    logger.info(
-                        message.replace("<strong>", "").replace("</strong>", "")
-                    )
-                    data = json.dumps({
-                        "msg": message,
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                    data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
                 else:
                     message = "<strong>ADDRESS</strong> - Wallet"
-                    logger.info(
-                        message.replace("<strong>", "").replace("</strong>", "")
-                    )
-                    data = json.dumps({
-                        "msg": message,
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                    data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
             except Exception:
@@ -443,33 +323,18 @@ def event_stream_ether(params):
                 connection.close()
                 message = "<strong>Error...</strong>"
                 logger.warning(f"{message}")
-                data = json.dumps({
-                    "msg": f"{message}",
-                    "end": False,
-                    "error": False,
-                    "content": {},
-                })
+                data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                 yield f"data:{data}\n\n"
 
                 for line in traceback_text.splitlines():
                     message = f"{line}"
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                 message = " "
                 logger.warning(f"{message}")
-                data = json.dumps({
-                    "msg": f"{message}",
-                    "end": True,
-                    "error": True,
-                    "content": {},
-                })
+                data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                 yield f"data:{data}\n\n"
 
                 # HACK: Here should be a raise?
@@ -491,29 +356,13 @@ def event_stream_ether(params):
 
                     if len(json_contract) > 0:
                         message = "<strong>CONTRACT</strong> - Collected information"
-                        logger.info(
-                            message.replace("<strong>", "").replace("</strong>", "")
-                        )
-                        data = json.dumps({
-                            "msg": message,
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
                     else:
-                        message = (
-                            "<strong>CONTRACT<strong> - <strong>NOT FOUND</strong>"
-                        )
-                        logger.info(
-                            message.replace("<strong>", "").replace("</strong>", "")
-                        )
-                        data = json.dumps({
-                            "msg": message,
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        message = "<strong>CONTRACT<strong> - <strong>NOT FOUND</strong>"
+                        logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
                 except Exception:
@@ -523,47 +372,25 @@ def event_stream_ether(params):
                     connection.close()
                     message = "<strong>Error...</strong>"
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     for line in traceback_text.splitlines():
                         message = f"{line}"
                         logger.warning(f"{message}")
-                        data = json.dumps({
-                            "msg": f"{message}",
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
                     message = " "
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": True,
-                        "error": True,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
 
                 # INFO: Store data in contract table
                 try:
                     message = "<strong>CONTRACT</strong> - Storing information..."
-                    logger.info(
-                        message.replace("<strong>", "").replace("</strong>", "")
-                    )
-                    data = json.dumps({
-                        "msg": message,
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                    data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     # Store contract
@@ -575,33 +402,18 @@ def event_stream_ether(params):
                     connection.close()
                     message = "<strong>Error...</strong>"
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     for line in traceback_text.splitlines():
                         message = f"{line}"
                         logger.warning(f"{message}")
-                        data = json.dumps({
-                            "msg": f"{message}",
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
                     message = " "
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": True,
-                        "error": True,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
 
                 # INFO: Get trx creation
@@ -612,29 +424,15 @@ def event_stream_ether(params):
 
                     if len(json_object) > 0:
                         message = "<strong>TRANSACTIONS</strong> - Found trx of creation contract"
-                        logger.info(
-                            message.replace("<strong>", "").replace("</strong>", "")
-                        )
-                        data = json.dumps({
-                            "msg": message,
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
                         # INFO: Modify the trx creation, necessary to graph
                         json_object[0]["to"] = json_object[0]["contractAddress"]
                     else:
                         message = "<strong>TRANSACTIONS<strong> - Creation contract <strong>NOT FOUND</strong>"
-                        logger.info(
-                            message.replace("<strong>", "").replace("</strong>", "")
-                        )
-                        data = json.dumps({
-                            "msg": message,
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
                 except Exception:
@@ -644,49 +442,25 @@ def event_stream_ether(params):
                     connection.close()
                     message = "<strong>Error...</strong>"
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     for line in traceback_text.splitlines():
                         message = f"{line}"
                         logger.warning(f"{message}")
-                        data = json.dumps({
-                            "msg": f"{message}",
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
                     message = " "
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": True,
-                        "error": True,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
 
                 # INFO: Store wallet detail (contract)
                 try:
-                    message = (
-                        "<strong>TRANSACTIONS</strong> - Storing details...Contract..."
-                    )
-                    logger.info(
-                        message.replace("<strong>", "").replace("</strong>", "")
-                    )
-                    data = json.dumps({
-                        "msg": message,
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    message = "<strong>TRANSACTIONS</strong> - Storing details...Contract..."
+                    logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                    data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     # Get first trx
@@ -717,71 +491,36 @@ def event_stream_ether(params):
                     connection.close()
                     message = "<strong>Error...</strong>"
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     for line in traceback_text.splitlines():
                         message = f"{line}"
                         logger.warning(f"{message}")
-                        data = json.dumps({
-                            "msg": f"{message}",
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
                     message = " "
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": True,
-                        "error": True,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
 
                 # INFO: Store transaction of contract creation
                 try:
                     message = "<strong>DATA COLLECTED</strong> - Storing..."
-                    logger.info(
-                        message.replace("<strong>", "").replace("</strong>", "")
-                    )
-                    data = json.dumps({
-                        "msg": message,
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                    data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     tic = time.perf_counter()
                     # db_store_transactions_optimized(connection, json_object)
                     df_trx_store = pd.DataFrame(json_object)
                     df_trx_store["blockChain"] = blockchain
-                    df_trx_store.to_sql(
-                        "t_transactions",
-                        connection,
-                        if_exists="append",
-                        index=False,
-                        method=insert_with_ignore,
-                    )
+                    df_trx_store.to_sql("t_transactions", connection, if_exists="append", index=False, method=insert_with_ignore)
                     toc = time.perf_counter()
                     message = f"<strong>STORE</strong> - Transactions of contract creation...<strong>{toc - tic:0.4f}</strong> seconds"
-                    logger.info(
-                        message.replace("<strong>", "").replace("</strong>", "")
-                    )
-                    data = json.dumps({
-                        "msg": message,
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                    data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                 except Exception:
@@ -790,37 +529,20 @@ def event_stream_ether(params):
 
                     connection.close()
                     message = "<strong>Error...</strong>"
-                    logger.error(
-                        message.replace("<strong>", "").replace("</strong>", "")
-                    )
+                    logger.error(message.replace("<strong>", "").replace("</strong>", ""))
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     for line in traceback_text.splitlines():
                         message = f"{line}"
                         logger.warning(f"{message}")
-                        data = json.dumps({
-                            "msg": f"{message}",
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
                     message = " "
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": True,
-                        "error": True,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
 
                 # INFO: Store internal tagging and labels of contract
@@ -833,11 +555,7 @@ def event_stream_ether(params):
                     # print(f"Contract creation: {contract_creation}")
                     # print(f"Contract creator: {contract_creation['result'][0]['contractCreator']}")
                     # contract_tagging.append({'blockChain': 'eth', 'address': contract_creation['result'][0]['contractCreator'], 'tag': 'contract creator'})
-                    contract_tagging.append((
-                        blockchain,
-                        contract_creation["result"][0]["contractCreator"],
-                        "contract creator",
-                    ))
+                    contract_tagging.append((blockchain, contract_creation["result"][0]["contractCreator"], "contract creator"))
                     # print(f"Contract tagging: {contract_tagging}")
                     # Insert tags in SQLite
                     cursor = connection.cursor()
@@ -848,15 +566,8 @@ def event_stream_ether(params):
 
                     toc = time.perf_counter()
                     message = f"<strong>STORE</strong> - Tagging...<strong>{toc - tic:0.4f}</strong> seconds"
-                    logger.info(
-                        message.replace("<strong>", "").replace("</strong>", "")
-                    )
-                    data = json.dumps({
-                        "msg": message,
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                    data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     tic = time.perf_counter()
@@ -868,15 +579,7 @@ def event_stream_ether(params):
                     if (len(label) == 0) and (len(json_contract) > 0):
                         # INFO: Store internal label
                         if json_contract[0]["ContractName"] == "":
-                            contract_label = [
-                                (
-                                    "ethereum",
-                                    "internal_label",
-                                    address,
-                                    "Contract without name",
-                                    '["caution", "noName"]',
-                                )
-                            ]
+                            contract_label = [("ethereum", "internal_label", address, "Contract without name", '["caution", "noName"]')]
                         else:
                             contract_label = [
                                 (
@@ -896,15 +599,8 @@ def event_stream_ether(params):
 
                         toc = time.perf_counter()
                         message = f"<strong>STORE</strong> - Internal label...<strong>{toc - tic:0.4f}</strong> seconds"
-                        logger.info(
-                            message.replace("<strong>", "").replace("</strong>", "")
-                        )
-                        data = json.dumps({
-                            "msg": message,
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
                     # INFO: Store contract creation info
@@ -938,37 +634,20 @@ def event_stream_ether(params):
 
                     connection.close()
                     message = "<strong>Error...</strong>"
-                    logger.error(
-                        message.replace("<strong>", "").replace("</strong>", "")
-                    )
+                    logger.error(message.replace("<strong>", "").replace("</strong>", ""))
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     for line in traceback_text.splitlines():
                         message = f"{line}"
                         logger.warning(f"{message}")
-                        data = json.dumps({
-                            "msg": f"{message}",
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
                     message = " "
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": True,
-                        "error": True,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
 
             # INFO: Get wallet info
@@ -980,30 +659,14 @@ def event_stream_ether(params):
                     json_object = response.json()["result"]
 
                     if len(json_object) > 0:
-                        message = (
-                            "<strong>TRANSACTIONS</strong> - Found first block and trx"
-                        )
-                        logger.info(
-                            message.replace("<strong>", "").replace("</strong>", "")
-                        )
-                        data = json.dumps({
-                            "msg": message,
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        message = "<strong>TRANSACTIONS</strong> - Found first block and trx"
+                        logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
                     else:
                         message = "<strong>TRANSACTIONS<strong> - First block and trx <strong>NOT FOUND</strong>"
-                        logger.info(
-                            message.replace("<strong>", "").replace("</strong>", "")
-                        )
-                        data = json.dumps({
-                            "msg": message,
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
                 except Exception:
@@ -1013,33 +676,18 @@ def event_stream_ether(params):
                     connection.close()
                     message = "<strong>Error...</strong>"
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     for line in traceback_text.splitlines():
                         message = f"{line}"
                         logger.warning(f"{message}")
-                        data = json.dumps({
-                            "msg": f"{message}",
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
                     message = " "
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": True,
-                        "error": True,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
 
                 # INFO: Get internals
@@ -1051,27 +699,13 @@ def event_stream_ether(params):
 
                     if len(json_internals) > 0:
                         message = "<strong>INTERNALS</strong> - Found internals"
-                        logger.info(
-                            message.replace("<strong>", "").replace("</strong>", "")
-                        )
-                        data = json.dumps({
-                            "msg": message,
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
                     else:
                         message = "<strong>INTERNALS<strong> - Internals <strong>NOT FOUND</strong>"
-                        logger.info(
-                            message.replace("<strong>", "").replace("</strong>", "")
-                        )
-                        data = json.dumps({
-                            "msg": message,
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
                 except Exception:
@@ -1081,33 +715,18 @@ def event_stream_ether(params):
                     connection.close()
                     message = "<strong>Error...</strong>"
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     for line in traceback_text.splitlines():
                         message = f"{line}"
                         logger.warning(f"{message}")
-                        data = json.dumps({
-                            "msg": f"{message}",
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
                     message = " "
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": True,
-                        "error": True,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
 
                 # INFO: Get transfers
@@ -1119,27 +738,13 @@ def event_stream_ether(params):
 
                     if len(json_transfers) > 0:
                         message = "<strong>TRANSFERS</strong> - Found transfers"
-                        logger.info(
-                            message.replace("<strong>", "").replace("</strong>", "")
-                        )
-                        data = json.dumps({
-                            "msg": message,
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
                     else:
                         message = "<strong>TRANSFERS<strong> - Transfers <strong>NOT FOUND</strong>"
-                        logger.info(
-                            message.replace("<strong>", "").replace("</strong>", "")
-                        )
-                        data = json.dumps({
-                            "msg": message,
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
                 except Exception:
@@ -1149,33 +754,18 @@ def event_stream_ether(params):
                     connection.close()
                     message = "<strong>Error...</strong>"
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     for line in traceback_text.splitlines():
                         message = f"{line}"
                         logger.warning(f"{message}")
-                        data = json.dumps({
-                            "msg": f"{message}",
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
                     message = " "
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": True,
-                        "error": True,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
 
                 # INFO: Get NFTs (ERC-721)
@@ -1187,27 +777,13 @@ def event_stream_ether(params):
 
                     if len(json_nfts) > 0:
                         message = "<strong>NFTs</strong> - Found NFTs"
-                        logger.info(
-                            message.replace("<strong>", "").replace("</strong>", "")
-                        )
-                        data = json.dumps({
-                            "msg": message,
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
                     else:
                         message = "<strong>NFTs<strong> - Transfers <strong>NOT FOUND</strong>"
-                        logger.info(
-                            message.replace("<strong>", "").replace("</strong>", "")
-                        )
-                        data = json.dumps({
-                            "msg": message,
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
                 except Exception:
@@ -1217,33 +793,18 @@ def event_stream_ether(params):
                     connection.close()
                     message = "<strong>Error...</strong>"
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     for line in traceback_text.splitlines():
                         message = f"{line}"
                         logger.warning(f"{message}")
-                        data = json.dumps({
-                            "msg": f"{message}",
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
                     message = " "
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": True,
-                        "error": True,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
 
                 # INFO: Get Multitoken trx (ERC-1551)
@@ -1254,30 +815,14 @@ def event_stream_ether(params):
                     json_multitokens = response.json()["result"]
 
                     if len(json_multitokens) > 0:
-                        message = (
-                            "<strong>MULTITOKENS</strong> - Found Multi Token Standard"
-                        )
-                        logger.info(
-                            message.replace("<strong>", "").replace("</strong>", "")
-                        )
-                        data = json.dumps({
-                            "msg": message,
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        message = "<strong>MULTITOKENS</strong> - Found Multi Token Standard"
+                        logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
                     else:
                         message = "<strong>MULTITOKENS<strong> - Transfers <strong>NOT FOUND</strong>"
-                        logger.info(
-                            message.replace("<strong>", "").replace("</strong>", "")
-                        )
-                        data = json.dumps({
-                            "msg": message,
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
                 except Exception:
@@ -1287,33 +832,18 @@ def event_stream_ether(params):
                     connection.close()
                     message = "<strong>Error...</strong>"
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     for line in traceback_text.splitlines():
                         message = f"{line}"
                         logger.warning(f"{message}")
-                        data = json.dumps({
-                            "msg": f"{message}",
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
                     message = " "
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": True,
-                        "error": True,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
 
                 # TODO: If wallet is a contract, get and store contract information
@@ -1321,15 +851,8 @@ def event_stream_ether(params):
                 # INFO: Store wallet detail in DB
                 try:
                     message = "<strong>TRANSACTIONS</strong> - Storing details..."
-                    logger.info(
-                        message.replace("<strong>", "").replace("</strong>", "")
-                    )
-                    data = json.dumps({
-                        "msg": message,
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                    data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     # Get first trx
@@ -1364,47 +887,25 @@ def event_stream_ether(params):
                     connection.close()
                     message = "<strong>Error...</strong>"
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     for line in traceback_text.splitlines():
                         message = f"{line}"
                         logger.warning(f"{message}")
-                        data = json.dumps({
-                            "msg": f"{message}",
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
                     message = " "
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": True,
-                        "error": True,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
 
                 # INFO: Store transaction, internals, transfers and NFTs in DB
                 try:
                     message = "<strong>DATA COLLECTED</strong> - Storing..."
-                    logger.info(
-                        message.replace("<strong>", "").replace("</strong>", "")
-                    )
-                    data = json.dumps({
-                        "msg": message,
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                    data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     # HACK: Here is the crux of it all, because I have to transfer the methodID and funcname to the rest!!!!
@@ -1414,24 +915,11 @@ def event_stream_ether(params):
                     # db_store_transactions_optimized(connection, json_object)
                     df_trx_store = pd.DataFrame(json_object)
                     df_trx_store["blockChain"] = blockchain
-                    df_trx_store.to_sql(
-                        "t_transactions",
-                        connection,
-                        if_exists="append",
-                        index=False,
-                        method=insert_with_ignore,
-                    )
+                    df_trx_store.to_sql("t_transactions", connection, if_exists="append", index=False, method=insert_with_ignore)
                     toc = time.perf_counter()
                     message = f"<strong>STORE</strong> - Transactions...<strong>{toc - tic:0.4f}</strong> seconds"
-                    logger.info(
-                        message.replace("<strong>", "").replace("</strong>", "")
-                    )
-                    data = json.dumps({
-                        "msg": message,
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                    data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     # INFO: internals
@@ -1440,30 +928,13 @@ def event_stream_ether(params):
                     if json_internals != []:
                         df_internals_store = pd.DataFrame(json_internals)
                         df_internals_store["blockChain"] = blockchain
-                        df_internals_merged = df_internals_store.merge(
-                            df_trx_store[["hash", "methodId", "functionName"]],
-                            on="hash",
-                            how="left",
-                        )
+                        df_internals_merged = df_internals_store.merge(df_trx_store[["hash", "methodId", "functionName"]], on="hash", how="left")
                         df_internals_merged.fillna("", inplace=True)
-                        df_internals_merged.to_sql(
-                            "t_internals",
-                            connection,
-                            if_exists="append",
-                            index=False,
-                            method=insert_with_ignore,
-                        )
+                        df_internals_merged.to_sql("t_internals", connection, if_exists="append", index=False, method=insert_with_ignore)
                     toc = time.perf_counter()
                     message = f"<strong>STORE</strong> - Internals...<strong>{toc - tic:0.4f}</strong> seconds"
-                    logger.info(
-                        message.replace("<strong>", "").replace("</strong>", "")
-                    )
-                    data = json.dumps({
-                        "msg": message,
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                    data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     # INFO: transfers
@@ -1472,30 +943,13 @@ def event_stream_ether(params):
                     if json_transfers != []:
                         df_transfers_store = pd.DataFrame(json_transfers)
                         df_transfers_store["blockChain"] = blockchain
-                        df_transfers_merged = df_transfers_store.merge(
-                            df_trx_store[["hash", "methodId", "functionName"]],
-                            on="hash",
-                            how="left",
-                        )
+                        df_transfers_merged = df_transfers_store.merge(df_trx_store[["hash", "methodId", "functionName"]], on="hash", how="left")
                         df_transfers_merged.fillna("", inplace=True)
-                        df_transfers_merged.to_sql(
-                            "t_transfers",
-                            connection,
-                            if_exists="append",
-                            index=False,
-                            method=insert_with_ignore,
-                        )
+                        df_transfers_merged.to_sql("t_transfers", connection, if_exists="append", index=False, method=insert_with_ignore)
                     toc = time.perf_counter()
                     message = f"<strong>STORE</strong> - Transfers ERC20...<strong>{toc - tic:0.4f}</strong> seconds"
-                    logger.info(
-                        message.replace("<strong>", "").replace("</strong>", "")
-                    )
-                    data = json.dumps({
-                        "msg": message,
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                    data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     # INFO: NFTs
@@ -1504,30 +958,13 @@ def event_stream_ether(params):
                     if json_nfts != []:
                         df_nfts_store = pd.DataFrame(json_nfts)
                         df_nfts_store["blockChain"] = blockchain
-                        df_nfts_merged = df_nfts_store.merge(
-                            df_trx_store[["hash", "methodId", "functionName"]],
-                            on="hash",
-                            how="left",
-                        )
+                        df_nfts_merged = df_nfts_store.merge(df_trx_store[["hash", "methodId", "functionName"]], on="hash", how="left")
                         df_nfts_merged.fillna("", inplace=True)
-                        df_nfts_merged.to_sql(
-                            "t_nfts",
-                            connection,
-                            if_exists="append",
-                            index=False,
-                            method=insert_with_ignore,
-                        )
+                        df_nfts_merged.to_sql("t_nfts", connection, if_exists="append", index=False, method=insert_with_ignore)
                     toc = time.perf_counter()
                     message = f"<strong>STORE</strong> - Transfers ERC721...<strong>{toc - tic:0.4f}</strong> seconds"
-                    logger.info(
-                        message.replace("<strong>", "").replace("</strong>", "")
-                    )
-                    data = json.dumps({
-                        "msg": message,
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                    data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     # INFO: Multitokens
@@ -1536,30 +973,13 @@ def event_stream_ether(params):
                     if json_multitokens != []:
                         df_multitoken_store = pd.DataFrame(json_multitokens)
                         df_multitoken_store["blockChain"] = blockchain
-                        df_multitoken_merged = df_multitoken_store.merge(
-                            df_trx_store[["hash", "methodId", "functionName"]],
-                            on="hash",
-                            how="left",
-                        )
+                        df_multitoken_merged = df_multitoken_store.merge(df_trx_store[["hash", "methodId", "functionName"]], on="hash", how="left")
                         df_multitoken_merged.fillna("", inplace=True)
-                        df_multitoken_merged.to_sql(
-                            "t_multitoken",
-                            connection,
-                            if_exists="append",
-                            index=False,
-                            method=insert_with_ignore,
-                        )
+                        df_multitoken_merged.to_sql("t_multitoken", connection, if_exists="append", index=False, method=insert_with_ignore)
                     toc = time.perf_counter()
                     message = f"<strong>STORE</strong> - Transfers ERC1155...<strong>{toc - tic:0.4f}</strong> seconds"
-                    logger.info(
-                        message.replace("<strong>", "").replace("</strong>", "")
-                    )
-                    data = json.dumps({
-                        "msg": message,
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    logger.info(message.replace("<strong>", "").replace("</strong>", ""))
+                    data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
                 except Exception:
                     traceback.print_exc()
@@ -1567,72 +987,35 @@ def event_stream_ether(params):
 
                     connection.close()
                     message = "<strong>Error...</strong>"
-                    logger.error(
-                        message.replace("<strong>", "").replace("</strong>", "")
-                    )
+                    logger.error(message.replace("<strong>", "").replace("</strong>", ""))
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": False,
-                        "error": False,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
                     for line in traceback_text.splitlines():
                         message = f"{line}"
                         logger.warning(f"{message}")
-                        data = json.dumps({
-                            "msg": f"{message}",
-                            "end": False,
-                            "error": False,
-                            "content": {},
-                        })
+                        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
                     message = " "
                     logger.warning(f"{message}")
-                    data = json.dumps({
-                        "msg": f"{message}",
-                        "end": True,
-                        "error": True,
-                        "content": {},
-                    })
+                    data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
 
                 # INFO: Generating internals tags
                 tic = time.perf_counter()
                 # db_store_tagging(connection, address, json_object, json_transfers, json_internals)
-                db_store_tagging_opt(
-                    connection,
-                    address,
-                    json_object,
-                    json_transfers,
-                    json_internals,
-                    json_nfts,
-                    json_multitokens,
-                )
+                db_store_tagging_opt(connection, address, json_object, json_transfers, json_internals, json_nfts, json_multitokens)
                 toc = time.perf_counter()
                 message = f"<strong>STORE</strong> - Tagging...<strong>{toc - tic:0.4f}</strong> seconds"
                 logger.info(message.replace("<strong>", "").replace("</strong>", ""))
-                data = json.dumps({
-                    "msg": message,
-                    "end": False,
-                    "error": False,
-                    "content": {},
-                })
+                data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                 yield f"data:{data}\n\n"
 
                 # INFO: KKK - Store nodes and links for classification
                 trxs = store_nodes_links_db(
-                    connection,
-                    address,
-                    params,
-                    df_trx_store,
-                    df_internals_store,
-                    df_transfers_store,
-                    df_nfts_store,
-                    df_multitoken_store,
+                    connection, address, params, df_trx_store, df_internals_store, df_transfers_store, df_nfts_store, df_multitoken_store
                 )
                 trxs = get_nodes_links_bd(connection, address, params)
 
@@ -1758,16 +1141,9 @@ def event_stream_ether(params):
         logger.debug(f" !!!!!! Wallet detail: {wallet_detail}")
         logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
-        message = (
-            "<strong>TRANSACTIONS</strong> - Receiving wallet detail information..."
-        )
+        message = "<strong>TRANSACTIONS</strong> - Receiving wallet detail information..."
         logger.info(message.replace("<strong>", "").replace("</strong>", ""))
-        data = json.dumps({
-            "msg": f"{message}",
-            "end": False,
-            "error": False,
-            "content": {"wallet_detail": wallet_detail},
-        })
+        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {"wallet_detail": wallet_detail}})
         yield f"data:{data}\n\n"
 
         # INFO: Get address and path
@@ -1787,25 +1163,13 @@ def event_stream_ether(params):
 
         message = "<strong>DATA</strong> - Received central and path addresses cached data..."
         logger.info(message.replace("<strong>", "").replace("</strong>", ""))
-        data = json.dumps({
-            "msg": f"{message}",
-            "end": False,
-            "error": False,
-            "content": {"address": address, "addresses": addresses},
-        })
+        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {"address": address, "addresses": addresses}})
         yield f"data:{data}\n\n"
 
         # INFO: Get trxs, internals and transfers
-        message = (
-            "<strong>DATA</strong> - Getting collected trxs, internals, transfers..."
-        )
+        message = "<strong>DATA</strong> - Getting collected trxs, internals, transfers..."
         logger.info(message.replace("<strong>", "").replace("</strong>", ""))
-        data = json.dumps({
-            "msg": f"{message}",
-            "end": False,
-            "error": False,
-            "content": {},
-        })
+        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
         yield f"data:{data}\n\n"
 
         tic = time.perf_counter()
@@ -1821,11 +1185,7 @@ def event_stream_ether(params):
             "msg": f"{message}",
             "end": False,
             "error": False,
-            "content": {
-                "graph": trxs["transactions"],
-                "list": trxs["list"],
-                "stat": trxs["stat"],
-            },
+            "content": {"graph": trxs["transactions"], "list": trxs["list"], "stat": trxs["stat"]},
         })
         yield f"data:{data}\n\n"
 
@@ -1835,12 +1195,7 @@ def event_stream_ether(params):
         toc = time.perf_counter()
         message = f"<strong>DATA</strong> - Funders and creators...<strong>{toc - tic:0.4f}</strong> seconds"
         logger.info(message.replace("<strong>", "").replace("</strong>", ""))
-        data = json.dumps({
-            "msg": f"{message}",
-            "end": False,
-            "error": False,
-            "content": {"funders": funders},
-        })
+        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {"funders": funders}})
         yield f"data:{data}\n\n"
 
         # INFO: Get Balance and Gas
@@ -1853,11 +1208,7 @@ def event_stream_ether(params):
             "msg": f"{message}",
             "end": False,
             "error": False,
-            "content": {
-                "balance": balance["balance"],
-                "tokens": balance["tokens"],
-                "gas": balance["gas"],
-            },
+            "content": {"balance": balance["balance"], "tokens": balance["tokens"], "gas": balance["gas"]},
         })
         yield f"data:{data}\n\n"
 
@@ -1867,22 +1218,12 @@ def event_stream_ether(params):
         toc = time.perf_counter()
         message = f"<strong>DATA</strong> - Tags and Labels...<strong>{toc - tic:0.4f}</strong> seconds"
         logger.info(message.replace("<strong>", "").replace("</strong>", ""))
-        data = json.dumps({
-            "msg": f"{message}",
-            "end": False,
-            "error": False,
-            "content": {"tags": tags["tags"], "labels": tags["labels"]},
-        })
+        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {"tags": tags["tags"], "labels": tags["labels"]}})
         yield f"data:{data}\n\n"
 
         message = "<strong>End collection</strong>"
         logger.error(message.replace("<strong>", "").replace("</strong>", ""))
-        data = json.dumps({
-            "msg": f"{message}",
-            "end": True,
-            "error": False,
-            "content": {},
-        })
+        data = json.dumps({"msg": f"{message}", "end": True, "error": False, "content": {}})
         yield f"data:{data}\n\n"
 
 
@@ -1927,9 +1268,7 @@ def test_function_2(params):
 # TODO: Include type of address and evaluate
 # HACK: Merge with labels??
 # TODO: Add NFTs and Multitoken
-def db_store_tagging_opt(
-    connection, address, trxs, transfers, internals, nfts, multitoken
-):
+def db_store_tagging_opt(connection, address, trxs, transfers, internals, nfts, multitoken):
     # Create dataframes
     if not trxs:
         df_t = pd.DataFrame(
@@ -2036,10 +1375,7 @@ def db_store_tagging_opt(
     address_columns = ["from", "to", "contractAddress"]
     # addresses = pd.concat([df[column].dropna().unique() for df in [df_t, df_f, df_i, df_n, df_m] for column in address_columns if column in df.columns])
     addresses = pd.concat([
-        pd.Series(df[column].dropna().unique())
-        for df in [df_t, df_f, df_i, df_n, df_m]
-        for column in address_columns
-        if column in df.columns
+        pd.Series(df[column].dropna().unique()) for df in [df_t, df_f, df_i, df_n, df_m] for column in address_columns if column in df.columns
     ])
 
     df_addresses = pd.DataFrame(addresses.unique(), columns=["address"])
@@ -2066,12 +1402,7 @@ def db_store_tagging_opt(
     # TODO: Evaluate type to distinguish Funders and creators
     # df_all = pd.concat([df[['from', 'to', 'timeStamp']] for df in [df_t, df_f, df_i] if 'timeStamp' in df.columns], ignore_index=True).sort_values(by='timeStamp')
     df_all = pd.concat(
-        [
-            df[["from", "to", "timeStamp"]]
-            for df in [df_t, df_f, df_i, df_n, df_m]
-            if "timeStamp" in df.columns
-        ],
-        ignore_index=True,
+        [df[["from", "to", "timeStamp"]] for df in [df_t, df_f, df_i, df_n, df_m] if "timeStamp" in df.columns], ignore_index=True
     ).sort_values(by="timeStamp")
     min_timestamp = df_all.loc[df_all["from"] == address, "timeStamp"].min()
     funders_addresses = df_all.loc[df_all["timeStamp"] < min_timestamp, "from"].unique()
@@ -2081,26 +1412,18 @@ def db_store_tagging_opt(
     df_funders["tag"] = "funder"
 
     # Unifying tags
-    df_addresses = (
-        pd.concat([df_addresses, df_funders]).drop_duplicates().reset_index(drop=True)
-    )
+    df_addresses = pd.concat([df_addresses, df_funders]).drop_duplicates().reset_index(drop=True)
 
     # Insert tags in SQLite
     cursor = connection.cursor()
-    insert_tag = (
-        "INSERT OR IGNORE INTO t_tags (address, blockChain, tag) VALUES (?, ?, ?)"
-    )
+    insert_tag = "INSERT OR IGNORE INTO t_tags (address, blockChain, tag) VALUES (?, ?, ?)"
     cursor.executemany(insert_tag, df_addresses.to_records(index=False))
     connection.commit()
 
     # Store trxs Funders
     funders = df_funders["address"].tolist()
     df_t_f = (
-        df_t.loc[
-            (df_t["to"] == address)
-            & (df_t["from"].isin(funders))
-            & (df_t["timeStamp"] < min_timestamp)
-        ]
+        df_t.loc[(df_t["to"] == address) & (df_t["from"].isin(funders)) & (df_t["timeStamp"] < min_timestamp)]
         .assign(type="transaction")
         .assign(blockChain="eth")
         .assign(tokenDecimal=18)
@@ -2124,11 +1447,7 @@ def db_store_tagging_opt(
         ]
     )
     df_i_f = (
-        df_i.loc[
-            (df_i["to"] == address)
-            & (df_i["from"].isin(funders))
-            & (df_i["timeStamp"] < min_timestamp)
-        ]
+        df_i.loc[(df_i["to"] == address) & (df_i["from"].isin(funders)) & (df_i["timeStamp"] < min_timestamp)]
         .assign(type="internal")
         .assign(blockChain="eth")
         .assign(tokenDecimal=18)
@@ -2152,11 +1471,7 @@ def db_store_tagging_opt(
         ]
     )
     df_f_f = (
-        df_f.loc[
-            (df_f["to"] == address)
-            & (df_f["from"].isin(funders))
-            & (df_f["timeStamp"] < min_timestamp)
-        ]
+        df_f.loc[(df_f["to"] == address) & (df_f["from"].isin(funders)) & (df_f["timeStamp"] < min_timestamp)]
         .assign(type="transfer")
         .assign(blockChain="eth")[
             [
@@ -2179,11 +1494,7 @@ def db_store_tagging_opt(
     # INFO: Neccesary rename to avoid add columns to funders
     df_n.rename(columns={"tokenID": "value"}, inplace=True)
     df_n_f = (
-        df_n.loc[
-            (df_n["to"] == address)
-            & (df_n["from"].isin(funders))
-            & (df_n["timeStamp"] < min_timestamp)
-        ]
+        df_n.loc[(df_n["to"] == address) & (df_n["from"].isin(funders)) & (df_n["timeStamp"] < min_timestamp)]
         .assign(type="nfts")
         .assign(blockChain="eth")[
             [
@@ -2207,11 +1518,7 @@ def db_store_tagging_opt(
     df_m.rename(columns={"tokenID": "value"}, inplace=True)
     df_m.rename(columns={"tokenValue": "tokenDecimal"}, inplace=True)
     df_m_f = (
-        df_m.loc[
-            (df_m["to"] == address)
-            & (df_m["from"].isin(funders))
-            & (df_m["timeStamp"] < min_timestamp)
-        ]
+        df_m.loc[(df_m["to"] == address) & (df_m["from"].isin(funders)) & (df_m["timeStamp"] < min_timestamp)]
         .assign(type="nfts")
         .assign(blockChain="eth")[
             [
@@ -2269,22 +1576,12 @@ def get_trx_from_addresses_opt(conn, address_central):
 
     # INFO: Tagging
     df_tags = pd.read_sql_query("SELECT address, tag FROM t_tags", conn)
-    tags_grouped = (
-        df_tags.groupby("address")["tag"].apply(list).reset_index(name="tags")
-    )
-    tags_dict = pd.Series(
-        tags_grouped.tags.values, index=tags_grouped.address
-    ).to_dict()
+    tags_grouped = df_tags.groupby("address")["tag"].apply(list).reset_index(name="tags")
+    tags_dict = pd.Series(tags_grouped.tags.values, index=tags_grouped.address).to_dict()
 
     # INFO: Labels
-    df_labels = pd.read_sql_query(
-        "SELECT * FROM t_labels WHERE blockChain = 'ethereum'", conn
-    )  # TODO: Multichain
-    labels_dict = (
-        df_labels.set_index("address")
-        .apply(lambda row: row.to_dict(), axis=1)
-        .to_dict()
-    )
+    df_labels = pd.read_sql_query("SELECT * FROM t_labels WHERE blockChain = 'ethereum'", conn)  # TODO: Multichain
+    labels_dict = df_labels.set_index("address").apply(lambda row: row.to_dict(), axis=1).to_dict()
 
     # stat_coo =
     # stat_con = len(json_tags) - stat_coo
@@ -2381,12 +1678,7 @@ def get_trx_from_addresses_opt(conn, address_central):
         # Links
         link_key = f"{from_address}->{to_address}"
         if link_key not in links:
-            links[link_key] = {
-                "source": from_address,
-                "target": to_address,
-                "detail": {},
-                "qty": 0,
-            }
+            links[link_key] = {"source": from_address, "target": to_address, "detail": {}, "qty": 0}
         if symbol in links[link_key]["detail"]:
             links[link_key]["detail"][symbol]["sum"] += value
             links[link_key]["detail"][symbol]["count"] += 1
@@ -2400,9 +1692,7 @@ def get_trx_from_addresses_opt(conn, address_central):
     transactions = {"nodes": nodes_list, "links": links_list}
 
     # list_trans = df_all[(df_all['from'] == address_central) | (df_all['to'] == address_central)].to_json(orient = "records")  # FIX: Add contractAddress ??
-    list_trans = df_all.loc[
-        (df_all["from"] == address_central) | (df_all["to"] == address_central)
-    ].to_json(orient="records")
+    list_trans = df_all.loc[(df_all["from"] == address_central) | (df_all["to"] == address_central)].to_json(orient="records")
 
     stat_trx = len(df_all[df_all["type"] == "transaction"])
     stat_int = len(df_all[df_all["type"] == "internals"])
@@ -2493,9 +1783,7 @@ def get_balance_and_gas(conn, address_central, type, key):
         # balance.loc[index, 'balance'] -= gas
         # if (balance.loc[index, 'balance'] < 0):
         #     balance.loc[index, 'balance'] = 0.0
-        balance = json.loads(
-            balance[balance["token"] == "ETH"].to_json(orient="records")
-        )
+        balance = json.loads(balance[balance["token"] == "ETH"].to_json(orient="records"))
 
         # Remove row from tokens
         df_balance.drop(index, inplace=True)
@@ -2510,14 +1798,7 @@ def get_balance_and_gas(conn, address_central, type, key):
         response = requests.get(url)
         json_object = response.json()["result"]
         # print(f"BALANCE: {json_object}")
-        balance = [
-            {
-                "blockChain": "eth",
-                "balance": int(json_object) / 1e18,
-                "token": "ETH",
-                "tokenName": "Ether",
-            }
-        ]
+        balance = [{"blockChain": "eth", "balance": int(json_object) / 1e18, "token": "ETH", "tokenName": "Ether"}]
         # TODO: Use scrapping to get all of tokens balance
 
         return {"balance": balance, "tokens": [], "gas": []}
@@ -2549,16 +1830,7 @@ def get_tags_labels(conn, address_central):
     return {"tags": df_tags, "labels": df_labels}
 
 
-def store_nodes_links_db(
-    conn,
-    address_central,
-    params=[],
-    df_trx=[],
-    df_int=[],
-    df_trf=[],
-    df_nft=[],
-    df_mul=[],
-):
+def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[], df_trf=[], df_nft=[], df_mul=[]):
     nodes = {}
     links = {}
     stat_tot = 0
@@ -2597,26 +1869,11 @@ def store_nodes_links_db(
                 tag.append("wallet")
                 stat_wal += 1
 
-            nodes[address] = {
-                "id": address,
-                "address": address,
-                "tag": tag,
-                "label": label,
-            }
+            nodes[address] = {"id": address, "address": address, "tag": tag, "label": label}
         return True
 
     # INFO: Auxiliar function to add links to dict
-    def add_link(
-        from_address,
-        to_address,
-        symbol,
-        name,
-        contract,
-        value,
-        action,
-        type,
-        node_create=True,
-    ):
+    def add_link(from_address, to_address, symbol, name, contract, value, action, type, node_create=True):
         nonlocal links  # HACK: It is not local to this function
         nonlocal links_db  # HACK: It is not local to this function
         nonlocal address_central  # HACK: It is not local to this function
@@ -2659,9 +1916,7 @@ def store_nodes_links_db(
     # INFO: Config Log Level
     if params:
         log_format = "%(asctime)s [%(filename)s:%(lineno)d] %(levelname)s %(message)s"
-        coloredlogs.install(
-            level=params["config"]["level"], fmt=log_format, logger=logger
-        )
+        coloredlogs.install(level=params["config"]["level"], fmt=log_format, logger=logger)
         logger.propagate = False  # INFO: To prevent duplicates with flask
         address_central = params["address"]
 
@@ -2669,34 +1924,16 @@ def store_nodes_links_db(
     logger.debug(f"+ Address: {address_central}")
     logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
-    data_frames = {
-        "df_trx": df_trx,
-        "df_int": df_int,
-        "df_trf": df_trf,
-        "df_nft": df_nft,
-        "df_mul": df_mul,
-    }
+    data_frames = {"df_trx": df_trx, "df_int": df_int, "df_trf": df_trf, "df_nft": df_nft, "df_mul": df_mul}
 
     # INFO: Tagging: Here exclude wallets and contracts
-    df_tags = pd.read_sql_query(
-        "SELECT address, tag FROM t_tags WHERE tag NOT IN ('wallet', 'contract')", conn
-    )
-    tags_grouped = (
-        df_tags.groupby("address")["tag"].apply(list).reset_index(name="tags")
-    )
-    tags_dict = pd.Series(
-        tags_grouped.tags.values, index=tags_grouped.address
-    ).to_dict()
+    df_tags = pd.read_sql_query("SELECT address, tag FROM t_tags WHERE tag NOT IN ('wallet', 'contract')", conn)
+    tags_grouped = df_tags.groupby("address")["tag"].apply(list).reset_index(name="tags")
+    tags_dict = pd.Series(tags_grouped.tags.values, index=tags_grouped.address).to_dict()
 
     # INFO: Labels
-    df_labels = pd.read_sql_query(
-        "SELECT * FROM t_labels WHERE blockChain = 'ethereum'", conn
-    )
-    labels_dict = (
-        df_labels.set_index("address")
-        .apply(lambda row: row.to_dict(), axis=1)
-        .to_dict()
-    )
+    df_labels = pd.read_sql_query("SELECT * FROM t_labels WHERE blockChain = 'ethereum'", conn)
+    labels_dict = df_labels.set_index("address").apply(lambda row: row.to_dict(), axis=1).to_dict()
 
     # INFO: Get all Trx, Transfers, internals, nfts and multitoken
     query = """
@@ -2766,15 +2003,11 @@ def store_nodes_links_db(
                 elif row["from"] == row["to"]:
                     # logger.info(colored(f"++ SELF-DEPOSIT ==================================", 'blue'))   # NOTE: Checked
                     action = "self deposit"
-                elif (float(row["value"]) != 0.0) and (
-                    "deposit" in row["functionName"]
-                ):
+                elif (float(row["value"]) != 0.0) and ("deposit" in row["functionName"]):
                     # logger.info(colored(f"++ DEPOSIT =======================================", 'blue'))   # NOTE: Checked
                     action = "deposit"
                 # elif (float(row['value']) == 0.0) and (row['functionName'] != ''):
-                elif (
-                    row["functionName"] != ""
-                ):  # 0xfb09c6e73cccf49307bb0f81428dc9ebbbb93699c5834c5a71e5aa8a5220229d
+                elif row["functionName"] != "":  # 0xfb09c6e73cccf49307bb0f81428dc9ebbbb93699c5834c5a71e5aa8a5220229d
                     # TODO: Nest to distinguish differents functions (?)
                     # logger.info(colored(f"++ CONTRACT EXECUTION ============================", 'blue'))   # NOTE: Checked
                     action = "contract execution"
@@ -2803,25 +2036,13 @@ def store_nodes_links_db(
                         resp = add_nodes(node_address, tag, label, contract=False)
 
                 # Links
-                add_link(
-                    from_address,
-                    to_address,
-                    symbol,
-                    name,
-                    "",
-                    value,
-                    action,
-                    row["type"],
-                    node_create=False,
-                )
+                add_link(from_address, to_address, symbol, name, "", value, action, row["type"], node_create=False)
 
             # # logger.info(colored(f"==================================================\n", 'black'))
 
         # INFO: OTHERS
         elif (group_size > 1) and (has_transaction):
-            logger.info(
-                colored("== COMPLEX =======================================", "cyan")
-            )
+            logger.info(colored("== COMPLEX =======================================", "cyan"))
             xfrom_address = xto_address = xsymbol = xname = xfunc = xtype = xparam = ""
             xvalue = 0
             for _, row in group.iterrows():
@@ -2857,11 +2078,7 @@ def store_nodes_links_db(
 
                     # INFO: Internals
                     if row["type"] == "internals":
-                        if (
-                            ("withdraw" in xfunc)
-                            and (xfrom_address == row["to"] == address_central)
-                            and (xto_address == row["from"])
-                        ):
+                        if ("withdraw" in xfunc) and (xfrom_address == row["to"] == address_central) and (xto_address == row["from"]):
                             # 0x344bc8fcc078e736944f728d29f1a5a04303588c793417143e8f5852e5e04b22
                             # logger.info(colored(f"++ WITHDRAW INTERNAL =(Do more research)==========", 'light_cyan'))  # NOTE: Checked
                             action = "withdraw internal (unwrap)"
@@ -2879,28 +2096,8 @@ def store_nodes_links_db(
                             #     stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
 
                             # Links
-                            add_link(
-                                xfrom_address,
-                                xto_address,
-                                xsymbol,
-                                xname,
-                                "",
-                                xvalue,
-                                action,
-                                xtype,
-                                node_create=True,
-                            )
-                            add_link(
-                                xto_address,
-                                xfrom_address,
-                                symbol,
-                                name,
-                                "",
-                                value,
-                                action,
-                                row["type"],
-                                node_create=False,
-                            )
+                            add_link(xfrom_address, xto_address, xsymbol, xname, "", xvalue, action, xtype, node_create=True)
+                            add_link(xto_address, xfrom_address, symbol, name, "", value, action, row["type"], node_create=False)
 
                         # elif (float(xvalue) == 0.0) and ("swap" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to']) and ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()):
                         elif (
@@ -2971,9 +2168,7 @@ def store_nodes_links_db(
                         ):  # 0xf9358c40ad6b71c12d33139504c462c73d822ff58aaf968374858e139da0740b
                             # 0x4a7e69831f25c741b0837ba008daf16d6a4782573729ccbe1ce9486c420c54f7
                             # print(f"GROUP")
-                            print(
-                                f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}"
-                            )
+                            print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
                             # WARN: Group processed
                             # WARN: There is a record “transfers” that is not shown but is in the group, due to the “break”.
                             action = "swap ether for token"
@@ -2998,17 +2193,7 @@ def store_nodes_links_db(
                             #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
 
                             # Links
-                            add_link(
-                                xfrom_address,
-                                xto_address,
-                                xsymbol,
-                                xname,
-                                "",
-                                value,
-                                action,
-                                "transaction",
-                                node_create=True,
-                            )
+                            add_link(xfrom_address, xto_address, xsymbol, xname, "", value, action, "transaction", node_create=True)
                             add_link(
                                 xto_address,
                                 xfrom_address,
@@ -3026,15 +2211,9 @@ def store_nodes_links_db(
                             ((group["type"] == "internals").any())
                             and ((group["type"] == "transfers").any())
                             and (
-                                group.loc[
-                                    group["type"] == "transaction", "from"
-                                ].values[0]
-                                == group.loc[group["type"] == "internals", "to"].values[
-                                    0
-                                ]
-                                == group.loc[
-                                    group["type"] == "transfers", "from"
-                                ].values[0]
+                                group.loc[group["type"] == "transaction", "from"].values[0]
+                                == group.loc[group["type"] == "internals", "to"].values[0]
+                                == group.loc[group["type"] == "transfers", "from"].values[0]
                             )
                         ):
                             #  0xf8f8a9326e6e6f7bcdaca207e4ece32998cb9022dfd61235939693d892c836d9
@@ -3064,17 +2243,7 @@ def store_nodes_links_db(
                             #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
 
                             # Links
-                            add_link(
-                                xfrom_address,
-                                xto_address,
-                                xsymbol,
-                                xname,
-                                "",
-                                value,
-                                action,
-                                "transaction",
-                                node_create=True,
-                            )
+                            add_link(xfrom_address, xto_address, xsymbol, xname, "", value, action, "transaction", node_create=True)
                             add_link(
                                 xto_address,
                                 xfrom_address,
@@ -3093,10 +2262,7 @@ def store_nodes_links_db(
                             and (xfrom_address == row["to"] == address_central)
                             and (xvalue != 0)
                             and (group["type"] == "nfts").any()
-                            and (
-                                group.iloc[-1]["from"]
-                                == "0x0000000000000000000000000000000000000000"
-                            )
+                            and (group.iloc[-1]["from"] == "0x0000000000000000000000000000000000000000")
                         ):
                             # 0xe7bd55ddf0b6cd170b59f724ce2297a5c28d5837e7968a0885300970a4c8e7a7
                             # print(f"{group}")
@@ -3119,17 +2285,7 @@ def store_nodes_links_db(
                             #     stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
 
                             # Links
-                            add_link(
-                                xfrom_address,
-                                xto_address,
-                                xsymbol,
-                                xname,
-                                "",
-                                xvalue - value,
-                                action,
-                                "transaction",
-                                node_create=True,
-                            )
+                            add_link(xfrom_address, xto_address, xsymbol, xname, "", xvalue - value, action, "transaction", node_create=True)
                             add_link(
                                 xto_address,
                                 xfrom_address,
@@ -3143,11 +2299,7 @@ def store_nodes_links_db(
                             )
                             break
 
-                        elif (
-                            ("exit" in xfunc)
-                            and (xfrom_address == row["to"])
-                            and (xvalue == 0)
-                        ):
+                        elif ("exit" in xfunc) and (xfrom_address == row["to"]) and (xvalue == 0):
                             # 0xef233f6abc71024c9894f3b83cb03c94a06efc1b3f7befac95017509a907b6f4
                             action = "bridging in"
                             # logger.info(colored(f"++ BRIDGING (WITHDRAW) =(?)=======================", 'light_cyan'))  # NOTE: Checked - Bridging
@@ -3171,31 +2323,12 @@ def store_nodes_links_db(
                             #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
 
                             # Links
-                            add_link(
-                                row["from"],
-                                row["to"],
-                                row["symbol"],
-                                row["name"],
-                                "",
-                                row["valConv"],
-                                action,
-                                row["type"],
-                                node_create=True,
-                            )
+                            add_link(row["from"], row["to"], row["symbol"], row["name"], "", row["valConv"], action, row["type"], node_create=True)
 
-                        elif (
-                            ("purchase" in xfunc)
-                            and (xfrom_address == row["to"])
-                            and (xvalue != 0)
-                        ):  # NOTE: Generic
+                        elif ("purchase" in xfunc) and (xfrom_address == row["to"]) and (xvalue != 0):  # NOTE: Generic
                             # ?
                             logger.info(colored(f"++ {hash}", "red"))  # FIX: Checked
-                            logger.info(
-                                colored(
-                                    "++ PURCHASE WITH ETHER ===========================",
-                                    "light_cyan",
-                                )
-                            )  # TODO: Checked
+                            logger.info(colored("++ PURCHASE WITH ETHER ===========================", "light_cyan"))  # TODO: Checked
 
                         elif xfrom_address == row["to"] == address_central:
                             # 0xc5d30d442ed9899304b6234230797cee8b0c0066407a5294a9531d758a2732c5
@@ -3222,25 +2355,11 @@ def store_nodes_links_db(
                             #         stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
 
                             # Links
-                            add_link(
-                                row["from"],
-                                row["to"],
-                                row["symbol"],
-                                row["name"],
-                                "",
-                                row["valConv"],
-                                action,
-                                row["type"],
-                                node_create=True,
-                            )
+                            add_link(row["from"], row["to"], row["symbol"], row["name"], "", row["valConv"], action, row["type"], node_create=True)
 
                         else:
-                            logger.error(
-                                f"++ NOT DETECTED = {row['type']} =================="
-                            )
-                            logger.error(
-                                f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}"
-                            )
+                            logger.error(f"++ NOT DETECTED = {row['type']} ==================")
+                            logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
                             break
 
                     # INFO: Transfers
@@ -3259,26 +2378,14 @@ def store_nodes_links_db(
                         if (
                             (float(xvalue) == 0.0)
                             and ("swap" in xfunc)
-                            and (
-                                group.iloc[1]["from"]
-                                == group.iloc[-1]["to"]
-                                == address_central
-                            )
-                            and (
-                                not (group["type"] == "multitoken").any()
-                                and (not (group["type"] == "nfts").any())
-                            )
+                            and (group.iloc[1]["from"] == group.iloc[-1]["to"] == address_central)
+                            and (not (group["type"] == "multitoken").any() and (not (group["type"] == "nfts").any()))
                         ):
                             # 0xfff2a20407ec45aa55974a967da2fbb33d1a9590062570835f4afdcdf49ed52e
                             # WARN: Group processed
                             # print(f"{group[['from', 'to', 'value', 'contractAddress']]}")
                             action = "swap tokens"
-                            logger.info(
-                                colored(
-                                    "++ SWAP TOKEN ====================================",
-                                    "light_cyan",
-                                )
-                            )  # NOTE: Checked
+                            logger.info(colored("++ SWAP TOKEN ====================================", "light_cyan"))  # NOTE: Checked
 
                             # # Nodes
                             # node_address = xfrom_address
@@ -3323,25 +2430,69 @@ def store_nodes_links_db(
                                 node_create=False,
                             )
                             break
-            #             # elif (float(xvalue) == 0.0) and ("atomicMatch" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to']) and ((group['type'] == 'nfts').any()):
-            #             #     print(f"GROUP")
-            #             #     print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-            #             #     # WARN: Group processed
-            #             #     logger.info(colored(f"++ TRANSFER TOKEN BY NFT =========================", 'light_cyan'))  # TODO: Determine TOKEN BY NFT or NFT BY TOKEN
-            #             #     break
-            #             elif (float(xvalue) == 0.0) and (group.iloc[1]['from'] == group.iloc[-1]['to']) and ((group['type'] == 'nfts').any()) and (row['to'] == address_central):
-            #                 # print(f"GROUP")
-            #                 # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-            #                 # WARN: Group processed
-            #                 logger.info(colored(f"++ SELL NFT TO WALLET =(G)========================", 'light_cyan'))  # NOTE: Checked
-            #                 break
-            #             elif (float(xvalue) == 0.0) and ("borrow" in xfunc) and (xfrom_address == group.iloc[-1]['to']):  # 0xfcf7f2cfc1add7e3837c8d1ee1de783f5f792d08d26bf6403ba1e17c8e906d1c
-            #                 # print(f"GROUP")
-            #                 # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-            #                 # WARN: Group processed
-            #                 # WARN: There is a record “internals” that is not shown but is in the group, due to the “break”.
-            #                 logger.info(colored(f"++ BORROW TOKEN ==================================", 'light_cyan'))  # NOTE: Checked
-            #                 break
+                        # elif (float(xvalue) == 0.0) and ("atomicMatch" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to']) and ((group['type'] == 'nfts').any()):
+                        #     print(f"GROUP")
+                        #     print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+                        #     # WARN: Group processed
+                        #     logger.info(colored(f"++ TRANSFER TOKEN BY NFT =========================", 'light_cyan'))  # TODO: Determine TOKEN BY NFT or NFT BY TOKEN
+                        #     break
+                        elif (
+                            (float(xvalue) == 0.0)
+                            and (group.iloc[1]["from"] == group.iloc[-1]["to"])
+                            and ((group["type"] == "nfts").any())
+                            and (row["to"] == address_central)
+                        ):
+                            # 0xf1b8c703a12b2f3f9c582720d2b7cb0052c042743f74a912e625ec4208c75ce4
+                            # print(f"GROUP")
+                            print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+                            # WARN: Group processed
+                            action = "sell nft to wallet"
+                            logger.info(colored("++ SELL NFT TO WALLET =(G)========================", "light_cyan"))  # NOTE: Checked
+
+                            # Links
+                            add_link(
+                                group.iloc[1]["from"],
+                                group.iloc[1]["to"],
+                                group.iloc[1]["symbol"],
+                                group.iloc[1]["name"],
+                                group.iloc[1]["contractAddress"],
+                                group.iloc[1]["valConv"],
+                                action,
+                                group.iloc[1]["type"],
+                                node_create=True,
+                            )
+                            add_link(
+                                group.iloc[-1]["from"],
+                                group.iloc[-1]["to"],
+                                group.iloc[-1]["symbol"],
+                                group.iloc[-1]["name"],
+                                group.iloc[-1]["contractAddress"],
+                                group.iloc[-1]["valConv"],
+                                action,
+                                group.iloc[-1]["type"],
+                                node_create=False,
+                            )
+                            break
+
+                        elif (float(xvalue) == 0.0) and ("borrow" in xfunc) and (xfrom_address == group.iloc[-1]["to"]):
+                            # 0xfcf7f2cfc1add7e3837c8d1ee1de783f5f792d08d26bf6403ba1e17c8e906d1c
+                            # WARN: Group processed
+                            action = "borrow"
+                            logger.info(colored(f"++ BORROW TOKEN ==================================", "light_cyan"))  # NOTE: Checked
+
+                            # Links
+                            add_link(
+                                xto_address,
+                                xfrom_address,
+                                group.iloc[-1]["symbol"],
+                                group.iloc[-1]["name"],
+                                group.iloc[-1]["contractAddress"],
+                                group.iloc[-1]["valConv"],
+                                action,
+                                group.iloc[-1]["type"],
+                                node_create=True,
+                            )
+                            break
             #             elif (float(xvalue) == 0.0) and ("swap" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to']) and ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()):  # NOTE: Checked
             #                 # print(f"GROUP")
             #                 # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
@@ -3545,20 +2696,8 @@ def store_nodes_links_db(
 
     # df_nodes.to_sql('t_nodes_classification', conn, if_exists='append', index=False, method=insert_with_ignore)
     # df_links.to_sql('t_links_classification', conn, if_exists='append', index=False, method=insert_with_ignore)
-    df_links.to_sql(
-        "t_links_classification",
-        conn,
-        if_exists="append",
-        index=False,
-        method=insert_with_ignore,
-    )
-    df_nodes.to_sql(
-        "t_nodes_classification",
-        conn,
-        if_exists="append",
-        index=False,
-        method=insert_with_ignore,
-    )
+    df_links.to_sql("t_links_classification", conn, if_exists="append", index=False, method=insert_with_ignore)
+    df_nodes.to_sql("t_nodes_classification", conn, if_exists="append", index=False, method=insert_with_ignore)
 
     # INFO: Generate stat table
     query = """
@@ -3589,9 +2728,7 @@ def store_nodes_links_db(
     df_stats.loc[0, "stat_nft"] = df_stats.loc[0, "stat_nft"] + stat_nft
     df_stats.loc[0, "stat_mul"] = df_stats.loc[0, "stat_mul"] + stat_mul
 
-    df_stats.to_sql(
-        "t_stats", conn, if_exists="replace", index=False, method=insert_with_ignore
-    )
+    df_stats.to_sql("t_stats", conn, if_exists="replace", index=False, method=insert_with_ignore)
 
     return {"process": "ok"}
 
@@ -3602,9 +2739,7 @@ def get_nodes_links_bd(conn, address_central, params=[]):
     # INFO: Config Log Level
     if params:
         log_format = "%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s"
-        coloredlogs.install(
-            level=params["config"]["level"], fmt=log_format, logger=logger
-        )
+        coloredlogs.install(level=params["config"]["level"], fmt=log_format, logger=logger)
         logger.propagate = False  # INFO: To prevent duplicates with flask
 
     logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
@@ -3661,9 +2796,7 @@ def get_nodes_links_bd(conn, address_central, params=[]):
     # print("=================================================================")
     links_list = json.loads(df_links.to_json(orient="records"))
     # print(links_list)
-    grouped_data = defaultdict(
-        lambda: {"source": "", "target": "", "detail": defaultdict(dict), "qty": 0}
-    )
+    grouped_data = defaultdict(lambda: {"source": "", "target": "", "detail": defaultdict(dict), "qty": 0})
 
     for link in links_list:
         key = (link["source"], link["target"])
@@ -3681,7 +2814,7 @@ def get_nodes_links_bd(conn, address_central, params=[]):
             grouped_data[key]["source"] = link["source"]
             grouped_data[key]["target"] = link["target"]
 
-        grouped_data[key]["detail"][symbol] = detail         # pyright: ignore
+        grouped_data[key]["detail"][symbol] = detail  # pyright: ignore
         grouped_data[key]["qty"] += link["count"]
 
     links_list = list(grouped_data.values())
@@ -3743,9 +2876,7 @@ def get_nodes_links_bd(conn, address_central, params=[]):
     df_all["timeStamp"] = pd.to_datetime(df_all["timeStamp"], unit="s")
     df_all = df_all[df_all["isError"] == 0]
 
-    list_trans = df_all.loc[
-        (df_all["from"] == address_central) | (df_all["to"] == address_central)
-    ].to_json(orient="records")
+    list_trans = df_all.loc[(df_all["from"] == address_central) | (df_all["to"] == address_central)].to_json(orient="records")
 
     query = """
         SELECT *
@@ -3757,8 +2888,4 @@ def get_nodes_links_bd(conn, address_central, params=[]):
     toc = time.perf_counter()
     logger.info(f"Time to get nodes and links {toc - tic:0.4f} seconds")
 
-    return {
-        "transactions": transactions,
-        "list": list_trans,
-        "stat": json.loads(stat_json)[0],
-    }
+    return {"transactions": transactions, "list": list_trans, "stat": json.loads(stat_json)[0]}
