@@ -1230,7 +1230,7 @@ def event_stream_ether(params):
         yield f"data:{data}\n\n"
 
 
-def test_function_1(params):
+def recreate_db(params):
     # Checking wallet and first trx
     dbname = params["config"]["dbname"]
     address = params.get("address")
@@ -1251,12 +1251,32 @@ def test_function_1(params):
     print(config)
     data = misc.event_stream_checking(config)  # WARN: Recreate db
 
-    # params["graph"] = "complex"
-    # params["network"] = "eth"
-    # params["config"] = config
-    # params["address"] = address[1]
-    # print(params)
-    # data = event_stream_ether(params)
+    return data
+
+
+def test_function_1(params):
+    # Checking wallet and first trx
+    dbname = params["config"]["dbname"]
+    address = params.get("address")
+    connection = sqlite3.connect(dbname)
+
+    address = ("eth", address, "central")
+    # trxs = get_trx_from_address(connection, address)
+
+    tic = time.perf_counter()
+    # data = get_trx_from_addresses_experimental(connection, address, params=params)
+    # data = get_balance_and_gas(connection, address, "wallet", "")
+
+    # NOTE:
+    # Simulate graphic gathering from initial db
+    with open(r'./config.yaml') as file:
+        config = yaml.load(file, Loader=yaml.FullLoader)
+    params["graph"] = "complex"
+    params["network"] = "eth"
+    params["config"] = config
+    params["address"] = address[1]
+    print(params)
+    data = event_stream_ether(params)
 
     toc = time.perf_counter()
     logger.info(f"Execute test_1 in {toc - tic:0.4f} seconds")
