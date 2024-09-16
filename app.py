@@ -67,7 +67,16 @@ def httpServer():
         httpd_server.serve_forever()
 
 
-@app.route('/internal-test-1', methods=['GET'])
+@app.route('/recreatedb', methods=['GET'])  # NOTE: Used to test cases
+def recreatedb():
+    params = request.args.to_dict()
+    config = current_app.config['config']
+    params['config'] = config 
+    data = eth.recreate_db(params)
+    return data
+
+
+@app.route('/internal-test-1', methods=['GET'])  # NOTE: Used to test cases
 def internal_test_1():
     params = request.args.to_dict()
     config = current_app.config['config']
@@ -76,7 +85,7 @@ def internal_test_1():
     return data
 
 
-@app.route('/internal-test-2', methods=['GET'])
+@app.route('/internal-test-2', methods=['GET'])  # NOTE: Used to test cases
 def internal_test_2():
     params = request.args.to_dict()
     config = current_app.config['config']
