@@ -1245,7 +1245,7 @@ def recreate_db(params):
 
     # NOTE:
     # Simulate graphic gathering from initial db
-    with open(r'./config.yaml') as file:
+    with open(r"./config.yaml") as file:
         config = yaml.load(file, Loader=yaml.FullLoader)
     config["action"] = "reset"
     print(config)
@@ -1269,7 +1269,7 @@ def test_function_1(params):
 
     # NOTE:
     # Simulate graphic gathering from initial db
-    with open(r'./config.yaml') as file:
+    with open(r"./config.yaml") as file:
         config = yaml.load(file, Loader=yaml.FullLoader)
     params["graph"] = "complex"
     params["network"] = "eth"
@@ -2147,7 +2147,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         ):
                             # 0x26bae55868fed567c6f865259156ff1c56891f2c2bb87ba5cdfa1903d3823d18
                             # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-                            # WARN: Group processed
+                            # NOTE: Group processed
                             action = "swap ether by token" if group.iloc[1]["from"] == address_central else "swap token by ether"
                             # if group.iloc[1]["from"] == address_central:
                             #     action = "swap ether by token"
@@ -2191,8 +2191,8 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             # 0x4a7e69831f25c741b0837ba008daf16d6a4782573729ccbe1ce9486c420c54f7
                             # print(f"GROUP")
                             print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-                            # WARN: Group processed
-                            # WARN: There is a record “transfers” that is not shown but is in the group, due to the “break”.
+                            # NOTE: Group processed
+                            # NOTE: There is a record “transfers” that is not shown but is in the group, due to the “break”.
                             action = "swap ether for token"
                             # logger.info(colored(f"++ SWAP ETHER FOR TOKEN ==========================", 'light_cyan'))  # TODO: Checked
 
@@ -2223,8 +2223,8 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             #  0xf8f8a9326e6e6f7bcdaca207e4ece32998cb9022dfd61235939693d892c836d9
                             # print(f"{group}")
                             # print(f"{group[['type', 'from', 'to', 'value']]}")
-                            # WARN: group processed
-                            # WARN: there is a record “transfers” that is not shown but is in the group, due to the “break”.
+                            # NOTE: group processed
+                            # NOTE: there is a record “transfers” that is not shown but is in the group, due to the “break”.
                             action = "swap token by ether"
                             # logger.info(colored(f"++ SWAP TOKEN BY ETHER ===========================", 'light_cyan'))  # TODO: checked
 
@@ -2253,8 +2253,8 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             # 0xe7bd55ddf0b6cd170b59f724ce2297a5c28d5837e7968a0885300970a4c8e7a7
                             # print(f"{group}")
                             # print(f"{group[['type', 'from', 'to', 'value']]}")
-                            # WARN: group processed
-                            # WARN: there is a record “nfts” that is not shown but is in the group, due to the “break”.
+                            # NOTE: group processed
+                            # NOTE: there is a record “nfts” that is not shown but is in the group, due to the “break”.
                             action = "purchase nft with ether"
                             # logger.info(colored(f"++ PURCHASE NFT WITH ETHER =======================", 'light_cyan'))  # TODO: Checked
 
@@ -2439,10 +2439,9 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         #     # WARN: There is a record “internals” that is not shown but is in the group, due to the “break”.
                         #     logger.info(colored(f"++ BUY TOKEN WITH ETHER ==========================", "light_cyan"))  # NOTE: Checked
                         #     break
-                        elif ((group["type"] == "multitoken").any()) and ( # NOTE: NEW (Extend condition excluding nft (?))
+                        elif ((group["type"] == "multitoken").any()) and (  # NOTE: NEW (Extend condition excluding nft (?))
                             (group["type"] == "transfers").any()
                         ):
-                            # FIX: Follow HERE
                             # 0xf7557d9bf453561b48e523eba9ef8a364ea194e4b197c5cd50176ef108e5e06c
                             swap_token_by_multitoken = False
                             # print(f"GROUP")
@@ -2451,19 +2450,87 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             filter_df = group[group["type"].isin(["transfers", "multitoken"])].copy()
                             filter_df.loc[:, "group_key"] = filter_df.apply(lambda row: frozenset([row["from"], row["to"]]), axis=1)
                             grouped_dfs = {name: group.drop(columns="group_key") for name, group in filter_df.groupby("group_key")}
+                            print(grouped_dfs)
                             for key, grouped_df in grouped_dfs.items():
                                 # print(f"\n\n{grouped_df[['type', 'from', 'to', 'value', 'contractAddress']]}\n\n")
-                                if len(grouped_df) > 1:
+                                if len(grouped_df) > 1:  # NOTE: swap transfer multitoken
                                     swap_token_by_multitoken = True
+                                    action = "swap token by multitoken"
+
+                                    # Links
+                                    add_link(
+                                        grouped_df.iloc[0]["from"],
+                                        grouped_df.iloc[0]["to"],
+                                        grouped_df.iloc[0]["symbol"],
+                                        grouped_df.iloc[0]["name"],
+                                        grouped_df.iloc[0]["contractAddress"],
+                                        grouped_df.iloc[0]["valConv"],
+                                        action,
+                                        grouped_df.iloc[0]["type"],
+                                        node_create=True,
+                                    )
+                                    add_link(
+                                        grouped_df.iloc[-1]["from"],
+                                        grouped_df.iloc[-1]["to"],
+                                        grouped_df.iloc[-1]["symbol"],
+                                        grouped_df.iloc[-1]["name"],
+                                        grouped_df.iloc[-1]["contractAddress"],
+                                        grouped_df.iloc[-1]["valConv"],
+                                        action,
+                                        grouped_df.iloc[-1]["type"],
+                                        node_create=False,
+                                    )
+                                    # logger.info(colored(f"++ SWAP TRANSFER MULTITOKEN ======================", "light_cyan"))  # TODO: Checked
                             if swap_token_by_multitoken:
-                                logger.info(colored(f"++ SWAP TRANSFER MULTITOKEN ======================", "light_cyan"))  # TODO: Checked
+                                pass
+                                # logger.info(colored(f"++ SWAP TRANSFER MULTITOKEN ======================", "light_cyan"))  # TODO: Checked
                             else:
                                 logger.error(f"++ NOT DETECTED = {row['type']} = Multitoken =====")
                             break
-            #             elif (float(xvalue) != 0.0) and ("swap" in xfunc) and (xfrom_address == row['to'] == address_central) and (xto_address != row['from'] != row['contractAddress']):
-            #                 logger.info(colored(f"++ SWAP ETHER TO TK ==============================", 'light_cyan'))  # NOTE: Checked
-            #             elif (float(xvalue) == 0.0) and ("deposit" in xfunc) and (xfrom_address == row['from'] == address_central) and (xto_address == row['to'] != row['contractAddress']):
-            #                 logger.info(colored(f"++ DEPOSIT TOKEN =================================", 'light_cyan'))  # NOTE: Checked
+                        elif (
+                            (float(xvalue) != 0.0)
+                            and ("swap" in xfunc)
+                            and (xfrom_address == row["to"] == address_central)
+                            and (xto_address != row["from"] != row["contractAddress"])
+                        ):
+                            # 0xe3553ba5a5c4d40d578bb3eaf5e04f0de935528f7ff24d302470e962ce342de1
+                            # logger.info(colored(f"++ SWAP ETHER TO TK ==============================", "light_cyan"))  # NOTE: Checked
+                            action = "swap ether by token"
+
+                            # Links
+                            add_link(xfrom_address, xto_address, xsymbol, xname, "", xvalue, action, xtype, node_create=True)
+                            add_link(
+                                xto_address,
+                                xfrom_address,
+                                group.iloc[-1]["symbol"],
+                                group.iloc[-1]["name"],
+                                group.iloc[-1]["contractAddress"],
+                                group.iloc[-1]["valConv"],
+                                action,
+                                group.iloc[-1]["type"],
+                                node_create=False,
+                            )
+                        elif (
+                            (float(xvalue) == 0.0)
+                            and ("deposit" in xfunc)
+                            and (xfrom_address == row["from"] == address_central)
+                            and (xto_address == row["to"] != row["contractAddress"])
+                        ):
+                            # logger.info(colored(f"++ DEPOSIT TOKEN =================================", "light_cyan"))  # NOTE: Checked
+                            action = "deposit token"
+
+                            # Links
+                            add_link(
+                                xto_address,
+                                xfrom_address,
+                                group.iloc[-1]["symbol"],
+                                group.iloc[-1]["name"],
+                                group.iloc[-1]["contractAddress"],
+                                group.iloc[-1]["valConv"],
+                                action,
+                                group.iloc[-1]["type"],
+                                node_create=True,
+                            )
             #             elif (xfrom_address == row['from'] == address_central) and (xto_address == row['contractAddress']) and (row['to'] != '0x0000000000000000000000000000000000000000'):
             #                 logger.info(colored(f"++ TRANSFER TK FROM WA ===========================", 'light_cyan'))  # NOTE: Checked
             #             elif (xfrom_address == row['from'] == address_central) and (row['to'] != '0x0000000000000000000000000000000000000000') and ("liquidity" in xfunc.lower()): # 0xf8c274a35c37916eb0cd52355f68ff68252b28181dec64c074c33a537371f688
