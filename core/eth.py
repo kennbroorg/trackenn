@@ -1870,6 +1870,7 @@ def get_tags_labels(conn, address_central):
 
 
 def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[], df_trf=[], df_nft=[], df_mul=[]):
+    address_central = address_central.lower()
     nodes = {}
     links = {}
     stat_tot = 0
@@ -1957,7 +1958,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
         log_format = "%(asctime)s [%(filename)s:%(lineno)d] %(levelname)s %(message)s"
         coloredlogs.install(level=params["config"]["level"], fmt=log_format, logger=logger)
         logger.propagate = False  # INFO: To prevent duplicates with flask
-        address_central = params["address"]
+        address_central = params["address"].lower()
 
     logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
     logger.debug(f"+ Address: {address_central}")
@@ -2312,6 +2313,9 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             )
                         )
 
+                        # if (hash == "0xf14dfe2372837a17b43451969d318308db1de93897e27c2669d7ea2a2f3fa393"):
+                        #     __import__('pdb').set_trace()
+
                         # TODO: Exclude nfts and multitoken
                         if (
                             (float(xvalue) == 0.0)
@@ -2531,33 +2535,190 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                                 group.iloc[-1]["type"],
                                 node_create=True,
                             )
-            #             elif (xfrom_address == row['from'] == address_central) and (xto_address == row['contractAddress']) and (row['to'] != '0x0000000000000000000000000000000000000000'):
-            #                 logger.info(colored(f"++ TRANSFER TK FROM WA ===========================", 'light_cyan'))  # NOTE: Checked
-            #             elif (xfrom_address == row['from'] == address_central) and (row['to'] != '0x0000000000000000000000000000000000000000') and ("liquidity" in xfunc.lower()): # 0xf8c274a35c37916eb0cd52355f68ff68252b28181dec64c074c33a537371f688
-            #                 logger.info(colored(f"++ LIQUIDITY FROM WA =============================", 'light_cyan'))  # TODO: Checked
-            #             elif (xfrom_address == row['to'] == address_central) and (xto_address == row['from']) and (row['to'] != '0x0000000000000000000000000000000000000000'):
-            #                 logger.info(colored(f"++ TRANSFER TK TO WA ===========================", 'light_cyan'))  # NOTE: Checked
-            #             elif (xfrom_address == row['to'] == address_central) and ('0x0000000000000000000000000000000000000000' == row['from']): # 0xf8c274a35c37916eb0cd52355f68ff68252b28181dec64c074c33a537371f688
-            #                 logger.error(f"++ NOT NECESARY ================================")  # TODO: Checked
-            #             elif (xfrom_address == row['from'] == address_central) and ('0x0000000000000000000000000000000000000000' == row['to']): # 0xed24c36025e354558cd0ff7969351757dbde659bdad0e006e3dfddce0f5a9e9f
-            #                 logger.error(f"++ NOT NECESARY ================================")  # TODO: Checked
-            #             elif (xfrom_address == row['to'] == address_central) and ("exit" in xfunc):  # 0xf14dfe2372837a17b43451969d318308db1de93897e27c2669d7ea2a2f3fa393
-            #                 # WARN: Determine if it's always a bridging
-            #                 logger.info(colored(f"++ BRIDGING (?) ================================", 'light_cyan'))  # TODO: Checked
-            #             elif ("withdraw" in xfunc) and (xfrom_address == row['to'] == address_central) and (xto_address == row['from']):
-            #                 logger.info(colored(f"++ WITHDRAW TRANSFER =(Do more research)==========", 'light_cyan'))  # TODO: Checked
-            #             elif ("stake" in xfunc) and (xfrom_address == row['from'] == address_central):  # 0xe944230ad186b7849ef6e3fbf79e12ddcba2d08d525ce05572bf759ebd694bab
-            #                 logger.info(colored(f"++ STAKE TOKEN ===================================", 'light_cyan'))  # TODO: Checked
-            #             elif (xfrom_address == row['to'] == address_central):  # 0xdfe9f6c611b98a1b9c8fb1573152b02a82a69a1cb5437847357f89722c84ba41
-            #                 # WARN: Super generic
-            #                 logger.info(colored(f"++ TRANSFER TK TO WA ======(Generic)============", 'light_cyan'))  # TODO: Checked
-            #             elif (xfrom_address == row['from'] == address_central):  # 0xe14b6581a3f101a9dc0de191662b5f5bec4b39d3fe391605527853040e1a2a00
-            #                 # WARN: Super generic
-            #                 logger.info(colored(f"++ TRANSFER TK FROM WA ====(Generic)============", 'light_cyan'))  # TODO: Checked
-            #             else:
-            #                 logger.error(f"++ NOT DETECTED = {row['type']} ==================")
-            #                 logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-            #                 break
+                        elif (
+                            (xfrom_address == row["from"] == address_central)
+                            and (xto_address == row["contractAddress"])
+                            and (row["to"] != "0x0000000000000000000000000000000000000000")
+                        ):
+                            # 0xf01325b1b4c10b4cbe86c94cf65e459dde587b86bcdcbe50beaa8fa94df4b7e8
+                            # logger.info(colored(f"++ TRANSFER TK FROM WA ===========================", "light_cyan"))  # NOTE: Checked
+                            action = "transfer tk from wa"
+
+                            # NOTE: From wallet to wallet
+
+                            # Nodes
+                            node_address = row["to"]
+                            if (node_address not in nodes) and (node_address not in nodes_db):
+                                tag = tags_dict.get(node_address, [])  # Get tag
+                                label = labels_dict.get(node_address, [])  # Get label
+                                add_nodes(node_address, tag, label, contract=False)
+                            # Links
+                            add_link(
+                                xfrom_address,
+                                row["to"],
+                                row["symbol"],
+                                row["name"],
+                                row["contractAddress"],
+                                row["valConv"],
+                                action,
+                                row["type"],
+                                node_create=True,
+                            )
+
+                        elif (
+                            (xfrom_address == row["from"] == address_central)
+                            and (row["from"] != "0x0000000000000000000000000000000000000000")
+                            and (row["to"] != "0x0000000000000000000000000000000000000000")
+                            and ("liquidity" in xfunc.lower())
+                        ):  # 0xf8c274a35c37916eb0cd52355f68ff68252b28181dec64c074c33a537371f688
+                            # logger.info(colored(f"++ LIQUIDITY FROM WA =============================", "light_cyan"))  # NOTE: Checked
+                            action = "add liquidity"
+
+                            # Links
+                            add_link(
+                                xfrom_address,
+                                row["to"],
+                                row["symbol"],
+                                row["name"],
+                                row["contractAddress"],
+                                row["valConv"],
+                                action,
+                                row["type"],
+                                node_create=True,
+                            )
+
+                        elif (xfrom_address == row["to"] == address_central) and (
+                            "0x0000000000000000000000000000000000000000" == row["from"]
+                        ):  # 0xf8c274a35c37916eb0cd52355f68ff68252b28181dec64c074c33a537371f688
+                            # logger.error(f"++ NOT NECESARY ================================")  # NOTE: Checked
+                            pass
+
+                        elif (
+                            (xfrom_address == row["to"] == address_central)
+                            and (xto_address == row["from"])
+                            and (row["to"] != "0x0000000000000000000000000000000000000000")
+                        ):  # 0xfe45d513dc4fc8fb844f7a4b4375b15e3e7ac0a1923fb8e9cf70b6428968a408
+                            # logger.info(colored(f"++ TRANSFER TK TO WA ===========================", "light_cyan"))  # NOTE: Checked
+                            action = "transfer tk to wa"
+
+                            # Links
+                            add_link(
+                                xfrom_address,
+                                xto_address,
+                                row["symbol"],
+                                row["name"],
+                                row["contractAddress"],
+                                row["valConv"],
+                                action,
+                                row["type"],
+                                node_create=True,
+                            )
+
+                        elif (xfrom_address == row["from"] == address_central) and (
+                            "0x0000000000000000000000000000000000000000" == row["to"]
+                        ):  # 0xed24c36025e354558cd0ff7969351757dbde659bdad0e006e3dfddce0f5a9e9f
+                            # logger.error(f"++ NOT NECESARY ================================")  # TODO: Do it in the future
+                            pass
+
+                        elif (xfrom_address == row["to"] == address_central) and (
+                            "exit" in xfunc
+                        ):  # 0xf14dfe2372837a17b43451969d318308db1de93897e27c2669d7ea2a2f3fa393
+                            # WARN: Determine if it's always a bridging
+                            # logger.info(colored(f"++ BRIDGING (?) ================================", "light_cyan"))  # TODO: Checked
+                            action = "bridging in"
+
+                            # Links
+                            add_link(
+                                xto_address,
+                                row["to"],
+                                row["symbol"],
+                                row["name"],
+                                row["contractAddress"],
+                                row["valConv"],
+                                action,
+                                row["type"],
+                                node_create=True,
+                            )
+                            # WARN: Bridging out?
+
+                        elif ("withdraw" in xfunc) and (xfrom_address == row["to"] == address_central) and (xto_address == row["from"]):
+                            # 0xa467f35aa8a63fbb853ce751490e0fac24fd2933414ad54f15daad3ef78bce49
+                            # logger.info(colored(f"++ WITHDRAW TRANSFER =(Do more research)==========", "light_cyan"))  # TODO: Checked
+                            action = "transfer tk to wa (withdraw)"
+
+                            # Links
+                            add_link(
+                                xto_address,
+                                xfrom_address,
+                                row["symbol"],
+                                row["name"],
+                                row["contractAddress"],
+                                row["valConv"],
+                                action,
+                                row["type"],
+                                node_create=True,
+                            )
+
+                        elif ("stake" in xfunc) and (xfrom_address == row["from"] == address_central):
+                            # 0xe944230ad186b7849ef6e3fbf79e12ddcba2d08d525ce05572bf759ebd694bab
+                            # logger.info(colored(f"++ STAKE TOKEN ===================================", 'light_cyan'))  # NOTE: Checked
+                            action = "staking"
+
+                            # Links
+                            add_link(
+                                xfrom_address,
+                                row["to"],
+                                row["symbol"],
+                                row["name"],
+                                row["contractAddress"],
+                                row["valConv"],
+                                action,
+                                row["type"],
+                                node_create=True,
+                            )
+
+                        elif xfrom_address == row["to"] == address_central:
+                            # 0xdfe9f6c611b98a1b9c8fb1573152b02a82a69a1cb5437847357f89722c84ba41
+                            # WARN: Super generic
+                            # logger.info(colored(f"++ TRANSFER TK TO WA ======(Generic)============", 'light_cyan'))  # NOTE: Checked
+                            action = "transfer tk to wa (generic)"
+
+                            # Links
+                            add_link(
+                                xto_address,
+                                xfrom_address,
+                                row["symbol"],
+                                row["name"],
+                                row["contractAddress"],
+                                row["valConv"],
+                                action,
+                                row["type"],
+                                node_create=True,
+                            )
+
+                        elif xfrom_address == row["from"] == address_central:  
+                            # 0xe14b6581a3f101a9dc0de191662b5f5bec4b39d3fe391605527853040e1a2a00
+                            # WARN: Super generic
+                            # logger.info(colored(f"++ TRANSFER TK FROM WA ====(Generic)============", "light_cyan"))  # NOTE: Checked
+                            action = "transfer tk from wa (generic)"
+
+                            # Links
+                            add_link(
+                                xfrom_address,
+                                xto_address,
+                                row["symbol"],
+                                row["name"],
+                                row["contractAddress"],
+                                row["valConv"],
+                                action,
+                                row["type"],
+                                node_create=True,
+                            )
+
+                        else:
+                            logger.error(f"++ NOT DETECTED = {row['type']} ==================")
+                            logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+                            break
 
             #         # INFO: Nfts
             #         elif (row['type'] == 'nfts'):
