@@ -1929,7 +1929,16 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                     else:
                         resp = add_nodes(node_address, tag, label, contract=True)
 
-        key = f"{from_address}->{to_address}-{symbol}"
+        if type == "nfts":  # NOTE: Add nfts condition
+            key = f"{from_address}->{to_address}-{value}"
+            # if action == "mint nft":
+            #     __import__('pdb').set_trace()
+            # print(key)
+        elif type == "multitokens":  # TODO: Add multitoken nfts condition. How?
+            key = f"{from_address}->{to_address}-{symbol}"
+        else:
+            key = f"{from_address}->{to_address}-{symbol}"
+
         # key = (from_address, to_address, symbol)
         # if (key not in links) and (key not in links_db):
         if key not in links:
@@ -2018,6 +2027,8 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
     # for index, row in df_all.iterrows():
     grouped = df_all.groupby("hash")
 
+    inc = 0
+
     for hash, group in grouped:
         group_size = len(group)
         has_transaction = "transaction" in group["type"].values
@@ -2082,7 +2093,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
 
         # INFO: OTHERS
         elif (group_size > 1) and (has_transaction):
-            logger.info(colored("== COMPLEX =======================================", "cyan"))
+            logger.debug(colored("== COMPLEX =======================================", "cyan"))
             xfrom_address = xto_address = xsymbol = xname = xfunc = xtype = xparam = ""
             xvalue = 0
             for _, row in group.iterrows():
@@ -2097,14 +2108,14 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                     if row["functionName"]:
                         xfunc = row["functionName"].split("(")[0]
                         xparam = row["functionName"].split("(")[1]
-                    logger.debug(
-                        colored(
-                            f"== DETAIL\nTYPE: {row['type']} - HASH: {hash}\nXFROM: {xfrom_address} -> XTO: {xto_address} "
-                            + f"<--> CONTRACT: {xcontract}\nXVALUE: {xvalue} - XSYMBOL: {xsymbol} "
-                            + f"- XMETHOD: {row['methodId']} - XFUNC: {xfunc}-{xparam}",
-                            "cyan",
-                        )
-                    )
+                    # logger.debug(
+                    #     colored(
+                    #         f"== DETAIL\nTYPE: {row['type']} - HASH: {hash}\nXFROM: {xfrom_address} -> XTO: {xto_address} "
+                    #         + f"<--> CONTRACT: {xcontract}\nXVALUE: {xvalue} - XSYMBOL: {xsymbol} "
+                    #         + f"- XMETHOD: {row['methodId']} - XFUNC: {xfunc}-{xparam}",
+                    #         "cyan",
+                    #     )
+                    # )
                 else:
                     # logger.debug(colored(f"   ERC - {row['type']} =============================== \n" +
                     #                      f"FROM: {row['from']} -> TO: {row['to']} <-> CON: {row['contractAddress']}\n" +
@@ -2120,26 +2131,13 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                     if row["type"] == "internals":
                         if ("withdraw" in xfunc) and (xfrom_address == row["to"] == address_central) and (xto_address == row["from"]):
                             # 0x344bc8fcc078e736944f728d29f1a5a04303588c793417143e8f5852e5e04b22
-                            # logger.info(colored(f"++ WITHDRAW INTERNAL =(Do more research)==========", 'light_cyan'))  # NOTE: Checked
+                            # logger.debug(colored(f"++ WITHDRAW INTERNAL =(Do more research)==========", 'light_cyan'))  # NOTE: Checked
                             action = "withdraw internal (unwrap)"
-                            # # Nodes
-                            # node_address = xfrom_address
-                            # if (node_address not in nodes) and (node_address not in nodes_db):
-                            #     tag = tags_dict.get(node_address, [])  # Get tag
-                            #     label = labels_dict.get(node_address, [])  # Get label
-                            #     stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=False)
-
-                            # node_address = xto_address
-                            # if (node_address not in nodes) and (node_address not in nodes_db):
-                            #     tag = tags_dict.get(node_address, [])  # Get tag
-                            #     label = labels_dict.get(node_address, [])  # Get label
-                            #     stat_con, stat_wal = add_nodes(node_address, tag, label, stat_con, stat_wal, contract=True)
 
                             # Links
                             add_link(xfrom_address, xto_address, xsymbol, xname, "", xvalue, action, xtype, node_create=True)
                             add_link(xto_address, xfrom_address, symbol, name, "", value, action, row["type"], node_create=False)
 
-                        # elif (float(xvalue) == 0.0) and ("swap" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to']) and ((group['type'] == 'internals').any()) and ((group['type'] == 'transfers').any()):
                         elif (
                             ("swap" in xfunc)
                             and (group.iloc[1]["from"] == group.iloc[-1]["to"])
@@ -2150,11 +2148,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
                             # NOTE: Group processed
                             action = "swap ether by token" if group.iloc[1]["from"] == address_central else "swap token by ether"
-                            # if group.iloc[1]["from"] == address_central:
-                            #     action = "swap ether by token"
-                            # else:
-                            #     action = "swap token by ether"
-                            # logger.info(colored(f"++ BUY TOKEN WITH ETHER ==========================", 'light_cyan'))  # NOTE: Checked
+                            # logger.debug(colored(f"++ BUY TOKEN WITH ETHER ==========================", 'light_cyan'))  # NOTE: Checked
 
                             # Links
                             add_link(
@@ -2191,11 +2185,11 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         ):  # 0xf9358c40ad6b71c12d33139504c462c73d822ff58aaf968374858e139da0740b
                             # 0x4a7e69831f25c741b0837ba008daf16d6a4782573729ccbe1ce9486c420c54f7
                             # print(f"GROUP")
-                            print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+                            # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
                             # NOTE: Group processed
                             # NOTE: There is a record “transfers” that is not shown but is in the group, due to the “break”.
                             action = "swap ether for token"
-                            # logger.info(colored(f"++ SWAP ETHER FOR TOKEN ==========================", 'light_cyan'))  # TODO: Checked
+                            # logger.debug(colored(f"++ SWAP ETHER FOR TOKEN ==========================", 'light_cyan'))  # NOTE: Checked
 
                             # Links
                             add_link(xfrom_address, xto_address, xsymbol, xname, "", value, action, "transaction", node_create=True)
@@ -2227,7 +2221,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             # NOTE: group processed
                             # NOTE: there is a record “transfers” that is not shown but is in the group, due to the “break”.
                             action = "swap token by ether"
-                            # logger.info(colored(f"++ SWAP TOKEN BY ETHER ===========================", 'light_cyan'))  # TODO: checked
+                            # logger.debug(colored(f"++ SWAP TOKEN BY ETHER ===========================", 'light_cyan'))  # NOTE: checked
 
                             # Links
                             add_link(xfrom_address, xto_address, xsymbol, xname, "", value, action, "transaction", node_create=True)
@@ -2245,6 +2239,49 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             break
 
                         elif (
+                            (xfrom_address == row["to"] == address_central)
+                            and (xvalue == 0)
+                            and (group["type"] == "nfts").any()
+                            and (group.iloc[-1]["from"] == address_central)
+                        ):
+                            # 0x11eca391dfa1b0ce3ab75a96de135234b752e89e9289919ca1d3b9922a0ae256
+                            # logger.debug(colored(f"++ SWAP NFT FOR TOKEN INTERNAL =================", 'light_cyan'))  # TODO: Checked
+                            action = "bid" if "bid" in xfunc.lower() else "not detected"
+
+                            # Links
+                            add_link(
+                                xto_address,
+                                xfrom_address,
+                                group.iloc[1]["symbol"],
+                                group.iloc[1]["name"],
+                                group.iloc[1]["contractAddress"],
+                                group.iloc[1]["valConv"],
+                                action,
+                                group.iloc[1]["type"],
+                                node_create=True,
+                            )
+
+                            # Node
+                            node_address = group.iloc[-1]["to"]
+                            if (node_address not in nodes) and (node_address not in nodes_db):
+                                tag = tags_dict.get(node_address, [])  # Get tag
+                                label = labels_dict.get(node_address, [])  # Get label
+                                add_nodes(node_address, tag, label, contract=False)  # TODO: Verify that always is a wallet
+
+                            add_link(
+                                group.iloc[-1]["from"],
+                                group.iloc[-1]["to"],
+                                group.iloc[-1]["symbol"],
+                                group.iloc[-1]["name"],
+                                group.iloc[-1]["contractAddress"],
+                                group.iloc[-1]["valConv"],
+                                action,
+                                "nfts",
+                                node_create=True,
+                            )
+                            break
+
+                        elif (
                             ("purchase" in xfunc)
                             and (xfrom_address == row["to"] == address_central)
                             and (xvalue != 0)
@@ -2257,7 +2294,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             # NOTE: group processed
                             # NOTE: there is a record “nfts” that is not shown but is in the group, due to the “break”.
                             action = "purchase nft with ether"
-                            # logger.info(colored(f"++ PURCHASE NFT WITH ETHER =======================", 'light_cyan'))  # TODO: Checked
+                            # logger.debug(colored(f"++ PURCHASE NFT WITH ETHER =======================", 'light_cyan'))  # NOTE: Checked
 
                             # Links
                             add_link(xfrom_address, xto_address, xsymbol, xname, "", xvalue - value, action, "transaction", node_create=True)
@@ -2277,21 +2314,21 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         elif ("exit" in xfunc) and (xfrom_address == row["to"]) and (xvalue == 0):
                             # 0xef233f6abc71024c9894f3b83cb03c94a06efc1b3f7befac95017509a907b6f4
                             action = "bridging in"
-                            # logger.info(colored(f"++ BRIDGING (WITHDRAW) =(?)=======================", 'light_cyan'))  # NOTE: Checked - Bridging
+                            # logger.debug(colored(f"++ BRIDGING (WITHDRAW) =(?)=======================", 'light_cyan'))  # NOTE: Checked - Bridging
 
                             # Links
                             add_link(row["from"], row["to"], row["symbol"], row["name"], "", row["valConv"], action, row["type"], node_create=True)
 
                         elif ("purchase" in xfunc) and (xfrom_address == row["to"]) and (xvalue != 0):  # NOTE: Generic
                             # ?
-                            logger.info(colored(f"++ {hash}", "red"))  # FIX: Checked
-                            logger.info(colored("++ PURCHASE WITH ETHER ===========================", "light_cyan"))  # TODO: Checked
+                            logger.debug(colored(f"++ {hash}", "red"))  # FIX: Checked
+                            logger.debug(colored("++ PURCHASE WITH ETHER ===========================", "light_cyan"))  # TODO: Checked
 
                         elif xfrom_address == row["to"] == address_central:
                             # 0xc5d30d442ed9899304b6234230797cee8b0c0066407a5294a9531d758a2732c5
                             # WARN: Super generic
                             action = "Transfer ether to wa"
-                            # logger.info(colored(f"++ TRANSFER ETHER TO WA ===(Generic)============", 'light_cyan'))  # TODO: Checked
+                            # logger.debug(colored(f"++ TRANSFER ETHER TO WA ===(Generic)============", 'light_cyan'))  # NOTE: Checked
 
                             # Links
                             add_link(row["from"], row["to"], row["symbol"], row["name"], "", row["valConv"], action, row["type"], node_create=True)
@@ -2303,19 +2340,6 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
 
                     # INFO: Transfers
                     elif row["type"] == "transfers":
-                        # FIX: Remove after code
-                        logger.debug(
-                            colored(
-                                f"   ERC - {row['type']} =============================== \n"
-                                + f"FROM: {row['from']} -> TO: {row['to']} <-> CON: {row['contractAddress']}\n"
-                                + f"VALUE: {row['valConv']} - SYMBOL: {row['symbol']} - FUNC: {row['functionName']}",
-                                "cyan",
-                            )
-                        )
-
-                        # if (hash == "0xf14dfe2372837a17b43451969d318308db1de93897e27c2669d7ea2a2f3fa393"):
-                        #     __import__('pdb').set_trace()
-
                         # TODO: Exclude nfts and multitoken
                         if (
                             (float(xvalue) == 0.0)
@@ -2327,7 +2351,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             # WARN: Group processed
                             # print(f"{group[['from', 'to', 'value', 'contractAddress']]}")
                             action = "swap tokens"
-                            logger.info(colored("++ SWAP TOKEN ====================================", "light_cyan"))  # NOTE: Checked
+                            # logger.debug(colored("++ SWAP TOKEN ====================================", "light_cyan"))  # NOTE: Checked
 
                             # # Nodes
                             # node_address = xfrom_address
@@ -2376,7 +2400,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         #     print(f"GROUP")
                         #     print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
                         #     # WARN: Group processed
-                        #     logger.info(colored(f"++ TRANSFER TOKEN BY NFT =========================", 'light_cyan'))  # TODO: Determine TOKEN BY NFT or NFT BY TOKEN
+                        #     logger.debug(colored(f"++ TRANSFER TOKEN BY NFT =========================", 'light_cyan'))  # TODO: Determine TOKEN BY NFT or NFT BY TOKEN
                         #     break
                         elif (
                             (float(xvalue) == 0.0)
@@ -2387,10 +2411,10 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         ):
                             # 0xf1b8c703a12b2f3f9c582720d2b7cb0052c042743f74a912e625ec4208c75ce4
                             # print(f"GROUP")
-                            print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+                            # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
                             # WARN: Group processed
                             action = "sell nft to wallet"
-                            # logger.info(colored("++ SELL NFT TO WALLET =(G)========================", "light_cyan"))  # NOTE: Checked
+                            # logger.debug(colored("++ SELL NFT TO WALLET =(G)========================", "light_cyan"))  # NOTE: Checked
 
                             # Links
                             add_link(
@@ -2412,7 +2436,8 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                                 group.iloc[-1]["contractAddress"],
                                 group.iloc[-1]["valConv"],
                                 action,
-                                group.iloc[-1]["type"],
+                                "nfts",
+                                # group.iloc[-1]["type"],
                                 node_create=False,
                             )
                             break
@@ -2421,7 +2446,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             # 0xfcf7f2cfc1add7e3837c8d1ee1de783f5f792d08d26bf6403ba1e17c8e906d1c
                             # WARN: Group processed
                             action = "borrow"
-                            # logger.info(colored(f"++ BORROW TOKEN ==================================", "light_cyan"))  # NOTE: Checked
+                            # logger.debug(colored(f"++ BORROW TOKEN ==================================", "light_cyan"))  # NOTE: Checked
 
                             # Links
                             add_link(
@@ -2441,7 +2466,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         #     # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
                         #     # WARN: Group processed
                         #     # WARN: There is a record “internals” that is not shown but is in the group, due to the “break”.
-                        #     logger.info(colored(f"++ BUY TOKEN WITH ETHER ==========================", "light_cyan"))  # NOTE: Checked
+                        #     logger.debug(colored(f"++ BUY TOKEN WITH ETHER ==========================", "light_cyan"))  # NOTE: Checked
                         #     break
                         elif ((group["type"] == "multitoken").any()) and (  # NOTE: NEW (Extend condition excluding nft (?))
                             (group["type"] == "transfers").any()
@@ -2454,7 +2479,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             filter_df = group[group["type"].isin(["transfers", "multitoken"])].copy()
                             filter_df.loc[:, "group_key"] = filter_df.apply(lambda row: frozenset([row["from"], row["to"]]), axis=1)
                             grouped_dfs = {name: group.drop(columns="group_key") for name, group in filter_df.groupby("group_key")}
-                            print(grouped_dfs)
+                            # print(grouped_dfs)
                             for key, grouped_df in grouped_dfs.items():
                                 # print(f"\n\n{grouped_df[['type', 'from', 'to', 'value', 'contractAddress']]}\n\n")
                                 if len(grouped_df) > 1:  # NOTE: swap transfer multitoken
@@ -2484,10 +2509,10 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                                         grouped_df.iloc[-1]["type"],
                                         node_create=False,
                                     )
-                                    # logger.info(colored(f"++ SWAP TRANSFER MULTITOKEN ======================", "light_cyan"))  # TODO: Checked
+                                    # logger.debug(colored(f"++ SWAP TRANSFER MULTITOKEN ======================", "light_cyan"))  # TODO: Checked
                             if swap_token_by_multitoken:
                                 pass
-                                # logger.info(colored(f"++ SWAP TRANSFER MULTITOKEN ======================", "light_cyan"))  # TODO: Checked
+                                # logger.debug(colored(f"++ SWAP TRANSFER MULTITOKEN ======================", "light_cyan"))  # TODO: Checked
                             else:
                                 logger.error(f"++ NOT DETECTED = {row['type']} = Multitoken =====")
                             break
@@ -2498,7 +2523,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             and (xto_address != row["from"] != row["contractAddress"])
                         ):
                             # 0xe3553ba5a5c4d40d578bb3eaf5e04f0de935528f7ff24d302470e962ce342de1
-                            # logger.info(colored(f"++ SWAP ETHER TO TK ==============================", "light_cyan"))  # NOTE: Checked
+                            # logger.debug(colored(f"++ SWAP ETHER TO TK ==============================", "light_cyan"))  # NOTE: Checked
                             action = "swap ether by token"
 
                             # Links
@@ -2520,7 +2545,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             and (xfrom_address == row["from"] == address_central)
                             and (xto_address == row["to"] != row["contractAddress"])
                         ):
-                            # logger.info(colored(f"++ DEPOSIT TOKEN =================================", "light_cyan"))  # NOTE: Checked
+                            # logger.debug(colored(f"++ DEPOSIT TOKEN =================================", "light_cyan"))  # NOTE: Checked
                             action = "deposit token"
 
                             # Links
@@ -2541,7 +2566,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             and (row["to"] != "0x0000000000000000000000000000000000000000")
                         ):
                             # 0xf01325b1b4c10b4cbe86c94cf65e459dde587b86bcdcbe50beaa8fa94df4b7e8
-                            # logger.info(colored(f"++ TRANSFER TK FROM WA ===========================", "light_cyan"))  # NOTE: Checked
+                            # logger.debug(colored(f"++ TRANSFER TK FROM WA ===========================", "light_cyan"))  # NOTE: Checked
                             action = "transfer tk from wa"
 
                             # NOTE: From wallet to wallet
@@ -2571,7 +2596,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             and (row["to"] != "0x0000000000000000000000000000000000000000")
                             and ("liquidity" in xfunc.lower())
                         ):  # 0xf8c274a35c37916eb0cd52355f68ff68252b28181dec64c074c33a537371f688
-                            # logger.info(colored(f"++ LIQUIDITY FROM WA =============================", "light_cyan"))  # NOTE: Checked
+                            # logger.debug(colored(f"++ LIQUIDITY FROM WA =============================", "light_cyan"))  # NOTE: Checked
                             action = "add liquidity"
 
                             # Links
@@ -2598,7 +2623,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             and (xto_address == row["from"])
                             and (row["to"] != "0x0000000000000000000000000000000000000000")
                         ):  # 0xfe45d513dc4fc8fb844f7a4b4375b15e3e7ac0a1923fb8e9cf70b6428968a408
-                            # logger.info(colored(f"++ TRANSFER TK TO WA ===========================", "light_cyan"))  # NOTE: Checked
+                            # logger.debug(colored(f"++ TRANSFER TK TO WA ===========================", "light_cyan"))  # NOTE: Checked
                             action = "transfer tk to wa"
 
                             # Links
@@ -2624,7 +2649,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             "exit" in xfunc
                         ):  # 0xf14dfe2372837a17b43451969d318308db1de93897e27c2669d7ea2a2f3fa393
                             # WARN: Determine if it's always a bridging
-                            # logger.info(colored(f"++ BRIDGING (?) ================================", "light_cyan"))  # TODO: Checked
+                            # logger.debug(colored(f"++ BRIDGING (?) ================================", "light_cyan"))  # TODO: Checked
                             action = "bridging in"
 
                             # Links
@@ -2643,7 +2668,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
 
                         elif ("withdraw" in xfunc) and (xfrom_address == row["to"] == address_central) and (xto_address == row["from"]):
                             # 0xa467f35aa8a63fbb853ce751490e0fac24fd2933414ad54f15daad3ef78bce49
-                            # logger.info(colored(f"++ WITHDRAW TRANSFER =(Do more research)==========", "light_cyan"))  # TODO: Checked
+                            # logger.debug(colored(f"++ WITHDRAW TRANSFER =(Do more research)==========", "light_cyan"))  # TODO: Checked
                             action = "transfer tk to wa (withdraw)"
 
                             # Links
@@ -2661,7 +2686,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
 
                         elif ("stake" in xfunc) and (xfrom_address == row["from"] == address_central):
                             # 0xe944230ad186b7849ef6e3fbf79e12ddcba2d08d525ce05572bf759ebd694bab
-                            # logger.info(colored(f"++ STAKE TOKEN ===================================", 'light_cyan'))  # NOTE: Checked
+                            # logger.debug(colored(f"++ STAKE TOKEN ===================================", 'light_cyan'))  # NOTE: Checked
                             action = "staking"
 
                             # Links
@@ -2680,7 +2705,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         elif xfrom_address == row["to"] == address_central:
                             # 0xdfe9f6c611b98a1b9c8fb1573152b02a82a69a1cb5437847357f89722c84ba41
                             # WARN: Super generic
-                            # logger.info(colored(f"++ TRANSFER TK TO WA ======(Generic)============", 'light_cyan'))  # NOTE: Checked
+                            # logger.debug(colored(f"++ TRANSFER TK TO WA ======(Generic)============", 'light_cyan'))  # NOTE: Checked
                             action = "transfer tk to wa (generic)"
 
                             # Links
@@ -2696,10 +2721,10 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                                 node_create=True,
                             )
 
-                        elif xfrom_address == row["from"] == address_central:  
+                        elif xfrom_address == row["from"] == address_central:
                             # 0xe14b6581a3f101a9dc0de191662b5f5bec4b39d3fe391605527853040e1a2a00
                             # WARN: Super generic
-                            # logger.info(colored(f"++ TRANSFER TK FROM WA ====(Generic)============", "light_cyan"))  # NOTE: Checked
+                            # logger.debug(colored(f"++ TRANSFER TK FROM WA ====(Generic)============", "light_cyan"))  # NOTE: Checked
                             action = "transfer tk from wa (generic)"
 
                             # Links
@@ -2720,57 +2745,255 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
                             break
 
-            #         # INFO: Nfts
-            #         elif (row['type'] == 'nfts'):
-            #             if (float(xvalue) == 0.0) and ("atomicMatch" in xfunc) and (group.iloc[1]['from'] == group.iloc[-1]['to']) and ((group['type'] == 'transfers').any()):
-            #                 # print(f"GROUP")
-            #                 # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-            #                 # WARN: Group processed
-            #                 logger.info(colored(f"++ TRANSFER TOKEN BY NFT =========================", 'light_cyan'))  # TODO: Determine TOKEN BY NFT or NFT BY TOKEN
-            #                 break
-            #             elif (xfrom_address == row['to'] == address_central) and (row['from'] == '0x0000000000000000000000000000000000000000'):
-            #                 logger.info(colored(f"++ MINT NFT ======================================", 'light_cyan'))  # NOTE: Checked
-            #             elif (xfrom_address == row['from'] == address_central) and (row['to'] == '0x0000000000000000000000000000000000000000'):  # 0x83a7a3f749d400f3d33adee0e4a055901015b8c7dda9bfdac0706183f4001071
-            #                 logger.info(colored(f"++ BURN NFT ======================================", 'light_cyan'))  # TODO: Checked
-            #             elif (xfrom_address == row['from'] == address_central) and (xto_address == row['contractAddress']) and (row['to'] != '0x0000000000000000000000000000000000000000'):
-            #                 logger.info(colored(f"++ TRANSFER NFT FROM WA ==========================", 'light_cyan'))  # NOTE: Checked
-            #             elif (xfrom_address == row['from'] == address_central) and (row['to'] != '0x0000ea00000000000000000000000000000000000'):
-            #                 # WARN: Similar to previous block but between particulars
-            #                 logger.info(colored(f"++ TRANSFER NFT FROM WA =(Particulars)============", 'light_cyan'))  # TODO: Checked
-            #             elif (xfrom_address == row['to'] == address_central) and (xto_address != row['to'] != row['contractAddress']) and (row['from'] != '0x0000000000000000000000000000000000000000'):
-            #                 logger.info(colored(f"++ BUY NFT =======================================", 'light_cyan'))  # NOTE: Checked
-            #             else:
-            #                 logger.error(f"++ NOT DETECTED = {row['type']} ==================")
-            #                 logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-            #                 break
+                    # INFO: Nfts
+                    elif row["type"] == "nfts":
+                        # if (
+                        #     (float(xvalue) == 0.0)
+                        #     and ("atomicMatch" in xfunc)
+                        #     and (group.iloc[1]["from"] == group.iloc[-1]["to"])
+                        #     and ((group["type"] == "transfers").any())
+                        # ):
+                        #     # print(f"GROUP")
+                        #     # print(f"{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+                        #     # WARN: Group processed
+                        #     logger.debug(colored(f"++ TRANSFER TOKEN BY NFT =================", "light_cyan"))  # TODO: Checked
+                        #     # TODO: Determine TOKEN BY NFT or NFT BY TOKEN
+                        #     break
+                        # elif (xfrom_address == row["to"] == address_central) and (row["from"] == "0x0000000000000000000000000000000000000000"):
+                        if (xfrom_address == row["to"] == address_central) and (row["from"] == "0x0000000000000000000000000000000000000000"):
+                            # 0xe38cd8174c029b1d0b452a499bb9e62de2402319fc9f9514ff5059c79d220119
+                            # logger.debug(colored(f"++ MINT NFT ======================================", "light_cyan"))  # NOTE: Checked
+                            action = "mint nft"
+                            add_link(
+                                xto_address,
+                                xfrom_address,
+                                row["symbol"],
+                                row["name"],
+                                row["contractAddress"],
+                                row["value"],
+                                action,
+                                row["type"],
+                                node_create=True,
+                            )
 
-            #         # INFO: Multitoken
-            #         elif (row['type'] == 'multitoken'):
-            #             if (xfrom_address == row['to'] == address_central) and (row['from'] == '0x0000000000000000000000000000000000000000'):
-            #                 logger.info(colored(f"++ MULTITOKEN MINT NFT ===========================", 'light_cyan'))  # NOTE: Checked
-            #             elif (xfrom_address == row['from'] == address_central) and (row['to'] == '0x0000000000000000000000000000000000000000'):
-            #                 logger.info(colored(f"++ MULTITOKEN BURN NFT ===========================", 'light_cyan'))  # NOTE: Checked
-            #             elif (xfrom_address == row['to'] == address_central) and (float(xvalue) > 0.0) and (xto_address != row['from'] != row['contractAddress']) and (row['decimal'] == 1):
-            #                 logger.info(colored(f"++ MULTITOKEN BUY NFT ============================", 'light_cyan'))
-            #             elif (xfrom_address == row['from'] == address_central) and (float(xvalue) == 0.0) and (xto_address == row['contractAddress']) and (row['decimal'] == 1):
-            #                 logger.info(colored(f"++ MULTITOKEN TRANSFER NFT =======================", 'light_cyan'))
-            #             else:
-            #                 logger.error(f"++ NOT DETECTED = {row['type']} ==================")
-            #                 logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-            #                 break
+                        elif (xfrom_address == row["from"] == address_central) and (
+                            row["to"] == "0x0000000000000000000000000000000000000000"
+                        ):  # 0x83a7a3f749d400f3d33adee0e4a055901015b8c7dda9bfdac0706183f4001071
+                            # logger.debug(colored(f"++ BURN NFT ======================================", "light_cyan"))  # NOTE: Checked
+                            action = "burn nft"
 
-            #         else:
-            #             logger.error(f"++ NOT DETECTED GENERAL = {row['type']} ==================")
-            #             logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-            #             break
+                            add_link(
+                                xfrom_address,
+                                xto_address,
+                                row["symbol"],
+                                row["name"],
+                                row["contractAddress"],
+                                row["value"],
+                                action,
+                                row["type"],
+                                node_create=True,
+                            )
 
-            # logger.info(colored(f"==================================================\n", 'black'))
+                        elif (
+                            (xfrom_address == row["from"] == address_central)
+                            and (xto_address == row["contractAddress"])
+                            and (row["to"] != "0x0000000000000000000000000000000000000000")
+                        ):
+                            # logger.debug(colored(f"++ TRANSFER NFT FROM WA ==========================", "light_cyan"))  # NOTE: Checked
+                            action = "transfer nft from wa"
+                            # WARN: Is always the "to" a wallet
+                            # Nodes (We must create a wallet node)
+                            node_address = row["to"]
+                            if (node_address not in nodes) and (node_address not in nodes_db):
+                                tag = tags_dict.get(node_address, [])  # Get tag
+                                label = labels_dict.get(node_address, [])  # Get label
+                                add_nodes(node_address, tag, label, contract=False)
+
+                            add_link(
+                                row["from"],
+                                row["to"],
+                                row["symbol"],
+                                row["name"],
+                                row["contractAddress"],
+                                row["value"],
+                                action,
+                                row["type"],
+                                node_create=True,
+                            )
+
+                        elif (xfrom_address == row["from"] == address_central) and (row["to"] != "0x0000ea00000000000000000000000000000000000"):
+                            # WARN: Similar to previous block but between particulars
+                            # logger.debug(colored(f"++ TRANSFER NFT FROM WA =(Particulars)============", "light_cyan"))  # NOTE: Checked
+                            action = "transfer nft from wa (marketplace)"
+                            # WARN: Is always the "to" a wallet
+                            # Nodes (We must create a wallet node)
+                            node_address = row["to"]
+                            if (node_address not in nodes) and (node_address not in nodes_db):
+                                tag = tags_dict.get(node_address, [])  # Get tag
+                                label = labels_dict.get(node_address, [])  # Get label
+                                add_nodes(node_address, tag, label, contract=False)
+
+                            add_link(
+                                row["from"],
+                                row["to"],
+                                row["symbol"],
+                                row["name"],
+                                row["contractAddress"],
+                                row["value"],
+                                action,
+                                row["type"],
+                                node_create=True,
+                            )
+
+                        elif (
+                            (xfrom_address == row["to"] == address_central)
+                            and (xto_address != row["to"] != row["contractAddress"])
+                            and (row["from"] != "0x0000000000000000000000000000000000000000")
+                        ):
+                            # logger.debug(colored(f"++ BUY NFT ETH ===================================", "light_cyan"))  # NOTE: Checked
+                            action = "buy nft with eth"
+
+                            add_link(xfrom_address, xto_address, xsymbol, xname, "", xvalue, action, xtype, node_create=True)
+                            add_link(
+                                xto_address,
+                                xfrom_address,
+                                row["symbol"],
+                                row["name"],
+                                row["contractAddress"],
+                                row["value"],
+                                action,
+                                row["type"],
+                                node_create=True,
+                            )
+
+                        else:
+                            logger.error(f"++ NOT DETECTED = {row['type']} ==================")
+                            logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+                            break
+
+                    #         # INFO: Multitoken
+                    elif row["type"] == "multitoken":
+                        # FIX: Remove after code
+                        logger.debug(
+                            colored(
+                                f"   ERC - {row['type']} =============================== \n"
+                                + f"FROM: {row['from']} -> TO: {row['to']} <-> CON: {row['contractAddress']}\n"
+                                + f"VALUE: {row['valConv']} - SYMBOL: {row['symbol']} - FUNC: {row['functionName']}",
+                                "cyan",
+                            )
+                        )
+
+                        # if (hash == "0x46e7f1b95cddd4596e55ebe650af5d26b8932de84d9a3461cc4069922fbbd14b"):
+                        #     __import__('pdb').set_trace()
+
+                        if (xfrom_address == row["to"] == address_central) and (row["from"] == "0x0000000000000000000000000000000000000000"):
+                            # 0x8afd1b8eb53024809e52396faeb488d3b5fb769242ca2c777b32b46807ff33d2
+                            # logger.debug(colored(f"++ MULTITOKEN MINT NFT ===========================", "light_cyan"))  # NOTE: Checked
+                            action = "mint nft"
+
+                            add_link(
+                                xto_address,
+                                xfrom_address,
+                                row["symbol"],
+                                row["name"],
+                                row["contractAddress"],
+                                row["value"],
+                                action,
+                                "multitoken - nfts",
+                                node_create=True,
+                            )
+
+                        elif (xfrom_address == row["from"] == address_central) and (row["to"] == "0x0000000000000000000000000000000000000000"):
+                            # 0x8afd1b8eb53024809e52396faeb488d3b5fb769242ca2c777b32b46807ff33d2
+                            # logger.debug(colored(f"++ MULTITOKEN BURN NFT ===========================", 'light_cyan'))  # NOTE: Checked
+                            action = "burn nft"
+
+                            add_link(
+                                xfrom_address,
+                                xto_address,
+                                row["symbol"],
+                                row["name"],
+                                row["contractAddress"],
+                                row["value"],
+                                action,
+                                "multitoken - nfts",
+                                node_create=True,
+                            )
+
+                        elif (
+                            (xfrom_address == row["to"] == address_central)
+                            and (float(xvalue) > 0.0)
+                            and (xto_address != row["from"] != row["contractAddress"])
+                            and (row["decimal"] == 1)
+                        ):  # 0x3c5f26298c02fdcd9fe79d2bd7697ed65dfece0ddcab6d7228e469d58ea78afb
+                            # logger.debug(colored(f"++ MULTITOKEN BUY NFT WITH ETHER =================", "light_cyan"))
+                            action = "buy nft with ether"
+
+                            # Links
+                            add_link(xfrom_address, xto_address, xsymbol, xname, "", xvalue, action, xtype, node_create=True)
+
+                            # Node
+                            # NOTE: The source of the NFT is a wallet
+                            node_address = row["from"]
+                            if (node_address not in nodes) and (node_address not in nodes_db):
+                                tag = tags_dict.get(node_address, [])  # Get tag
+                                label = labels_dict.get(node_address, [])  # Get label
+                                add_nodes(node_address, tag, label, contract=False)
+
+                            add_link(
+                                row["from"],
+                                row["to"],
+                                row["symbol"],
+                                row["name"],
+                                row["contractAddress"],
+                                row["valConv"],
+                                action,
+                                "multitoken - nfts",
+                                node_create=True,
+                            )
+                        elif (
+                            (xfrom_address == row["from"] == address_central)
+                            and (float(xvalue) == 0.0)
+                            and (xto_address == row["contractAddress"])
+                            and (row["decimal"] == 1)
+                        ):  # 0xff29144cab03e9f3fa2ce19e0c08041d67ea6ecea4a7aed69c657e58f6a0c5a4
+                            # logger.debug(colored(f"++ MULTITOKEN TRANSFER NFT =======================", "light_cyan"))
+                            action = "transfer nft"
+
+                            # Node
+                            # NOTE: The target of the NFT is a wallet
+                            node_address = row["to"]
+                            if (node_address not in nodes) and (node_address not in nodes_db):
+                                tag = tags_dict.get(node_address, [])  # Get tag
+                                label = labels_dict.get(node_address, [])  # Get label
+                                add_nodes(node_address, tag, label, contract=False)
+
+                            add_link(
+                                row["from"],
+                                row["to"],
+                                row["symbol"],
+                                row["name"],
+                                row["contractAddress"],
+                                row["valConv"],
+                                action,
+                                "multitoken - nfts",
+                                node_create=True,
+                            )
+                        else:
+                            logger.error(f"++ NOT DETECTED = {row['type']} ==================")
+                            logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+                            break
+
+                    else:
+                        logger.error(f"++ NOT DETECTED GENERAL = {row['type']} ==================")
+                        logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+                        break
 
         elif not has_transaction:
-            # logger.info(colored(f"== INCOMPLETE ({inc}) == HASH: {group.iloc[0]['hash']} ==", 'magenta'))
+            logger.debug(colored(f"== INCOMPLETE ({inc}) == HASH: {group.iloc[0]['hash']} ==", 'magenta'))
             pass
-            # logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-            # inc += 1
+            logger.debug(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+            inc += 1
             # for _, row in group.iterrows():
             #     # INFO: Internals
             #     if (row['type'] == 'internals'):
