@@ -39,6 +39,7 @@ def event_stream_checking(config):
     log_format = '%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s'
     coloredlogs.install(level=config['level'], fmt=log_format, logger=logger)
 
+    print(f" DENTRO {config}")
     if (config['action'] == "reset"):
         os.remove(config['dbname'])
 
@@ -408,8 +409,7 @@ def event_stream_checking(config):
                                            count INTEGER NOT NULL,
                                            sum REAL NOT NULL,
                                            action TEXT NOT NULL,
-                                           type TEXT NOT NULL,
-                                          UNIQUE(source, target, symbol)
+                                           type TEXT NOT NULL
                                         );"""
             cursor.execute(sql_create_links_c_table)
 
