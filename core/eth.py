@@ -2093,7 +2093,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
 
         # INFO: OTHERS
         elif (group_size > 1) and (has_transaction):
-            logger.debug(colored("== COMPLEX =======================================", "cyan"))
+            # logger.debug(colored("== COMPLEX =======================================", "cyan"))
             xfrom_address = xto_address = xsymbol = xname = xfunc = xtype = xparam = ""
             xvalue = 0
             for _, row in group.iterrows():
@@ -2874,14 +2874,14 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                     #         # INFO: Multitoken
                     elif row["type"] == "multitoken":
                         # FIX: Remove after code
-                        logger.debug(
-                            colored(
-                                f"   ERC - {row['type']} =============================== \n"
-                                + f"FROM: {row['from']} -> TO: {row['to']} <-> CON: {row['contractAddress']}\n"
-                                + f"VALUE: {row['valConv']} - SYMBOL: {row['symbol']} - FUNC: {row['functionName']}",
-                                "cyan",
-                            )
-                        )
+                        # logger.debug(
+                        #     colored(
+                        #         f"   ERC - {row['type']} =============================== \n"
+                        #         + f"FROM: {row['from']} -> TO: {row['to']} <-> CON: {row['contractAddress']}\n"
+                        #         + f"VALUE: {row['valConv']} - SYMBOL: {row['symbol']} - FUNC: {row['functionName']}",
+                        #         "cyan",
+                        #     )
+                        # )
 
                         # if (hash == "0x46e7f1b95cddd4596e55ebe650af5d26b8932de84d9a3461cc4069922fbbd14b"):
                         #     __import__('pdb').set_trace()
@@ -2990,29 +2990,126 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         break
 
         elif not has_transaction:
-            logger.debug(colored(f"== INCOMPLETE ({inc}) == HASH: {group.iloc[0]['hash']} ==", 'magenta'))
-            pass
-            logger.debug(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+            # logger.debug(colored(f"== INCOMPLETE ({inc}) == HASH: {group.iloc[0]['hash']} ==", "magenta"))
+            # logger.debug(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
             inc += 1
-            # for _, row in group.iterrows():
-            #     # INFO: Internals
-            #     if (row['type'] == 'internals'):
-            #         if ((group['type'] == 'nfts').any()) and (group.loc[group['type'] == 'internals', 'to'].values[0] == group.loc[group['type'] == 'nfts', 'from'].values[0]):
-            #             # 0xfb11efd2453075e0998c3b6941886858b08b0431b373a96c0347621c1a114820
-            #             # print(f"group")
-            #             # print(f"{group[['type', 'from', 'to', 'value', 'contractaddress']]}")
-            #             # WARN: group processed
-            #             # WARN: there is a record “transfers” that is not shown but is in the group, due to the “break”.
-            #             logger.info(colored(f"++ SWAP NFT BY ETHER =============================", 'magenta'))  # TODO: checked
-            #             break
-            #         elif (row['from'] == address_central):
-            #             logger.info(colored(f"++ TRANSFER ETHER FROM WA ========================", 'magenta'))
-            #         elif (row['to'] == address_central):
-            #             logger.info(colored(f"++ TRANSFER ETHER TO WA ==========================", 'magenta'))
-            #         else:
-            #             logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} ==================")
-            #             logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-            #             break
+
+            for _, row in group.iterrows():
+                #     # INFO: Internals
+                if row["type"] == "internals":
+                    if (
+                        ((group["type"] == "nfts").any())
+                        and len(group) == 2
+                        and (group.loc[group["type"] == "internals", "to"].values[0] == group.loc[group["type"] == "nfts", "from"].values[0])
+                    ):  # 0xfb11efd2453075e0998c3b6941886858b08b0431b373a96c0347621c1a114820
+                        # print(f"{group}")
+                        # print(f"{group[['type', 'from', 'to', 'value', 'contractaddress']]}")
+                        # print(f"{group[['type', 'from', 'to', 'value']]}")
+                        # WARN: group processed
+                        # logger.debug(colored(f"++ SWAP NFT BY ETHER = {hash}", "magenta"))  # NOTE: checked
+                        action = "swap nft by ether"
+                        # Node
+                        # NOTE: The target of the NFT is a wallet
+                        node_address = group.iloc[-1]["to"]
+                        if (node_address not in nodes) and (node_address not in nodes_db):
+                            tag = tags_dict.get(node_address, [])  # Get tag
+                            label = labels_dict.get(node_address, [])  # Get label
+                            add_nodes(node_address, tag, label, contract=False)
+
+                        add_link(
+                            group.iloc[-1]["to"],
+                            group.iloc[-1]["from"],
+                            group.iloc[1]["symbol"],
+                            group.iloc[1]["name"],
+                            "",
+                            group.iloc[1]["valConv"],
+                            action,
+                            "incomplete - internal",
+                            node_create=True,
+                        )
+                        add_link(
+                            group.iloc[-1]["from"],
+                            group.iloc[-1]["to"],
+                            group.iloc[-1]["symbol"],
+                            group.iloc[-1]["name"],
+                            group.iloc[-1]["contractAddress"],
+                            group.iloc[-1]["valConv"],
+                            action,
+                            "incomplete - nft",
+                            node_create=True,
+                        )
+                        break
+
+                    elif (
+                        ((group["type"] == "multitoken").any())
+                        and len(group) == 2
+                        and (group.loc[group["type"] == "internals", "to"].values[0] == group.loc[group["type"] == "multitoken", "from"].values[0])
+                    ):  # 0xeec66c2570d78bee45bbb1e519a85a5e1cce4e948f5ead33eeddf0d3a4e43e8a
+                        # print(f"{group}")
+                        # print(f"{group[['type', 'from', 'to', 'value', 'contractaddress']]}")
+                        # print(f"{group[['type', 'from', 'to', 'value']]}")
+                        # WARN: group processed
+                        # WARN  TODO: Determine multitoken nft
+                        # print(f"DECIMAL {group.iloc[-1]['decimal']}")
+                        if group.iloc[-1]["decimal"] != 18:
+                            # logger.debug(colored(f"++ SWAP NFT BY ETHER = {hash}", "magenta"))  # NOTE: checked
+                            action = "swap nft by ether"
+                            # Node
+                            # NOTE: The target of the NFT is a wallet
+                            node_address = group.iloc[-1]["to"]
+                            if (node_address not in nodes) and (node_address not in nodes_db):
+                                tag = tags_dict.get(node_address, [])  # Get tag
+                                label = labels_dict.get(node_address, [])  # Get label
+                                add_nodes(node_address, tag, label, contract=False)
+
+                            add_link(
+                                group.iloc[-1]["to"],
+                                group.iloc[-1]["from"],
+                                group.iloc[1]["symbol"],
+                                group.iloc[1]["name"],
+                                "",
+                                group.iloc[1]["valConv"],
+                                action,
+                                "incomplete - internal",
+                                node_create=True,
+                            )
+                            add_link(
+                                group.iloc[-1]["from"],
+                                group.iloc[-1]["to"],
+                                group.iloc[-1]["symbol"],
+                                group.iloc[-1]["name"],
+                                group.iloc[-1]["contractAddress"],
+                                group.iloc[-1]["valConv"],
+                                action,
+                                "incomplete - multitoken",
+                                node_create=True,
+                            )
+                        else:
+                            logger.error(f"++ NOT DETECTED = INCOMPLETE = internal = multitoken = {hash}")
+                        break
+                    elif row["from"] == address_central:
+                        print(f"{group[['type', 'from', 'to', 'value']]}")
+                        logger.debug(colored(f"++ TRANSFER ETHER FROM WA = {hash}", "magenta"))
+                    elif row["to"] == address_central and len(group) == 1:
+                        # 0xf8a8423ec2343ec73f0e74bece8d080bb2ff2358172dfa1bcfef33eac175e402
+                        # logger.debug(colored(f"++ TRANSFER ETHER TO WA = {hash}", "magenta"))
+                        action = "transfer ether to wa"
+                        add_link(
+                            row["from"],
+                            row["to"],
+                            row["symbol"],
+                            row["name"],
+                            "",
+                            row["valConv"],
+                            action,
+                            "incomplete - internal",
+                            node_create=True,
+                        )
+                    else:
+                        logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} ==================")
+                        logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+                        break
+
             #     # INFO: Transfers
             #     elif (row['type'] == 'transfers'):
             #         if (row['from'] == address_central):
