@@ -2924,7 +2924,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             (xfrom_address == row["to"] == address_central)
                             and (float(xvalue) > 0.0)
                             and (xto_address != row["from"] != row["contractAddress"])
-                            and (row["decimal"] == 1)
+                            and (row["decimal"] != 18)
                         ):  # 0x3c5f26298c02fdcd9fe79d2bd7697ed65dfece0ddcab6d7228e469d58ea78afb
                             # logger.debug(colored(f"++ MULTITOKEN BUY NFT WITH ETHER =================", "light_cyan"))
                             action = "buy nft with ether"
@@ -2980,12 +2980,12 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                                 node_create=True,
                             )
                         else:
-                            logger.error(f"++ NOT DETECTED = {row['type']} ==================")
+                            logger.error(f"++ NOT DETECTED = {row['type']} = {hash}")
                             logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
                             break
 
                     else:
-                        logger.error(f"++ NOT DETECTED GENERAL = {row['type']} ==================")
+                        logger.error(f"++ NOT DETECTED GENERAL = {row['type']} = {hash}")
                         logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
                         break
 
@@ -3110,16 +3110,48 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
                         break
 
-            #     # INFO: Transfers
-            #     elif (row['type'] == 'transfers'):
-            #         if (row['from'] == address_central):
-            #             logger.info(colored(f"++ TRANSFER TOKEN FROM WA ========================", 'magenta'))
-            #         elif (row['to'] == address_central):
-            #             logger.info(colored(f"++ TRANSFER TOKEN TO WA ==========================", 'magenta'))
-            #         else:
-            #             logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} ==================")
-            #             logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-            #             break
+                # INFO: Transfers
+                elif (row['type'] == 'transfers'):
+                    if (row['from'] == address_central):
+                        # 0xe66315f2fe34aa1bfaa588f0d13ae451295e3eeaad8667ae29d6eb35020ee5c6
+                        # logger.debug(colored(f"++ TRANSFER TOKEN FROM WA = {hash}", 'magenta'))
+                        action = "transfer token from wa"
+
+                        add_link(
+                            row["from"],
+                            row["to"],
+                            row["symbol"],
+                            row["name"],
+                            row["contractAddress"],
+                            row["valConv"],
+                            action,
+                            "incomplete - transfer",
+                            node_create=True,
+                        )
+
+                    elif (row['to'] == address_central):
+                        # 0xa0546af5aa96775452ccb151399e3b27738e2f1912659516a75e36e5be0dc4c7
+                        # logger.debug(colored(f"++ TRANSFER TOKEN TO WA = {hash}", 'magenta'))
+                        action = "transfer token to wa"
+
+                        add_link(
+                            row["from"],
+                            row["to"],
+                            row["symbol"],
+                            row["name"],
+                            row["contractAddress"],
+                            row["valConv"],
+                            action,
+                            "incomplete - transfer",
+                            node_create=True,
+                        )
+
+                    else:
+                        logger.error(f"++ NOT DETECTED = INCOMPLETE = transfer = {hash} ==============")
+                        logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+                        break
+
+            #     # INFO: Nfts
             #     elif (row['type'] == 'nfts'):
             #         if (row['to'] == address_central) and (row['from'] == '0x0000000000000000000000000000000000000000'):
             #             logger.info(colored(f"++ MINT NFT ======================================", 'magenta'))
@@ -3133,6 +3165,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
             #             logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} ==================")
             #             logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
             #             break
+
             #     # INFO: Multitoken
             #     elif (row['type'] == 'multitoken'):
             #         if (row['from'] == address_central) and (row['decimal'] <= 2) and (row['to'] == '0x0000000000000000000000000000000000000000'):
@@ -3153,11 +3186,11 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
             #         break
             # logger.info(colored(f"==================================================\n", 'black'))
         # else:
-        #     logger.error(f"== NOT CLASSIFIED ================================")
-        #     logger.error(f"== NOT CLASSIFIED ================================")
+        #     logger.error("== NOT CLASSIFIED ================================")
+        #     logger.error("== NOT CLASSIFIED ================================")
         #     logger.error(f"GROUP: \n{group}")
-        #     logger.error(f"== NOT CLASSIFIED ================================")
-        #     logger.error(f"== NOT CLASSIFIED ================================")
+        #     logger.error("== NOT CLASSIFIED ================================")
+        #     logger.error("== NOT CLASSIFIED ================================")
         #     raise Exception("== NOT CLASSIFIED ================================")
 
     toc = time.perf_counter()
