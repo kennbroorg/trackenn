@@ -3237,36 +3237,111 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         )
 
                     else:
-                        logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} ==================")
+                        logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} = {hash} =====")
                         logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
                         break
 
-            #     # INFO: Multitoken
-            #     elif (row['type'] == 'multitoken'):
-            #         if (row['from'] == address_central) and (row['decimal'] <= 2) and (row['to'] == '0x0000000000000000000000000000000000000000'):
-            #             logger.info(colored(f"++ MULTITOKEN BURN NFT ===========================", 'magenta'))
-            #         elif (row['to'] == address_central) and (row['decimal'] <= 2) and (row['from'] == '0x0000000000000000000000000000000000000000'):
-            #             logger.info(colored(f"++ MULTITOKEN MINT NFT ===========================", 'magenta'))
-            #         elif (row['from'] == address_central) and (row['decimal'] == 1):
-            #             logger.info(colored(f"++ MULTITOKEN TRANSFER NFT FROM WA ===============", 'magenta'))
-            #         elif (row['to'] == address_central) and (row['decimal'] == 1):
-            #             logger.info(colored(f"++ MULTITOKEN TRANSFER NFT TO WA =================", 'magenta'))
-            #         else:
-            #             logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} ==================")
-            #             logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-            #             break
-            #     else:
-            #         logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} ==================")
-            #         logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-            #         break
-            # logger.info(colored(f"==================================================\n", 'black'))
-        # else:
-        #     logger.error("== NOT CLASSIFIED ================================")
-        #     logger.error("== NOT CLASSIFIED ================================")
-        #     logger.error(f"GROUP: \n{group}")
-        #     logger.error("== NOT CLASSIFIED ================================")
-        #     logger.error("== NOT CLASSIFIED ================================")
-        #     raise Exception("== NOT CLASSIFIED ================================")
+                # INFO: Multitoken
+                elif (row['type'] == 'multitoken'):
+                    if (row['from'] == address_central) and (row['decimal'] <= 2) and (row['to'] == '0x0000000000000000000000000000000000000000'):
+                        logger.info(colored(f"++ MULTITOKEN BURN NFT = {hash} =====", 'magenta'))
+                        action = "burn nft"
+
+                        # WARN: Burn nft without source transaction shows the target node as nft contract instead 0x0000...
+                        add_link(
+                            row['from'],
+                            row["contractAddress"],
+                            row["symbol"],
+                            row["name"],
+                            row["contractAddress"],
+                            row["value"],
+                            action,
+                            "incomplete - multitoken - nfts",
+                            node_create=True,
+                        )
+
+                    elif (row['to'] == address_central) and (row['decimal'] <= 2) and (row['from'] == '0x0000000000000000000000000000000000000000'):
+                        # 0xfe3766f76a45f1ad86ed6185f19640a947e52b178a90973ab7a0fe5255db09eb
+                        # logger.info(colored(f"++ MULTITOKEN MINT NFT = {hash} =====", 'magenta'))
+                        action = "mint nft"
+
+                        # WARN: Mint nft without source transaction shows the source node as nft contract instead 0x0000...
+                        add_link(
+                            row["contractAddress"],
+                            row['from'],
+                            row["symbol"],
+                            row["name"],
+                            row["contractAddress"],
+                            row["value"],
+                            action,
+                            "incomplete - multitoken - nfts",
+                            node_create=True,
+                        )
+
+                    elif (row['from'] == address_central) and (row['decimal'] != 18):
+                        # 0xdc750957ecefc6940acbeea777eafbd5cdaaeac2a9eae5a65a232581151a73d3
+                        # logger.info(colored(f"++ MULTITOKEN TRANSFER NFT FROM WA = {hash} =====", 'magenta'))
+                        action = "transfer nft from wa"
+
+                        # TODO: Verify that source node always be a wallet
+                        node_address = row['to']
+                        if (node_address not in nodes) and (node_address not in nodes_db):
+                            tag = tags_dict.get(node_address, [])  # Get tag
+                            label = labels_dict.get(node_address, [])  # Get label
+                            add_nodes(node_address, tag, label, contract=False)
+
+                        add_link(
+                            row["from"],
+                            row["to"],
+                            row["symbol"],
+                            row["name"],
+                            row["contractAddress"],
+                            row["valConv"],
+                            action,
+                            "incomplete - multitoken - nfts",
+                            node_create=True,
+                        )
+
+                    elif (row['to'] == address_central) and (row['decimal'] != 18):
+                        # 0xfdfb8c4491abdd4176e82874f1c8718f961af65d06e405be76b3fb67fd4b677b
+                        # logger.info(colored(f"++ MULTITOKEN TRANSFER NFT TO WA = {hash} =====", 'magenta'))
+                        action = "transfer nft to wa"
+
+                        # TODO: Verify that source node always be a wallet
+                        node_address = row['from']
+                        if (node_address not in nodes) and (node_address not in nodes_db):
+                            tag = tags_dict.get(node_address, [])  # Get tag
+                            label = labels_dict.get(node_address, [])  # Get label
+                            add_nodes(node_address, tag, label, contract=False)
+
+                        add_link(
+                            row["from"],
+                            row["to"],
+                            row["symbol"],
+                            row["name"],
+                            row["contractAddress"],
+                            row["valConv"],
+                            action,
+                            "incomplete - multitoken - nfts",
+                            node_create=True,
+                        )
+
+                    else:
+                        logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} = {hash} =====")
+                        logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+                        break
+                else:
+                    logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} = {hash} =====")
+                    logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+                    break
+
+        else:
+            logger.error("== NOT CLASSIFIED ================================")
+            logger.error("== NOT CLASSIFIED ================================")
+            logger.error(f"GROUP: \n{group}")
+            logger.error("== NOT CLASSIFIED ================================")
+            logger.error("== NOT CLASSIFIED ================================")
+            raise Exception("== NOT CLASSIFIED ================================")
 
     toc = time.perf_counter()
     logger.info(f"Time to classification {toc - tic:0.4f} seconds")
