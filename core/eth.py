@@ -3095,15 +3095,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         # logger.debug(colored(f"++ TRANSFER ETHER TO WA = {hash}", "magenta"))
                         action = "transfer ether to wa"
                         add_link(
-                            row["from"],
-                            row["to"],
-                            row["symbol"],
-                            row["name"],
-                            "",
-                            row["valConv"],
-                            action,
-                            "incomplete - internal",
-                            node_create=True,
+                            row["from"], row["to"], row["symbol"], row["name"], "", row["valConv"], action, "incomplete - internal", node_create=True
                         )
                     else:
                         logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} ==================")
@@ -3111,8 +3103,8 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         break
 
                 # INFO: Transfers
-                elif (row['type'] == 'transfers'):
-                    if (row['from'] == address_central):
+                elif row["type"] == "transfers":
+                    if row["from"] == address_central:
                         # 0xe66315f2fe34aa1bfaa588f0d13ae451295e3eeaad8667ae29d6eb35020ee5c6
                         # logger.debug(colored(f"++ TRANSFER TOKEN FROM WA = {hash}", 'magenta'))
                         action = "transfer token from wa"
@@ -3129,7 +3121,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             node_create=True,
                         )
 
-                    elif (row['to'] == address_central):
+                    elif row["to"] == address_central:
                         # 0xa0546af5aa96775452ccb151399e3b27738e2f1912659516a75e36e5be0dc4c7
                         # logger.debug(colored(f"++ TRANSFER TOKEN TO WA = {hash}", 'magenta'))
                         action = "transfer token to wa"
@@ -3152,8 +3144,8 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         break
 
                 # INFO: Nfts
-                elif (row['type'] == 'nfts'):
-                    if (row['to'] == address_central) and (row['from'] == '0x0000000000000000000000000000000000000000'):
+                elif row["type"] == "nfts":
+                    if (row["to"] == address_central) and (row["from"] == "0x0000000000000000000000000000000000000000"):
                         # 0xfff4d346c753177912550b94746d7f4f6d82a46853de29fa111efdf13613a738
                         # logger.debug(colored(f"++ MINT NFT = {hash} =========", 'magenta'))
                         action = "mint nft"
@@ -3161,47 +3153,6 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         # WARN: Mint nft without source transaction shows the source node as nft contract instead 0x0000...
                         add_link(
                             row["contractAddress"],
-                            row['to'],
-                            row["symbol"],
-                            row["name"],
-                            row["contractAddress"],
-                            row["value"],
-                            action,
-                            "incomplete - nfts",
-                            node_create=True,
-                        )
-
-                    elif (row['from'] == address_central) and (row['to'] == '0x0000000000000000000000000000000000000000'):
-                        logger.debug(colored(f"++ BURN NFT = {hash} =========", 'magenta'))
-                        action = "burn nft"
-
-                        # WARN: Burn nft without source transaction shows the target node as nft contract instead 0x0000...
-                        add_link(
-                            row['from'],
-                            row["contractAddress"],
-                            row["symbol"],
-                            row["name"],
-                            row["contractAddress"],
-                            row["value"],
-                            action,
-                            "incomplete - nfts",
-                            node_create=True,
-                        )
-
-                    elif (row['from'] == address_central):
-                        # 0xf29085efbaf2ce00835a4a30a0f6e4b072247cba80d15b514b2766607d87e78a
-                        # logger.debug(colored(f"++ TRANSFER NFT FROM WA = {hash} =========", 'magenta'))
-                        action = "transfer nft from wa"
-
-                        # TODO: Verify that source node always be a wallet
-                        node_address = row['to']
-                        if (node_address not in nodes) and (node_address not in nodes_db):
-                            tag = tags_dict.get(node_address, [])  # Get tag
-                            label = labels_dict.get(node_address, [])  # Get label
-                            add_nodes(node_address, tag, label, contract=False)
-
-                        add_link(
-                            row['from'],
                             row["to"],
                             row["symbol"],
                             row["name"],
@@ -3212,20 +3163,61 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             node_create=True,
                         )
 
-                    elif (row['to'] == address_central):
-                        # 0xfe59b6be7da4e8f8c1e8e61bc5c6d9b60e73c217135c7ad4891c6749223abc1b
-                        # logger.debug(colored(f"++ TRANSFER NFT TO WA = {hash} =========", 'magenta'))
-                        action = "transfer nft to wa"
+                    elif (row["from"] == address_central) and (row["to"] == "0x0000000000000000000000000000000000000000"):
+                        logger.debug(colored(f"++ BURN NFT = {hash} =========", "magenta"))
+                        action = "burn nft"
+
+                        # WARN: Burn nft without source transaction shows the target node as nft contract instead 0x0000...
+                        add_link(
+                            row["from"],
+                            row["contractAddress"],
+                            row["symbol"],
+                            row["name"],
+                            row["contractAddress"],
+                            row["value"],
+                            action,
+                            "incomplete - nfts",
+                            node_create=True,
+                        )
+
+                    elif row["from"] == address_central:
+                        # 0xf29085efbaf2ce00835a4a30a0f6e4b072247cba80d15b514b2766607d87e78a
+                        # logger.debug(colored(f"++ TRANSFER NFT FROM WA = {hash} =========", 'magenta'))
+                        action = "transfer nft from wa"
 
                         # TODO: Verify that source node always be a wallet
-                        node_address = row['from']
+                        node_address = row["to"]
                         if (node_address not in nodes) and (node_address not in nodes_db):
                             tag = tags_dict.get(node_address, [])  # Get tag
                             label = labels_dict.get(node_address, [])  # Get label
                             add_nodes(node_address, tag, label, contract=False)
 
                         add_link(
-                            row['from'],
+                            row["from"],
+                            row["to"],
+                            row["symbol"],
+                            row["name"],
+                            row["contractAddress"],
+                            row["value"],
+                            action,
+                            "incomplete - nfts",
+                            node_create=True,
+                        )
+
+                    elif row["to"] == address_central:
+                        # 0xfe59b6be7da4e8f8c1e8e61bc5c6d9b60e73c217135c7ad4891c6749223abc1b
+                        # logger.debug(colored(f"++ TRANSFER NFT TO WA = {hash} =========", 'magenta'))
+                        action = "transfer nft to wa"
+
+                        # TODO: Verify that source node always be a wallet
+                        node_address = row["from"]
+                        if (node_address not in nodes) and (node_address not in nodes_db):
+                            tag = tags_dict.get(node_address, [])  # Get tag
+                            label = labels_dict.get(node_address, [])  # Get label
+                            add_nodes(node_address, tag, label, contract=False)
+
+                        add_link(
+                            row["from"],
                             row["to"],
                             row["symbol"],
                             row["name"],
@@ -3242,14 +3234,14 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         break
 
                 # INFO: Multitoken
-                elif (row['type'] == 'multitoken'):
-                    if (row['from'] == address_central) and (row['decimal'] <= 2) and (row['to'] == '0x0000000000000000000000000000000000000000'):
-                        logger.info(colored(f"++ MULTITOKEN BURN NFT = {hash} =====", 'magenta'))
+                elif row["type"] == "multitoken":
+                    if (row["from"] == address_central) and (row["decimal"] <= 2) and (row["to"] == "0x0000000000000000000000000000000000000000"):
+                        logger.info(colored(f"++ MULTITOKEN BURN NFT = {hash} =====", "magenta"))
                         action = "burn nft"
 
                         # WARN: Burn nft without source transaction shows the target node as nft contract instead 0x0000...
                         add_link(
-                            row['from'],
+                            row["from"],
                             row["contractAddress"],
                             row["symbol"],
                             row["name"],
@@ -3260,7 +3252,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             node_create=True,
                         )
 
-                    elif (row['to'] == address_central) and (row['decimal'] <= 2) and (row['from'] == '0x0000000000000000000000000000000000000000'):
+                    elif (row["to"] == address_central) and (row["decimal"] <= 2) and (row["from"] == "0x0000000000000000000000000000000000000000"):
                         # 0xfe3766f76a45f1ad86ed6185f19640a947e52b178a90973ab7a0fe5255db09eb
                         # logger.info(colored(f"++ MULTITOKEN MINT NFT = {hash} =====", 'magenta'))
                         action = "mint nft"
@@ -3268,7 +3260,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         # WARN: Mint nft without source transaction shows the source node as nft contract instead 0x0000...
                         add_link(
                             row["contractAddress"],
-                            row['from'],
+                            row["from"],
                             row["symbol"],
                             row["name"],
                             row["contractAddress"],
@@ -3278,13 +3270,13 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             node_create=True,
                         )
 
-                    elif (row['from'] == address_central) and (row['decimal'] != 18):
+                    elif (row["from"] == address_central) and (row["decimal"] != 18):
                         # 0xdc750957ecefc6940acbeea777eafbd5cdaaeac2a9eae5a65a232581151a73d3
                         # logger.info(colored(f"++ MULTITOKEN TRANSFER NFT FROM WA = {hash} =====", 'magenta'))
                         action = "transfer nft from wa"
 
                         # TODO: Verify that source node always be a wallet
-                        node_address = row['to']
+                        node_address = row["to"]
                         if (node_address not in nodes) and (node_address not in nodes_db):
                             tag = tags_dict.get(node_address, [])  # Get tag
                             label = labels_dict.get(node_address, [])  # Get label
@@ -3302,13 +3294,13 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             node_create=True,
                         )
 
-                    elif (row['to'] == address_central) and (row['decimal'] != 18):
+                    elif (row["to"] == address_central) and (row["decimal"] != 18):
                         # 0xfdfb8c4491abdd4176e82874f1c8718f961af65d06e405be76b3fb67fd4b677b
                         # logger.info(colored(f"++ MULTITOKEN TRANSFER NFT TO WA = {hash} =====", 'magenta'))
                         action = "transfer nft to wa"
 
                         # TODO: Verify that source node always be a wallet
-                        node_address = row['from']
+                        node_address = row["from"]
                         if (node_address not in nodes) and (node_address not in nodes_db):
                             tag = tags_dict.get(node_address, [])  # Get tag
                             label = labels_dict.get(node_address, [])  # Get label
