@@ -3151,20 +3151,95 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
                         break
 
-            #     # INFO: Nfts
-            #     elif (row['type'] == 'nfts'):
-            #         if (row['to'] == address_central) and (row['from'] == '0x0000000000000000000000000000000000000000'):
-            #             logger.info(colored(f"++ MINT NFT ======================================", 'magenta'))
-            #         elif (row['from'] == address_central) and (row['to'] == '0x0000000000000000000000000000000000000000'):
-            #             logger.info(colored(f"++ BURN NFT ======================================", 'magenta'))
-            #         elif (row['from'] == address_central):
-            #             logger.info(colored(f"++ TRANSFER NFT FROM WA ==========================", 'magenta'))
-            #         elif (row['to'] == address_central):
-            #             logger.info(colored(f"++ TRANSFER NFT TO WA ============================", 'magenta'))
-            #         else:
-            #             logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} ==================")
-            #             logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
-            #             break
+                # INFO: Nfts
+                elif (row['type'] == 'nfts'):
+                    if (row['to'] == address_central) and (row['from'] == '0x0000000000000000000000000000000000000000'):
+                        # 0xfff4d346c753177912550b94746d7f4f6d82a46853de29fa111efdf13613a738
+                        # logger.debug(colored(f"++ MINT NFT = {hash} =========", 'magenta'))
+                        action = "mint nft"
+
+                        # WARN: Mint nft without source transaction shows the source node as nft contract instead 0x0000...
+                        add_link(
+                            row["contractAddress"],
+                            row['to'],
+                            row["symbol"],
+                            row["name"],
+                            row["contractAddress"],
+                            row["value"],
+                            action,
+                            "incomplete - nfts",
+                            node_create=True,
+                        )
+
+                    elif (row['from'] == address_central) and (row['to'] == '0x0000000000000000000000000000000000000000'):
+                        logger.debug(colored(f"++ BURN NFT = {hash} =========", 'magenta'))
+                        action = "burn nft"
+
+                        # WARN: Burn nft without source transaction shows the target node as nft contract instead 0x0000...
+                        add_link(
+                            row['from'],
+                            row["contractAddress"],
+                            row["symbol"],
+                            row["name"],
+                            row["contractAddress"],
+                            row["value"],
+                            action,
+                            "incomplete - nfts",
+                            node_create=True,
+                        )
+
+                    elif (row['from'] == address_central):
+                        # 0xf29085efbaf2ce00835a4a30a0f6e4b072247cba80d15b514b2766607d87e78a
+                        # logger.debug(colored(f"++ TRANSFER NFT FROM WA = {hash} =========", 'magenta'))
+                        action = "transfer nft from wa"
+
+                        # TODO: Verify that source node always be a wallet
+                        node_address = row['to']
+                        if (node_address not in nodes) and (node_address not in nodes_db):
+                            tag = tags_dict.get(node_address, [])  # Get tag
+                            label = labels_dict.get(node_address, [])  # Get label
+                            add_nodes(node_address, tag, label, contract=False)
+
+                        add_link(
+                            row['from'],
+                            row["to"],
+                            row["symbol"],
+                            row["name"],
+                            row["contractAddress"],
+                            row["value"],
+                            action,
+                            "incomplete - nfts",
+                            node_create=True,
+                        )
+
+                    elif (row['to'] == address_central):
+                        # 0xfe59b6be7da4e8f8c1e8e61bc5c6d9b60e73c217135c7ad4891c6749223abc1b
+                        # logger.debug(colored(f"++ TRANSFER NFT TO WA = {hash} =========", 'magenta'))
+                        action = "transfer nft to wa"
+
+                        # TODO: Verify that source node always be a wallet
+                        node_address = row['from']
+                        if (node_address not in nodes) and (node_address not in nodes_db):
+                            tag = tags_dict.get(node_address, [])  # Get tag
+                            label = labels_dict.get(node_address, [])  # Get label
+                            add_nodes(node_address, tag, label, contract=False)
+
+                        add_link(
+                            row['from'],
+                            row["to"],
+                            row["symbol"],
+                            row["name"],
+                            row["contractAddress"],
+                            row["value"],
+                            action,
+                            "incomplete - nfts",
+                            node_create=True,
+                        )
+
+                    else:
+                        logger.error(f"++ NOT DETECTED = INCOMPLETE = {row['type']} ==================")
+                        logger.error(f"GROUP\n{group[['type', 'from', 'to', 'value', 'contractAddress']]}")
+                        break
 
             #     # INFO: Multitoken
             #     elif (row['type'] == 'multitoken'):
