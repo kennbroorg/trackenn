@@ -1930,12 +1930,16 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         resp = add_nodes(node_address, tag, label, contract=True)
 
         if type == "nfts":  # NOTE: Add nfts condition
-            key = f"{from_address}->{to_address}-{value}"
+            key = f"{from_address}->{to_address}-{symbol}-{value}"
             # if action == "mint nft":
             #     __import__('pdb').set_trace()
             # print(key)
-        elif type == "multitokens":  # TODO: Add multitoken nfts condition. How?
-            key = f"{from_address}->{to_address}-{symbol}"
+        elif type == "multitokens":  # NOTE: Add multitoken condition
+            key = f"{from_address}->{to_address}-{symbol}-{value}"
+        elif type == "incomplete - nft":  # NOTE: Add incomplete nft condition
+            key = f"{from_address}->{to_address}-{symbol}-{value}"
+        elif type == "incomplete - multitoken":  # NOTE: Add incomplete multitoken condition
+            key = f"{from_address}->{to_address}-{symbol}-{value}"
         else:
             key = f"{from_address}->{to_address}-{symbol}"
 
@@ -3019,10 +3023,10 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         add_link(
                             group.iloc[-1]["to"],
                             group.iloc[-1]["from"],
-                            group.iloc[1]["symbol"],
-                            group.iloc[1]["name"],
+                            group.iloc[0]["symbol"],
+                            group.iloc[0]["name"],
                             "",
-                            group.iloc[1]["valConv"],
+                            group.iloc[0]["valConv"],
                             action,
                             "incomplete - internal",
                             node_create=True,
@@ -3065,10 +3069,10 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             add_link(
                                 group.iloc[-1]["to"],
                                 group.iloc[-1]["from"],
-                                group.iloc[1]["symbol"],
-                                group.iloc[1]["name"],
+                                group.iloc[0]["symbol"],
+                                group.iloc[0]["name"],
                                 "",
-                                group.iloc[1]["valConv"],
+                                group.iloc[0]["valConv"],
                                 action,
                                 "incomplete - internal",
                                 node_create=True,
@@ -3159,7 +3163,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             row["contractAddress"],
                             row["value"],
                             action,
-                            "incomplete - nfts",
+                            "incomplete - nft",
                             node_create=True,
                         )
 
@@ -3176,7 +3180,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             row["contractAddress"],
                             row["value"],
                             action,
-                            "incomplete - nfts",
+                            "incomplete - nft",
                             node_create=True,
                         )
 
@@ -3200,7 +3204,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             row["contractAddress"],
                             row["value"],
                             action,
-                            "incomplete - nfts",
+                            "incomplete - nft",
                             node_create=True,
                         )
 
@@ -3224,7 +3228,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             row["contractAddress"],
                             row["value"],
                             action,
-                            "incomplete - nfts",
+                            "incomplete - nft",
                             node_create=True,
                         )
 
@@ -3248,7 +3252,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             row["contractAddress"],
                             row["value"],
                             action,
-                            "incomplete - multitoken - nfts",
+                            "incomplete - multitoken",
                             node_create=True,
                         )
 
@@ -3260,13 +3264,13 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         # WARN: Mint nft without source transaction shows the source node as nft contract instead 0x0000...
                         add_link(
                             row["contractAddress"],
-                            row["from"],
+                            row["to"],
                             row["symbol"],
                             row["name"],
                             row["contractAddress"],
                             row["value"],
                             action,
-                            "incomplete - multitoken - nfts",
+                            "incomplete - multitoken",
                             node_create=True,
                         )
 
@@ -3290,7 +3294,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             row["contractAddress"],
                             row["valConv"],
                             action,
-                            "incomplete - multitoken - nfts",
+                            "incomplete - multitoken",
                             node_create=True,
                         )
 
@@ -3314,7 +3318,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                             row["contractAddress"],
                             row["valConv"],
                             action,
-                            "incomplete - multitoken - nfts",
+                            "incomplete - multitoken",
                             node_create=True,
                         )
 
@@ -3469,6 +3473,7 @@ def get_nodes_links_bd(conn, address_central, params=[]):
         detail = {
             "contract": link["contract"],
             "name": link["name"],
+            "symbol": link["name"],
             "count": link["count"],
             "sum": link["sum"],
             "action": link["action"],
@@ -3479,12 +3484,10 @@ def get_nodes_links_bd(conn, address_central, params=[]):
             grouped_data[key]["source"] = link["source"]
             grouped_data[key]["target"] = link["target"]
 
-        grouped_data[key]["detail"][symbol] = detail  # pyright: ignore
+        grouped_data[key]["detail"][symbol+str(link["sum"])] = detail  # pyright: ignore
         grouped_data[key]["qty"] += link["count"]
 
     links_list = list(grouped_data.values())
-    # import pprint
-    # pprint.pprint(links_list)
 
     # TODO: Query links
 
