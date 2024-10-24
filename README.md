@@ -50,10 +50,11 @@ Open the browser in this [url](http://127.0.0.1:4200)
 
 # API Keys
 
-Before start to use this software, you must get an API key from [etherscan](https://etherscan.io/apis), free is enough, and edit the file named config.yaml and change the 'XXX' for your API
+Before start to use this software, you must get an API key from [etherscan](https://etherscan.io/apis) and/or [bscscan](https://bscscan.com/apis), free is enough, and edit the file named config.yaml and change the 'XXX' for your API
 
 ```
 ethscan: XXX
+bscscan: XXX
 level: INFO
 dbname: default.db
 ```
