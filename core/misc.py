@@ -39,9 +39,13 @@ def event_stream_checking(config):
     log_format = '%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s'
     coloredlogs.install(level=config['level'], fmt=log_format, logger=logger)
 
-    print(f" DENTRO {config}")
     if (config['action'] == "reset"):
         os.remove(config['dbname'])
+
+    # if (config['filters']):
+    #     filters = config['filters']
+    # else:
+    #     filters = {"filter": False}
 
     try:
         logger.info(f"Initializing project")
@@ -558,7 +562,7 @@ def event_stream_checking(config):
             elif (blockchain == "eth"):
                 if (config['graph'] == "Complex"):
                     # trxs = eth.get_trx_from_addresses_experimental(connection, address)
-                    trxs = eth.get_nodes_links_bd(connection, address)
+                    trxs = eth.get_nodes_links_bd(connection, address, params=config)
                 else:
                     trxs = eth.get_trx_from_addresses_opt(connection, address)
             else:
