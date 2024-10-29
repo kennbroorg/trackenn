@@ -162,6 +162,7 @@ def event_stream_ether(params):
         yield f"data:{data}\n\n"
     else:
         address = params.get("address").lower()
+        filters = params.get("filters")
 
         # FIX: Eliminate chunks and block_to
         # # INFO: Get Source
@@ -1248,7 +1249,6 @@ def recreate_db(params):
     with open(r"./config.yaml") as file:
         config = yaml.load(file, Loader=yaml.FullLoader)
     config["action"] = "reset"
-    print(config)
     data = misc.event_stream_checking(config)  # WARN: Recreate db
 
     return data
@@ -1275,7 +1275,7 @@ def test_function_1(params):
     params["network"] = "eth"
     params["config"] = config
     params["address"] = address[1]
-    print(params)
+    # print(params)
     data = event_stream_ether(params)
 
     toc = time.perf_counter()
@@ -1833,7 +1833,6 @@ def get_balance_and_gas(conn, address_central, type, key):
     else:
         # INFO: Get balance of contract
         url = f"https://api.etherscan.io/api?module=account&action=balance&address={address_central}&tag=latest&apikey={key}"
-        # print(f"KEY: {key}")
         response = requests.get(url)
         json_object = response.json()["result"]
         # print(f"BALANCE: {json_object}")
@@ -1883,8 +1882,33 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
     # stat_coo = 0  # TODO: Contract owned
     # max_qty = 0
 
-    # NOTE: Get nodes and links in db
+    # HACK:  Small HACK to avoid rebuilding tags and losing performance
     cursor = conn.cursor()
+    cursor.execute("""
+                   UPDATE t_nodes_classification
+                    SET tag = (
+                        SELECT json_group_array(value)
+                        FROM json_each(tag)
+                        WHERE value != 'central'
+                    )
+                    WHERE EXISTS (
+                        SELECT 1 FROM json_each(tag) WHERE value = 'central'
+                    );
+                   """)
+    cursor.execute("SELECT tag FROM t_nodes_classification WHERE address = ?", (address_central,))
+    row = cursor.fetchone()
+    if row:
+        tag_str = row[0]
+        tag_list = json.loads(tag_str)
+        if ('central' not in tag_list):
+            tag_list.append('central')
+            if ('path' not in tag_list):
+                tag_list.append('path')
+            new_tag_str = json.dumps(tag_list)
+            cursor.execute("UPDATE t_nodes_classification SET tag = ? WHERE address = ?", (new_tag_str, address_central))
+            conn.commit()
+
+    # NOTE: Get nodes and links in db
     cursor.execute("SELECT address FROM t_nodes_classification")
     nodes_sql = cursor.fetchall()
     nodes_db = [address[0] for address in nodes_sql]
@@ -1931,9 +1955,6 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
 
         if type == "nfts":  # NOTE: Add nfts condition
             key = f"{from_address}->{to_address}-{symbol}-{value}"
-            # if action == "mint nft":
-            #     __import__('pdb').set_trace()
-            # print(key)
         elif type == "multitokens":  # NOTE: Add multitoken condition
             key = f"{from_address}->{to_address}-{symbol}-{value}"
         elif type == "incomplete - nft":  # NOTE: Add incomplete nft condition
@@ -3406,35 +3427,25 @@ def get_nodes_links_bd(conn, address_central, params=[]):
     tic = time.perf_counter()
 
     # INFO: Config Log Level
-    if params:
+    if (params.get('config', '') != ''):
         log_format = "%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s"
         coloredlogs.install(level=params["config"]["level"], fmt=log_format, logger=logger)
         logger.propagate = False  # INFO: To prevent duplicates with flask
+    # NOTE: Filters
+    filters = params["filters"] if params.get("filters", "") != "" and params["filters"].get("filter", "") == True else {}
+    # if (params.get('filters', '') != '') and (params['filters'].get("filter", "") == True):
+    #     filters = params['filters']
+    # else:
+    #     filters = {}
 
     logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
     logger.debug(f"+ Address: {address_central}")
+    logger.debug(f"+ Params: {params}")
     logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
     address_central = address_central[1]
 
-    # TODO: Query nodes
-
-    # query = """
-    #     SELECT *
-    #     FROM t_nodes_classification
-    # """
-    # df_nodes = pd.read_sql_query(query, conn)
-    # # df_nodes['tag'] = df_nodes['tag'].sapply(lambda x: json.dumps(x))
-    # # df_nodes['label'] = df_nodes['label'].apply(lambda x: json.dumps(x))
-    # df_nodes['tag'] = df_nodes['tag'].apply(json.loads)
-    # df_nodes['label'] = df_nodes['label'].apply(json.loads)
-    # # print("=================================================================")
-    # # print(df_nodes.info())
-    # # print(df_nodes.head())
-    # # print("=================================================================")
-    # nodes_list = json.loads(df_nodes.to_json(orient = "records"))
-    # # print(nodes_list)
-
+    # NOTE: Query nodes
     query = """
         SELECT *
         FROM t_nodes_classification
@@ -3442,29 +3453,36 @@ def get_nodes_links_bd(conn, address_central, params=[]):
     df_nodes = pd.read_sql_query(query, conn)
     df_nodes["tag"] = df_nodes["tag"].apply(json.loads)
     df_nodes["label"] = df_nodes["label"].apply(json.loads)
-    # print("=================================================================")
-    # print(df_nodes.info())
-    # print(df_nodes.head())
-    # print("=================================================================")
-    nodes_list = json.loads(df_nodes.to_json(orient="records"))
-    # print(nodes_list)
+    # TODO: Filter nodes by tag
+    if (filters.get("tags", "") != ""):
+        # central_node = df_nodes[df_nodes["tag"].apply(lambda tags: "central" in tags)]
+        central_node = df_nodes[df_nodes["tag"].apply(lambda tags: "central" in tags or "path" in tags)]
+        tags = filters["tags"]
+        true_tags = {tag for tag, value in tags.items() if value}
+        df_nodes["tag"] = df_nodes["tag"].apply(lambda x: [tag for tag in x if tag in true_tags])
+        df_nodes_filtered = df_nodes[df_nodes["tag"].apply(lambda x: len(x) > 0)]
+        # if (df_nodes_filtered.empty):
+        #     df_nodes_filtered = central_node
+        # df_nodes_filtered = pd.concat([central_node, df_nodes_filtered]).drop_duplicates().reset_index(drop=True)
+        df_nodes_filtered = pd.concat([central_node, df_nodes_filtered]).drop_duplicates(subset="address").reset_index(drop=True)
+    else:
+        df_nodes_filtered = df_nodes
+    nodes_list = json.loads(df_nodes_filtered.to_json(orient="records"))
 
-    # with open(f"./nodes.json", 'w', encoding='utf-8') as file:
-    #     json.dump({"nodes": nodes_list}, file, ensure_ascii=False, indent=4)
-
-    # TODO: Query links
+    # NOTE: Query links
     query = """
         SELECT *
         FROM t_links_classification
     """
     df_links = pd.read_sql_query(query, conn)
     df_links["action"] = df_links["action"].apply(json.loads)
-    # print("=================================================================")
-    # print(df_links.info())
-    # print(df_links.head())
-    # print("=================================================================")
-    links_list = json.loads(df_links.to_json(orient="records"))
-    # print(links_list)
+    # TODO: filter links by tag
+    if (filters.get("tags", "") != ""):
+        filtered_addresses = set(df_nodes_filtered["address"])
+        df_links_filtered = df_links[df_links["source"].isin(filtered_addresses) & df_links["target"].isin(filtered_addresses)]
+    else: 
+        df_links_filtered = df_links
+    links_list = json.loads(df_links_filtered.to_json(orient="records"))
     grouped_data = defaultdict(lambda: {"source": "", "target": "", "detail": defaultdict(dict), "qty": 0})
 
     for link in links_list:
@@ -3489,25 +3507,6 @@ def get_nodes_links_bd(conn, address_central, params=[]):
 
     links_list = list(grouped_data.values())
 
-    # TODO: Query links
-
-    # query = """
-    #     SELECT *
-    #     FROM t_links_classification
-    # """
-    # df_links = pd.read_sql_query(query, conn)
-    # df_links['detail'] = df_links['detail'].apply(json.loads)
-    # # print("=================================================================")
-    # # print(df_links.info())
-    # # print(df_links.head())
-    # # print("=================================================================")
-    # links_list = json.loads(df_links.to_json(orient = "records"))
-    # # print(links_list)
-
-    # # with open(f"./links.json", 'w', encoding='utf-8') as file:
-    # #     json.dump({"links": links_list}, file, ensure_ascii=False, indent=4)
-
-    # # transactions = {"nodes": nodes_list, "links": links_list, "link_detail": links}
     transactions = {"nodes": nodes_list, "links": links_list}
 
     # TODO: Query stats
