@@ -12,6 +12,7 @@ __status__ = "Development"
 
 import sys
 import yaml
+import json
 
 from flask import Flask, render_template, request, Response, send_file
 from flask_cors import CORS, cross_origin
@@ -97,24 +98,35 @@ def internal_test_2():
 @app.route('/stream-data-checking', methods=['GET'])
 def get_data_checking():
     params = request.args.to_dict()
-    logger.debug(f"PARAM: {params}")
     config = current_app.config['config']
     config['action'] = params['action'] 
     if ("graph" in params.keys()):
         config['graph'] = params['graph'] 
     else:
         config['graph'] = "Star"
+    filters_json = request.args.get('filters')
+    if filters_json:
+        filters = json.loads(filters_json)
+    else:
+        filters = {"filter": False}
+    config['filters'] = filters
+    logger.debug(f"PARAM: {config}")
 
     return Response(misc.event_stream_checking(config), mimetype='text/event-stream')
 
 
 @app.route('/stream-data-info', methods=['GET'])
 def get_data_info():
-   
     params = request.args.to_dict()
-    logger.debug(f"PARAM: {params}")
     config = current_app.config['config']
     params['config'] = config 
+    filters_json = request.args.get('filters')
+    if filters_json:
+        filters = json.loads(filters_json)
+    else:
+        filters = {"filter": False}
+    params['filters'] = filters
+    logger.debug(f"PARAM: {params}")
 
     if (params['network'] == 'bsc'):
         return Response(bsc.event_stream_bsc(params), mimetype='text/event-stream')
