@@ -1900,10 +1900,10 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
     if row:
         tag_str = row[0]
         tag_list = json.loads(tag_str)
-        if ('central' not in tag_list):
-            tag_list.append('central')
-            if ('path' not in tag_list):
-                tag_list.append('path')
+        if "central" not in tag_list:
+            tag_list.append("central")
+            if "path" not in tag_list:
+                tag_list.append("path")
             new_tag_str = json.dumps(tag_list)
             cursor.execute("UPDATE t_nodes_classification SET tag = ? WHERE address = ?", (new_tag_str, address_central))
             conn.commit()
@@ -3427,7 +3427,7 @@ def get_nodes_links_bd(conn, address_central, params=[]):
     tic = time.perf_counter()
 
     # INFO: Config Log Level
-    if (params.get('config', '') != ''):
+    if params.get("config", "") != "":
         log_format = "%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s"
         coloredlogs.install(level=params["config"]["level"], fmt=log_format, logger=logger)
         logger.propagate = False  # INFO: To prevent duplicates with flask
@@ -3453,8 +3453,8 @@ def get_nodes_links_bd(conn, address_central, params=[]):
     df_nodes = pd.read_sql_query(query, conn)
     df_nodes["tag"] = df_nodes["tag"].apply(json.loads)
     df_nodes["label"] = df_nodes["label"].apply(json.loads)
-    # TODO: Filter nodes by tag
-    if (filters.get("tags", "") != ""):
+    # NOTE: Filter nodes by tag
+    if filters.get("tags", "") != "":
         # central_node = df_nodes[df_nodes["tag"].apply(lambda tags: "central" in tags)]
         central_node = df_nodes[df_nodes["tag"].apply(lambda tags: "central" in tags or "path" in tags)]
         tags = filters["tags"]
@@ -3467,7 +3467,6 @@ def get_nodes_links_bd(conn, address_central, params=[]):
         df_nodes_filtered = pd.concat([central_node, df_nodes_filtered]).drop_duplicates(subset="address").reset_index(drop=True)
     else:
         df_nodes_filtered = df_nodes
-    nodes_list = json.loads(df_nodes_filtered.to_json(orient="records"))
 
     # NOTE: Query links
     query = """
@@ -3476,12 +3475,13 @@ def get_nodes_links_bd(conn, address_central, params=[]):
     """
     df_links = pd.read_sql_query(query, conn)
     df_links["action"] = df_links["action"].apply(json.loads)
-    # TODO: filter links by tag
-    if (filters.get("tags", "") != ""):
+    # NOTE: filter links by tag
+    if filters.get("tags", "") != "":
         filtered_addresses = set(df_nodes_filtered["address"])
         df_links_filtered = df_links[df_links["source"].isin(filtered_addresses) & df_links["target"].isin(filtered_addresses)]
-    else: 
+    else:
         df_links_filtered = df_links
+
     links_list = json.loads(df_links_filtered.to_json(orient="records"))
     grouped_data = defaultdict(lambda: {"source": "", "target": "", "detail": defaultdict(dict), "qty": 0})
 
@@ -3502,10 +3502,23 @@ def get_nodes_links_bd(conn, address_central, params=[]):
             grouped_data[key]["source"] = link["source"]
             grouped_data[key]["target"] = link["target"]
 
-        grouped_data[key]["detail"][symbol+str(link["sum"])] = detail  # pyright: ignore
+        grouped_data[key]["detail"][symbol + str(link["sum"])] = detail  # pyright: ignore
         grouped_data[key]["qty"] += link["count"]
 
-    links_list = list(grouped_data.values())
+    if filters.get("qty", "") != "":
+        filtered_grouped_data = {key: value for key, value in grouped_data.items() if int(value["qty"]) > int(filters["qty"])}
+        source_target_values = set(value["source"] for value in filtered_grouped_data.values()) | set(
+            value["target"] for value in filtered_grouped_data.values()
+        )
+        central_node = df_nodes_filtered[df_nodes_filtered["tag"].apply(lambda tags: "central" in tags or "path" in tags)]
+        print(central_node.head())
+        df_nodes_filtered = df_nodes_filtered[df_nodes_filtered["address"].isin(source_target_values)]
+        df_nodes_filtered = pd.concat([central_node, df_nodes_filtered]).drop_duplicates(subset="address").reset_index(drop=True)
+    else:
+        filtered_grouped_data = grouped_data
+
+    nodes_list = json.loads(df_nodes_filtered.to_json(orient="records"))
+    links_list = list(filtered_grouped_data.values())
 
     transactions = {"nodes": nodes_list, "links": links_list}
 
