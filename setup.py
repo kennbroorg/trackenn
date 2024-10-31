@@ -1,10 +1,33 @@
 from cx_Freeze import setup, Executable
 
-# Dependencies are automatically detected, but it might need
-# fine tuning.
 output_directory = "trackenn"
 
-build_options = {'packages': ['core'], 'excludes': [], 'build_exe': output_directory}
+build_options = {
+    'packages': [
+        'core',
+        'flask',
+        'flask_cors',
+        'sqlalchemy',
+        'sqlalchemy.dialects.sqlite',
+        'pandasql',
+        'pandas',
+        'pyarrow',
+        'sqlite3',
+        'encodings',
+        'requests',
+        'yaml',
+        'termcolor',
+        'coloredlogs',
+    ],
+    'include_files': [
+        ('front', 'front'),
+        ('data', 'data'),
+        'config.yaml',
+    ],
+    'excludes': ['tkinter'],
+    'include_msvcr': True,
+    'build_exe': output_directory,
+}
 
 base = 'console'
 
@@ -13,7 +36,7 @@ executables = [
 ]
 
 setup(name='trackenn',
-      version = '0.1',
+      version = '0.0.5',
       description = 'Blockchain traceability',
       options = {'build_exe': build_options},
       executables = executables)
