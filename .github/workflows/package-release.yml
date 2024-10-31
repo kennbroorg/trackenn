@@ -26,11 +26,11 @@ jobs:
         run: python setup.py build
           # run: cxfreeze -c app.py --target-dir trackenn --target-name trackenn
 
-      - name: Copy directories and files
-        run: |
-          cp -r front trackenn/
-          cp -r data trackenn/
-          cp config.yaml trackenn/
+      # - name: Copy directories and files
+      #   run: |
+      #     cp -r front trackenn/
+      #     cp -r data trackenn/
+      #     cp config.yaml trackenn/
 
       - name: Zip Distribution Directory
         run: zip -r trackenn-linux.zip trackenn/
@@ -62,11 +62,11 @@ jobs:
         run: python setup.py build
           # run: cxfreeze -c app.py --target-dir trackenn --target-name trackenn
 
-      - name: Copy directories and files
-        run: |
-          Copy-Item -Path front -Destination trackenn/ -Recurse
-          Copy-Item -Path data -Destination trackenn/ -Recurse
-          Copy-Item -Path config.yaml -Destination trackenn/
+      # - name: Copy directories and files
+      #   run: |
+      #     Copy-Item -Path front -Destination trackenn/ -Recurse
+      #     Copy-Item -Path data -Destination trackenn/ -Recurse
+      #     Copy-Item -Path config.yaml -Destination trackenn/
 
       - name: Zip Distribution Directory
         run: Compress-Archive -Path trackenn/* -DestinationPath trackenn-windows.zip
