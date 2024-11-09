@@ -3134,6 +3134,14 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         # logger.debug(colored(f"++ TRANSFER TOKEN FROM WA = {hash}", 'magenta'))
                         action = "transfer token from wa"
 
+                        # Node
+                        # TODO: Determine in always is a wallet
+                        node_address = row["to"]
+                        if (node_address not in nodes) and (node_address not in nodes_db):
+                            tag = tags_dict.get(node_address, [])  # Get tag
+                            label = labels_dict.get(node_address, [])  # Get label
+                            add_nodes(node_address, tag, label, contract=False)
+
                         add_link(
                             row["from"],
                             row["to"],
@@ -3150,6 +3158,14 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
                         # 0xa0546af5aa96775452ccb151399e3b27738e2f1912659516a75e36e5be0dc4c7
                         # logger.debug(colored(f"++ TRANSFER TOKEN TO WA = {hash}", 'magenta'))
                         action = "transfer token to wa"
+
+                        # Node
+                        # TODO: Determine in always is a wallet
+                        node_address = row["from"]
+                        if (node_address not in nodes) and (node_address not in nodes_db):
+                            tag = tags_dict.get(node_address, [])  # Get tag
+                            label = labels_dict.get(node_address, [])  # Get label
+                            add_nodes(node_address, tag, label, contract=False)
 
                         add_link(
                             row["from"],
