@@ -224,25 +224,25 @@ def event_stream_bsc(params):
         central = cursor.fetchall()
         logger.debug(f"Central address: {central}")
         if (central):
-            update = f"UPDATE t_tags SET blockChain = '{blockchain}', address = '{address}' WHERE tag = 'central'"
-            connection.execute(update)
-            logger.debug(f"UPDATE Central: {update}")
+            update = "UPDATE t_tags SET blockChain = ?, address = ? WHERE tag = 'central'"
+            connection.execute(update, (blockchain, address))
+            logger.debug("UPDATE Central: %s %s", update, (blockchain, address))
             connection.commit()
         else:
-            insert = f"INSERT INTO t_tags (blockChain, address, tag) VALUES ('{blockchain}', '{address}', 'central')"
-            connection.execute(insert)
-            logger.debug(f"INSERT Central: {insert}")
+            insert = "INSERT INTO t_tags (blockChain, address, tag) VALUES (?, ?, 'central')"
+            connection.execute(insert, (blockchain, address))
+            logger.debug("INSERT Central: %s %s", insert, (blockchain, address))
             connection.commit()
         
         # INFO: Update path address
-        insert = f"INSERT OR IGNORE INTO t_tags (blockChain, address, tag) VALUES ('{blockchain}', '{address}', 'path')"
-        connection.execute(insert)
-        logger.debug(f"INSERT Path: {insert}")
+        insert = "INSERT OR IGNORE INTO t_tags (blockChain, address, tag) VALUES (?, ?, 'path')"
+        connection.execute(insert, (blockchain, address))
+        logger.debug("INSERT Path: %s %s", insert, (blockchain, address))
         connection.commit()
 
         # INFO: Verify info of address
-        query = f"SELECT * FROM t_address_detail WHERE address = '{address}' AND BlockChain = '{blockchain}'"
-        cursor.execute(query)
+        query = "SELECT * FROM t_address_detail WHERE address = ? AND BlockChain = ?"
+        cursor.execute(query, (address, blockchain))
         wallet_detail = cursor.fetchone()
         json_object = []
         json_internals = []
@@ -556,8 +556,8 @@ def event_stream_bsc(params):
                     tic = time.perf_counter()
 
                     # INFO: Check if address exist in labels table
-                    query = f"SELECT * FROM t_labels WHERE address = '{address}'"
-                    cursor.execute(query)
+                    query = "SELECT * FROM t_labels WHERE address = ?"
+                    cursor.execute(query, (address,))
                     label = cursor.fetchall()
                     if (len(label) == 0) and (len(json_contract) > 0):
                         # INFO: Store internal label
@@ -996,8 +996,8 @@ def event_stream_bsc(params):
             logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
         # INFO: Send wallet detail information
-        query = f"SELECT * FROM t_address_detail WHERE address = '{address}' and blockChain = '{blockchain}'"
-        cursor.execute(query)
+        query = "SELECT * FROM t_address_detail WHERE address = ? and blockChain = ?"
+        cursor.execute(query, (address, blockchain))
         wallet_detail = cursor.fetchall()
 
         logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
@@ -1020,8 +1020,8 @@ def event_stream_bsc(params):
         type = wallet_detail[0][12]
 
         # TODO: Path must support multichain in the future
-        query = f"SELECT address FROM t_tags WHERE tag = 'path' AND blockChain = '{blockchain}'"
-        cursor.execute(query)
+        query = "SELECT address FROM t_tags WHERE tag = 'path' AND blockChain = ?"
+        cursor.execute(query, (blockchain,))
         rows = cursor.fetchall()
 
         # Get addresses in path
@@ -1411,13 +1411,13 @@ def get_balance_and_gas(conn, address_central, type, key):
         query = f"""
             SELECT 
                 blockChain,
-                '{address_central}',
+                :address AS address,
                 token,
                 tokenName,
                 SUM(
                     CASE 
-                        WHEN "From" = '{address_central}' THEN -value / POWER(10, SymbolDecimal)
-                        WHEN "To" = '{address_central}' THEN value / POWER(10, SymbolDecimal)
+                        WHEN "From" = :address THEN -value / POWER(10, SymbolDecimal)
+                        WHEN "To" = :address THEN value / POWER(10, SymbolDecimal)
                         ELSE 0
                     END
                 ) AS balance
@@ -1435,12 +1435,12 @@ def get_balance_and_gas(conn, address_central, type, key):
             WHERE 
                 "isError" = 0 AND
                 "blockChain" = 'bsc' AND
-                ("From" = '{address_central}' OR "To" = '{address_central}')
+                ("From" = :address OR "To" = :address)
             GROUP BY 
                 token;
         """
         # df_balance = pd.read_sql_query(query, conn).to_json(orient = "records")
-        df_balance = pd.read_sql_query(query, conn)
+        df_balance = pd.read_sql_query(query, conn, params={"address": address_central})
 
         # INFO: Get Gas
         query = f"""
@@ -1450,10 +1450,10 @@ def get_balance_and_gas(conn, address_central, type, key):
             WHERE 
                 "isError" = 0 AND
                 "blockChain" = 'bsc' AND
-                "From" = '{address_central}'
+                "From" = :address
         """
         cursor = conn.cursor()
-        cursor.execute(query)
+        cursor.execute(query, {"address": address_central})
         gas = cursor.fetchone()[0]
 
         # Get index of ETH row
@@ -1498,8 +1498,8 @@ def get_funders_creators(conn, address_central):
     address_central = address_central[1]
 
     # INFO: Get Funders
-    query = f"SELECT * FROM t_funders_creators WHERE blockChain = 'bsc' AND `to` = '{address_central}';"
-    df_funders_creators = pd.read_sql_query(query, conn).to_json(orient = "records")
+    query = "SELECT * FROM t_funders_creators WHERE blockChain = 'bsc' AND `to` = ?;"
+    df_funders_creators = pd.read_sql_query(query, conn, params=(address_central,)).to_json(orient = "records")
 
     return {"funders": df_funders_creators}
 
@@ -1510,12 +1510,12 @@ def get_tags_labels(conn, address_central):
     # PERF: I think that need to remove the blockchain condition
 
     # INFO: Get Tags
-    query = f"SELECT * FROM t_tags WHERE blockChain = 'bsc' and address = '{address_central}';"
-    df_tags = json.loads(pd.read_sql_query(query, conn).to_json(orient = "records"))
+    query = "SELECT * FROM t_tags WHERE blockChain = 'bsc' and address = ?;"
+    df_tags = json.loads(pd.read_sql_query(query, conn, params=(address_central,)).to_json(orient = "records"))
 
     # INFO: Get Labels
-    query = f"SELECT * FROM t_labels WHERE blockChain = 'binance' and address = '{address_central}';"
-    df_labels = json.loads(pd.read_sql_query(query, conn).to_json(orient = "records"))
+    query = "SELECT * FROM t_labels WHERE blockChain = 'binance' and address = ?;"
+    df_labels = json.loads(pd.read_sql_query(query, conn, params=(address_central,)).to_json(orient = "records"))
 
     return {"tags": df_tags, "labels": df_labels}
 

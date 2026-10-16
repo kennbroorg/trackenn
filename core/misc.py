@@ -514,8 +514,8 @@ def event_stream_checking(config):
             address_central = address[1]
             blockchain = address[0]
             logger.debug(f"ADDRESS: {address}")
-            query = f"SELECT address FROM t_tags WHERE tag = 'path' AND blockChain = '{blockchain}';"
-            cursor.execute(query)
+            query = "SELECT address FROM t_tags WHERE tag = 'path' AND blockChain = ?;"
+            cursor.execute(query, (blockchain,))
             rows = cursor.fetchall()
             logger.debug(f"ROWS: {rows}")
 
@@ -524,8 +524,8 @@ def event_stream_checking(config):
             logger.debug(f"ADDRESSES: {addresses}")
 
             # INFO: Send wallet detail information
-            query = f"SELECT * FROM t_address_detail WHERE address = '{address_central}'"
-            cursor.execute(query)
+            query = "SELECT * FROM t_address_detail WHERE address = ?"
+            cursor.execute(query, (address_central,))
             wallet_detail = cursor.fetchall()
             type = wallet_detail[0][12]
 
