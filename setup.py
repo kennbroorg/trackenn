@@ -5,8 +5,13 @@ output_directory = "trackenn"
 build_options = {
     'packages': [
         'core',
-        'flask',
-        'flask_cors',
+        'fastapi',
+        'starlette',
+        'pydantic',
+        'uvicorn',
+        'click',
+        'h11',
+        'anyio',
         'sqlalchemy',
         'sqlalchemy.dialects.sqlite',
         'pandasql',

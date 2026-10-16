@@ -21,7 +21,6 @@ import traceback
 import pandas as pd
 # from sqlalchemy import text
 from datetime import datetime
-from flask import jsonify
 
 from termcolor import colored
 import coloredlogs, logging

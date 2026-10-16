@@ -6,7 +6,7 @@
 
 <div align="center" style="margin-bottom: 10px;">
     <img alt="Python" src="https://img.shields.io/badge/python-3.10-informational.svg?style=for-the-badge">
-    <img alt="Flask" src="https://img.shields.io/badge/interface-flask-yellowgreen.svg?style=for-the-badge">
+    <img alt="FastAPI" src="https://img.shields.io/badge/interface-fastapi-yellowgreen.svg?style=for-the-badge">
 </div>
 
 ---
@@ -40,6 +40,15 @@ git clone https://github.com/kennbroorg/trackenn.git    # Clone repo
 cd trackenn                                             # Enter to directory cloned
 pip install -r requirements.txt                         # Install dependencies
 python3 app.py                                          # Execute the app
+```
+
+The API runs on FastAPI + Uvicorn at `http://127.0.0.1:5000` (interactive docs at `/docs`).
+
+<h3 id="tests">Tests</h3>
+
+``` shell
+pip install -r requirements-dev.txt
+python -m pytest
 ```
 
 And, finally, [browse](#browse) it.

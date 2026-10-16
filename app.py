@@ -14,9 +14,12 @@ import sys
 import yaml
 import json
 
-from flask import Flask, render_template, request, Response, send_file
-from flask_cors import CORS, cross_origin
-from flask import current_app
+import inspect
+
+import uvicorn
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 import argparse
 import multiprocessing
@@ -30,26 +33,29 @@ from core import misc
 from core import eth
 from core import bsc
 
-app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "http://127.0.0.1:4200"}})  # TODO: Move in API_Server
+app = FastAPI(title="trackenn", version=__version__)
+app.state.config = None
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://127.0.0.1:4200"],  # TODO: Move in API_Server
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 log_format = '%(asctime)s %(name)-10s %(lineno)-6d %(levelname)-7s %(message)s'
 logging.basicConfig(level=logging.DEBUG, format=log_format)
-# app.logger.handlers[0].setFormatter(logging.Formatter(log_format))
-for handler in app.logger.handlers:
-    handler.setFormatter(logging.Formatter(log_format))
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 coloredlogs.install(level='DEBUG', fmt=log_format, logger=logger)
-# logger.propagate = False  # INFO: To prevent duplicates with flask
+# logger.propagate = False  # INFO: To prevent duplicates with uvicorn
 
 def API_Server(ip='127.0.0.1', port=5000, config=None, env="prod"):
-    app.config['config'] = config
+    app.state.config = config
     logger.info(f"API ready...{env}")
     if (env == "prod"):
-        app.run(port=port, debug=False, host=ip, use_reloader=False)
+        uvicorn.run(app, host=ip, port=port, log_level=str(config['level']).lower())
     else:
-        app.run(host=ip, port=port, debug=True)
+        uvicorn.run(app, host=ip, port=port, log_level="debug")
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -68,86 +74,99 @@ def httpServer():
         httpd_server.serve_forever()
 
 
-@app.route('/recreatedb', methods=['GET'])  # NOTE: Used to test cases
-def recreatedb():
-    params = request.args.to_dict()
-    config = current_app.config['config']
-    params['config'] = config 
-    data = eth.recreate_db(params)
-    return data
+def query_params(request):
+    # INFO: Keep first value of repeated keys (same as Flask request.args.to_dict())
+    params = {}
+    for key, value in request.query_params.multi_items():
+        params.setdefault(key, value)
+    return params
 
 
-@app.route('/internal-test-1', methods=['GET'])  # NOTE: Used to test cases
-def internal_test_1():
-    params = request.args.to_dict()
-    config = current_app.config['config']
-    params['config'] = config 
-    data = eth.test_function_1(params)
-    return data
+def get_config(request):
+    # INFO: Copy per request, the shared config must not be mutated by handlers
+    return dict(request.app.state.config)
 
 
-@app.route('/internal-test-2', methods=['GET'])  # NOTE: Used to test cases
-def internal_test_2():
-    params = request.args.to_dict()
-    config = current_app.config['config']
-    params['config'] = config 
-    data = eth.test_function_2(params)
-    return data
-
-
-@app.route('/stream-data-checking', methods=['GET'])
-def get_data_checking():
-    params = request.args.to_dict()
-    config = current_app.config['config']
-    config['action'] = params['action'] 
-    if ("graph" in params.keys()):
-        config['graph'] = params['graph'] 
-    else:
-        config['graph'] = "Star"
-    filters_json = request.args.get('filters')
+def get_filters(params):
+    filters_json = params.get('filters')
     if filters_json:
-        filters = json.loads(filters_json)
-    else:
-        filters = {"filter": False}
-    config['filters'] = filters
+        return json.loads(filters_json)
+    return {"filter": False}
+
+
+def event_stream(generator):
+    return StreamingResponse(generator, media_type='text/event-stream')
+
+
+def test_response(data):
+    if inspect.isgenerator(data):
+        return event_stream(data)
+    return JSONResponse(data)
+
+
+@app.get('/recreatedb')  # NOTE: Used to test cases
+def recreatedb(request: Request):
+    params = query_params(request)
+    params['config'] = get_config(request)
+    data = eth.recreate_db(params)
+    return test_response(data)
+
+
+@app.get('/internal-test-1')  # NOTE: Used to test cases
+def internal_test_1(request: Request):
+    params = query_params(request)
+    params['config'] = get_config(request)
+    data = eth.test_function_1(params)
+    return test_response(data)
+
+
+@app.get('/internal-test-2')  # NOTE: Used to test cases
+def internal_test_2(request: Request):
+    params = query_params(request)
+    params['config'] = get_config(request)
+    data = eth.test_function_2(params)
+    return test_response(data)
+
+
+@app.get('/stream-data-checking')
+def get_data_checking(request: Request):
+    params = query_params(request)
+    config = get_config(request)
+    config['action'] = params['action']
+    config['graph'] = params.get('graph', "Star")
+    config['filters'] = get_filters(params)
     logger.debug(f"PARAM: {config}")
 
-    return Response(misc.event_stream_checking(config), mimetype='text/event-stream')
+    return event_stream(misc.event_stream_checking(config))
 
 
-@app.route('/stream-data-info', methods=['GET'])
-def get_data_info():
-    params = request.args.to_dict()
-    config = current_app.config['config']
-    params['config'] = config 
-    filters_json = request.args.get('filters')
-    if filters_json:
-        filters = json.loads(filters_json)
-    else:
-        filters = {"filter": False}
-    params['filters'] = filters
+@app.get('/stream-data-info')
+def get_data_info(request: Request):
+    params = query_params(request)
+    params['config'] = get_config(request)
+    params['filters'] = get_filters(params)
     logger.debug(f"PARAM: {params}")
 
     if (params['network'] == 'bsc'):
-        return Response(bsc.event_stream_bsc(params), mimetype='text/event-stream')
-    else: 
-        return Response(eth.event_stream_ether(params), mimetype='text/event-stream')
+        return event_stream(bsc.event_stream_bsc(params))
+    else:
+        return event_stream(eth.event_stream_ether(params))
 
 
-@app.route('/download_db')
+@app.get('/download_db')
 def download_investigation():
     # TODO: Get from config file
     # HACK: Multiuser?
     file_path = './default.db'  # Change for the path
-    return send_file(file_path, as_attachment=True)
+    return FileResponse(file_path, filename='default.db')
 
 
-@app.route('/reset_db')
+@app.get('/reset_db')
 def reset_investigation():
     # TODO: Get from config file
     # HACK: Multiuser?
     file_path = './default.db'  # Change for the path
-    return Response(misc.event_reset_investigation(file_path), mimetype='text/event-stream')
+    return event_stream(misc.event_reset_investigation(file_path))
 
 
 if __name__ == '__main__':
@@ -189,10 +208,10 @@ if __name__ == '__main__':
     if (env == "prod"):
         logger.info('Starting PROD servers')
         logger.info("API starting...")
-        kwargs_flask = {"ip": ip, "port": 5000, "config": config}
+        kwargs_api = {"ip": ip, "port": 5000, "config": config}
         API_proc = multiprocessing.Process(name='API',
                                              target=API_Server,
-                                             kwargs=kwargs_flask)
+                                             kwargs=kwargs_api)
         API_proc.daemon = True
 
         logger.info("HTTPD starting...")
