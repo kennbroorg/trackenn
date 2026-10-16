@@ -14,7 +14,6 @@ build_options = {
         'anyio',
         'sqlalchemy',
         'sqlalchemy.dialects.sqlite',
-        'pandasql',
         'pandas',
         'pyarrow',
         'sqlite3',

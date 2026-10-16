@@ -18,8 +18,8 @@ import requests
 import sqlite3
 import traceback
 import pandas as pd  # pyright: ignore
-import pandasql as psql  # pyright: ignore
 from collections import defaultdict
+from contextlib import closing
 import yaml
 
 # from sqlalchemy import text
@@ -46,6 +46,15 @@ def insert_with_ignore(table, conn, keys, data_iter):
 
     for data in data_dicts:
         conn.execute(stmt, data)
+
+
+def sqldf(query, data_frames):
+    # INFO: Replacement of pandasql.sqldf, run the query over the dataframes in an in-memory db
+    with closing(sqlite3.connect(":memory:")) as conn:
+        for name, df in data_frames.items():
+            # INFO: Same rule as pandasql, load index only if all levels are named
+            df.to_sql(name, conn, index=not any(level is None for level in df.index.names))
+        return pd.read_sql_query(query, conn)
 
 
 def db_store_wallet_detail(conn, data):
@@ -2039,7 +2048,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
     """
 
     # Ejecutar la consulta
-    df_all = psql.sqldf(query, data_frames)
+    df_all = sqldf(query, data_frames)
 
     # INFO: Convert to datetime
     df_all["decimal"] = df_all["decimal"].astype("int64")

@@ -1,11 +1,10 @@
-fastapi
-uvicorn
-termcolor
-coloredlogs
-PyYAML==6.0
-requests
-# pysqlite3
-pandas
-pandasql
-pyarrow
-sqlalchemy
+fastapi==0.143.2
+uvicorn==0.54.0
+termcolor==3.3.0
+coloredlogs==15.0.1
+PyYAML==6.0.3
+requests==2.34.2
+pandas==2.3.3
+numpy==2.5.4
+pyarrow==26.0.0
+sqlalchemy==2.1.4

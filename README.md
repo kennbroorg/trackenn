@@ -5,7 +5,7 @@
 </div>
 
 <div align="center" style="margin-bottom: 10px;">
-    <img alt="Python" src="https://img.shields.io/badge/python-3.10-informational.svg?style=for-the-badge">
+    <img alt="Python" src="https://img.shields.io/badge/python-3.14-informational.svg?style=for-the-badge">
     <img alt="FastAPI" src="https://img.shields.io/badge/interface-fastapi-yellowgreen.svg?style=for-the-badge">
 </div>
 
