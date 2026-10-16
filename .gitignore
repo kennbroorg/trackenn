@@ -39,3 +39,6 @@ config.yaml
 *.yaml
 *.db
 
+
+# ODD task tracking (local only)
+odd/
