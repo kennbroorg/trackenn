@@ -14,7 +14,6 @@ __status__ = "Development"
 import time
 import json
 import logging
-import requests
 import sqlite3
 import traceback
 import pandas as pd  # pyright: ignore
@@ -30,6 +29,7 @@ from termcolor import colored  # pyright: ignore
 import coloredlogs  # pyright: ignore
 
 from core import misc
+from core import api_client
 
 logger = logging.getLogger(__name__)
 # logger.propagate = False  # INFO: To prevent duplicates with flask
@@ -295,7 +295,7 @@ def event_stream_ether(params):
             contract_creation = {}
             try:
                 url = f"https://api.etherscan.io/api?module=contract&action=getcontractcreation&contractaddresses={address}&apikey={key}"
-                response = requests.get(url)
+                response = api_client.api_get(url)
                 contract_creation = response.json()
                 json_status = response.json()["status"]
                 json_message = response.json()["message"]
@@ -364,7 +364,7 @@ def event_stream_ether(params):
                 json_contract = []
                 try:
                     url = f"https://api.etherscan.io/api?module=contract&action=getsourcecode&address={address}&apikey={key}"
-                    response = requests.get(url)
+                    response = api_client.api_get(url)
                     json_contract = response.json()["result"]
 
                     if len(json_contract) > 0:
@@ -432,7 +432,7 @@ def event_stream_ether(params):
                 # INFO: Get trx creation
                 try:
                     url = f"https://api.etherscan.io/api?module=account&action=txlist&address={address}&startblock=0&endblock=99999999&page=1&offset=1&sort=asc&apikey={key}"
-                    response = requests.get(url)
+                    response = api_client.api_get(url)
                     json_object = response.json()["result"]
 
                     if len(json_object) > 0:
@@ -668,7 +668,7 @@ def event_stream_ether(params):
                 # INFO: Get trx
                 try:
                     url = f"https://api.etherscan.io/api?module=account&action=txlist&address={address}&startblock=0&endblock=99999999&sort=asc&apikey={key}"
-                    response = requests.get(url)
+                    response = api_client.api_get(url)
                     json_object = response.json()["result"]
 
                     if len(json_object) > 0:
@@ -707,7 +707,7 @@ def event_stream_ether(params):
                 try:
                     url = f"https://api.etherscan.io/api?module=account&action=txlistinternal&address={address}&startblock=0&endblock=99999999&sort=asc&apikey={key}"
 
-                    response = requests.get(url)
+                    response = api_client.api_get(url)
                     json_internals = response.json()["result"]
 
                     if len(json_internals) > 0:
@@ -746,7 +746,7 @@ def event_stream_ether(params):
                 try:
                     url = f"https://api.etherscan.io/api?module=account&action=tokentx&address={address}&startblock=0&endblock=99999999&sort=asc&apikey={key}"
 
-                    response = requests.get(url)
+                    response = api_client.api_get(url)
                     json_transfers = response.json()["result"]
 
                     if len(json_transfers) > 0:
@@ -785,7 +785,7 @@ def event_stream_ether(params):
                 try:
                     url = f"https://api.etherscan.io/api?module=account&action=tokennfttx&address={address}&sort=asc&apikey={key}"
 
-                    response = requests.get(url)
+                    response = api_client.api_get(url)
                     json_nfts = response.json()["result"]
 
                     if len(json_nfts) > 0:
@@ -824,7 +824,7 @@ def event_stream_ether(params):
                 try:
                     url = f"https://api.etherscan.io/api?module=account&action=token1155tx&address={address}&sort=asc&apikey={key}"
 
-                    response = requests.get(url)
+                    response = api_client.api_get(url)
                     json_multitokens = response.json()["result"]
 
                     if len(json_multitokens) > 0:
@@ -1256,7 +1256,7 @@ def recreate_db(params):
     # NOTE:
     # Simulate graphic gathering from initial db
     with open(r"./config.yaml") as file:
-        config = yaml.load(file, Loader=yaml.FullLoader)
+        config = yaml.safe_load(file)
     config["action"] = "reset"
     data = misc.event_stream_checking(config)  # WARN: Recreate db
 
@@ -1279,7 +1279,7 @@ def test_function_1(params):
     # NOTE:
     # Simulate graphic gathering from initial db
     with open(r"./config.yaml") as file:
-        config = yaml.load(file, Loader=yaml.FullLoader)
+        config = yaml.safe_load(file)
     params["graph"] = "complex"
     params["network"] = "eth"
     params["config"] = config
@@ -1842,7 +1842,7 @@ def get_balance_and_gas(conn, address_central, type, key):
     else:
         # INFO: Get balance of contract
         url = f"https://api.etherscan.io/api?module=account&action=balance&address={address_central}&tag=latest&apikey={key}"
-        response = requests.get(url)
+        response = api_client.api_get(url)
         json_object = response.json()["result"]
         # print(f"BALANCE: {json_object}")
         balance = [{"blockChain": "eth", "balance": int(json_object) / 1e18, "token": "ETH", "tokenName": "Ether"}]
@@ -3465,7 +3465,7 @@ def get_nodes_links_bd(conn, address_central, params=[]):
 
     logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
     logger.debug(f"+ Address: {address_central}")
-    logger.debug(f"+ Params: {params}")
+    logger.debug(f"+ Params: {api_client.public_params(params)}")
     logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
     address_central = address_central[1]

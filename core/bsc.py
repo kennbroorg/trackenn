@@ -15,7 +15,6 @@ import time
 import json
 import logging
 from numpy import block
-import requests
 import sqlite3
 import traceback
 import pandas as pd
@@ -24,6 +23,8 @@ from datetime import datetime
 
 from termcolor import colored
 import coloredlogs, logging
+
+from core import api_client
 
 logger = logging.getLogger(__name__)
 logger.propagate = False  # INFO: To prevent duplicates with flask
@@ -260,7 +261,7 @@ def event_stream_bsc(params):
             contract_creation = {}
             try:
                 url = f"https://api.bscscan.com/api?module=contract&action=getcontractcreation&contractaddresses={address}&apikey={key}"
-                response = requests.get(url)
+                response = api_client.api_get(url)
                 contract_creation = response.json()
                 json_status = response.json()['status']
                 json_message = response.json()['message']
@@ -329,7 +330,7 @@ def event_stream_bsc(params):
                 json_contract = []
                 try:
                     url = f"https://api.bscscan.com/api?module=contract&action=getsourcecode&address={address}&apikey={key}"
-                    response = requests.get(url)
+                    response = api_client.api_get(url)
                     json_contract = response.json()['result']
 
                     if (len(json_contract) > 0):
@@ -397,7 +398,7 @@ def event_stream_bsc(params):
                 # INFO: Get trx creation
                 try:
                     url = f"https://api.bscscan.com/api?module=account&action=txlist&address={address}&startblock=0&endblock=99999999&page=1&offset=1&sort=asc&apikey={key}"
-                    response = requests.get(url)
+                    response = api_client.api_get(url)
                     json_object = response.json()['result']
 
                     if (len(json_object) > 0):
@@ -627,7 +628,7 @@ def event_stream_bsc(params):
                 # INFO: Get trx
                 try:
                     url = f"https://api.bscscan.com/api?module=account&action=txlist&address={address}&startblock=0&endblock=99999999&sort=asc&apikey={key}"
-                    response = requests.get(url)
+                    response = api_client.api_get(url)
                     json_object = response.json()['result']
 
                     if (len(json_object) > 0):
@@ -666,7 +667,7 @@ def event_stream_bsc(params):
                 try:
                     url = f"https://api.bscscan.com/api?module=account&action=txlistinternal&address={address}&startblock=0&endblock=99999999&sort=asc&apikey={key}"
 
-                    response = requests.get(url)
+                    response = api_client.api_get(url)
                     json_internals = response.json()['result']
 
                     if (len(json_internals) > 0):
@@ -705,7 +706,7 @@ def event_stream_bsc(params):
                 try:
                     url = f"https://api.bscscan.com/api?module=account&action=tokentx&address={address}&startblock=0&endblock=99999999&sort=asc&apikey={key}"
 
-                    response = requests.get(url)
+                    response = api_client.api_get(url)
                     json_transfers = response.json()['result']
 
                     if (len(json_transfers) > 0):
@@ -744,7 +745,7 @@ def event_stream_bsc(params):
                 try:
                     url = f"https://api.bscscan.com/api?module=account&action=tokennfttx&address={address}&sort=asc&apikey={key}"
 
-                    response = requests.get(url)
+                    response = api_client.api_get(url)
                     json_nfts = response.json()['result']
 
                     if (len(json_nfts) > 0):
@@ -1482,8 +1483,8 @@ def get_balance_and_gas(conn, address_central, type, key):
     else:
         # INFO: Get balance of contract
         url = f"https://api.bscscan.com/api?module=account&action=balance&address={address_central}&tag=latest&apikey={key}"
-        logger.debug(f"BALANCE BSC URL: {url}")
-        response = requests.get(url)
+        logger.debug(f"BALANCE BSC URL: {api_client.redact(url)}")
+        response = api_client.api_get(url)
         json_object = response.json()['result']
         logger.debug(f"BALANCE: {json_object}")
         # print(f"BALANCE: {json_object}")

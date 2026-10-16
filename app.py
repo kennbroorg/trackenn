@@ -30,6 +30,7 @@ from termcolor import colored
 import coloredlogs, logging
 
 from core import misc
+from core import api_client
 from core import eth
 from core import bsc
 
@@ -63,15 +64,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().__init__(*args, directory="./front/", **kwargs)
 
 
-def httpServer():
+def httpServer(ip='127.0.0.1'):
     PORT = 4200
     logger.info("HTTPD ready...")
     logger.info("")
     logger.info("===================================================")
-    logger.info("  Data Visualization Web on http://127.0.0.1:4200")
+    logger.info(f"  Data Visualization Web on http://{ip}:{PORT}")
     logger.info("===================================================\n")
-    with socketserver.TCPServer(("", PORT), Handler) as httpd_server:
+    with socketserver.TCPServer((ip, PORT), Handler) as httpd_server:
         httpd_server.serve_forever()
+
+
+def load_config(path='./config.yaml'):
+    # INFO: safe_load, config must not be able to build python objects
+    with open(path) as file:
+        return yaml.safe_load(file)
 
 
 def query_params(request):
@@ -135,7 +142,7 @@ def get_data_checking(request: Request):
     config['action'] = params['action']
     config['graph'] = params.get('graph', "Star")
     config['filters'] = get_filters(params)
-    logger.debug(f"PARAM: {config}")
+    logger.debug(f"PARAM: {api_client.public_params(config)}")
 
     return event_stream(misc.event_stream_checking(config))
 
@@ -145,7 +152,7 @@ def get_data_info(request: Request):
     params = query_params(request)
     params['config'] = get_config(request)
     params['filters'] = get_filters(params)
-    logger.debug(f"PARAM: {params}")
+    logger.debug(f"PARAM: {api_client.public_params(params)}")
 
     if (params['network'] == 'bsc'):
         return event_stream(bsc.event_stream_bsc(params))
@@ -176,8 +183,7 @@ if __name__ == '__main__':
         multiprocessing.freeze_support()
 
     # INFO: Read config and keys
-    with open(r'./config.yaml') as file:
-        config = yaml.load(file, Loader=yaml.FullLoader)
+    config = load_config()
 
     # INFO: Define loglevel
     log_format = '%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s'
@@ -196,7 +202,7 @@ if __name__ == '__main__':
     # INFO: Parse arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', '--ip', action='store', default='127.0.0.1',
-                        help='IP address')  # TODO: For interface
+                        help='IP address to bind the API and the front (default 127.0.0.1)')
     # TODO: Port
     parser.add_argument('-e', '--env', choices=["prod", "dev"], 
                         default="prod", help='Environment [dev, prod]')
@@ -216,7 +222,8 @@ if __name__ == '__main__':
 
         logger.info("HTTPD starting...")
         httpd_proc = multiprocessing.Process(name='httpd',
-                                             target=httpServer)
+                                             target=httpServer,
+                                             kwargs={"ip": ip})
         httpd_proc.daemon = True
 
         API_proc.start()
