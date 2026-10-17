@@ -42,3 +42,6 @@ config.yaml
 
 # ODD task tracking (local only)
 odd/
+
+# Backups (config.yaml.bkp holds real API keys)
+*.bkp
