@@ -1061,6 +1061,11 @@ def event_stream_bsc(params):
         tic = time.perf_counter()
         balance = get_balance_and_gas(connection, address, type, key)
         toc = time.perf_counter()
+        if 'warning' in balance:
+            message = f"<strong>BALANCE</strong> - {balance['warning']}"
+            logger.warning(message.replace('<strong>', '').replace('</strong>', ''))
+            data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
+            yield f"data:{data}\n\n"
         message = f"<strong>DATA</strong> - Balance and Gas...<strong>{toc - tic:0.4f}</strong> seconds"
         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
         data = json.dumps({"msg": f"{message}", "end": False, "error": False, 
@@ -1484,11 +1489,16 @@ def get_balance_and_gas(conn, address_central, type, key):
         # INFO: Get balance of contract
         url = f"https://api.bscscan.com/api?module=account&action=balance&address={address_central}&tag=latest&apikey={key}"
         logger.debug(f"BALANCE BSC URL: {api_client.redact(url)}")
-        response = api_client.api_get(url)
-        json_object = response.json()['result']
-        logger.debug(f"BALANCE: {json_object}")
-        # print(f"BALANCE: {json_object}")
-        balance  = [{"blockChain": "bsc", "balance": int(json_object) / 1e18, "token": "BNB", "tokenName": "BNB"}]
+        try:
+            response = api_client.api_get(url)
+            json_object = response.json()['result']
+            logger.debug(f"BALANCE: {json_object}")
+            # print(f"BALANCE: {json_object}")
+            balance  = [{"blockChain": "bsc", "balance": int(json_object) / 1e18, "token": "BNB", "tokenName": "BNB"}]
+        except (api_client.requests.RequestException, ValueError, KeyError, TypeError) as error:
+            # INFO: Explorer down or answering an error (e.g. invalid key), the stream goes on without balance
+            logger.warning("Balance not available: %s", api_client.redact(repr(error)))
+            return {"balance": [], "tokens": [], "gas": [], "warning": "Balance not available"}
         # TODO: Use scrapping to get all of tokens balance
 
         return {"balance": balance, "tokens": [], "gas": []}

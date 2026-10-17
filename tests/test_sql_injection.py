@@ -1,8 +1,6 @@
 import ast
 import json
-import os
 import re
-import shutil
 import sqlite3
 from contextlib import closing
 from pathlib import Path
@@ -19,30 +17,6 @@ SAFE_SQL_NAMES = {"table.name", "columns", "placeholders"}
 
 OR_PAYLOAD = "0xabc' or '1'='1"
 UPDATE_ALL_PAYLOAD = "0xabc' where 1=1 --"
-
-
-@pytest.fixture(scope="session")
-def schema_db(tmp_path_factory):
-    # INFO: Real schema, created by the same init flow the front triggers
-    path = tmp_path_factory.mktemp("schema") / "schema.db"
-    config = {"ethscan": "XXX", "bscscan": "XXX", "level": "INFO", "dbname": str(path), "action": "init"}
-    cwd = os.getcwd()
-    os.chdir(ROOT)  # INFO: init loads data/*.json with relative paths
-    try:
-        list(misc.event_stream_checking(config))
-    finally:
-        os.chdir(cwd)
-    with closing(sqlite3.connect(path)) as conn:
-        conn.execute("DELETE FROM t_labels")
-        conn.commit()
-    return path
-
-
-@pytest.fixture
-def db(schema_db, tmp_path):
-    path = tmp_path / "test.db"
-    shutil.copy(schema_db, path)
-    return path
 
 
 SEED_TABLES = {"t_tags", "t_address_detail", "t_transactions", "t_transfers", "t_funders_creators", "t_labels"}

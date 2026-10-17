@@ -610,6 +610,11 @@ def event_stream_checking(config):
             else: # INFO: ETH
                 balance = eth.get_balance_and_gas(connection, address, type, key)
             toc = time.perf_counter()
+            if 'warning' in balance:
+                message = f"<strong>BALANCE</strong> - {balance['warning']}"
+                logger.warning(message.replace('<strong>', '').replace('</strong>', ''))
+                data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
+                yield f"data:{data}\n\n"
             message = f"<strong>DATA</strong> - Balance and Gas...<strong>{toc - tic:0.4f}</strong> seconds"
             logger.info(message.replace('<strong>', '').replace('</strong>', ''))
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, 
