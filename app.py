@@ -52,6 +52,14 @@ logger.setLevel(logging.DEBUG)
 coloredlogs.install(level='DEBUG', fmt=log_format, logger=logger)
 # logger.propagate = False  # INFO: To prevent duplicates with uvicorn
 
+def process_context():
+    # INFO: Python 3.14 defaults to forkserver on Linux, its children cannot load API_Server/httpServer
+    #       from the frozen (cx_Freeze) __main__. fork keeps them; Windows keeps spawn + freeze_support
+    if sys.platform.startswith('linux'):
+        return multiprocessing.get_context('fork')
+    return multiprocessing.get_context()
+
+
 def API_Server(ip='127.0.0.1', port=5000, config=None, env="prod"):
     app.state.config = config
     logger.info(f"API ready...{env}")
@@ -225,13 +233,14 @@ if __name__ == '__main__':
         logger.info('Starting PROD servers')
         logger.info("API starting...")
         kwargs_api = {"ip": ip, "port": 5000, "config": config}
-        API_proc = multiprocessing.Process(name='API',
+        context = process_context()
+        API_proc = context.Process(name='API',
                                              target=API_Server,
                                              kwargs=kwargs_api)
         API_proc.daemon = True
 
         logger.info("HTTPD starting...")
-        httpd_proc = multiprocessing.Process(name='httpd',
+        httpd_proc = context.Process(name='httpd',
                                              target=httpServer,
                                              kwargs={"ip": ip})
         httpd_proc.daemon = True
