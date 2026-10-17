@@ -52,3 +52,20 @@ def test_complex_list_keeps_epoch_milliseconds(db):
 
     assert list_timestamps(result) == [TIMESTAMP_MS, TIMESTAMP_MS + 1000]
     assert result["stat"]["stat_tot"] == 1
+
+
+
+@pytest.mark.parametrize("module, chain, complex_graph", [(eth, "eth", False), (bsc, "bsc", False), (eth, "eth", True)])
+def test_list_missing_timestamp_is_null(db, module, chain, complex_graph):
+    # INFO: NOT NULL still admits '', which to_datetime turns into NaT; pandas 2.3.3 serialized it as null
+    seed_transactions(db, chain, "0xa")
+    insert(db, "t_transactions", blockChain=chain, hash="0x3", timeStamp="", isError=0, value=10**18, **{"from": "0xa", "to": "0xd"})
+    seed_classification(db)
+
+    with closing(sqlite3.connect(db)) as conn:
+        if complex_graph:
+            result = eth.get_nodes_links_bd(conn, (chain, "0xa", "central"), params={"filters": {"filter": False}})
+        else:
+            result = module.get_trx_from_addresses_opt(conn, (chain, "0xa", "central"))
+
+    assert list_timestamps(result) == [TIMESTAMP_MS, TIMESTAMP_MS + 1000, None]
