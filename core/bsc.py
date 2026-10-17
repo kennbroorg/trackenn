@@ -14,15 +14,12 @@ __status__ = "Development"
 import time
 import json
 import logging
-from numpy import block
 import sqlite3
 import traceback
 import pandas as pd
 # from sqlalchemy import text
-from datetime import datetime
 
-from termcolor import colored
-import coloredlogs, logging
+import coloredlogs
 
 from core import api_client
 
@@ -48,7 +45,7 @@ def insert_with_ignore(table, conn, keys, data_iter):
 
 def db_store_wallet_detail(conn, data):    
 
-    conn.execute(f"""INSERT INTO t_address_detail VALUES 
+    conn.execute("""INSERT INTO t_address_detail VALUES 
                    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 
                 ?, ?, ?)
@@ -82,7 +79,7 @@ def db_store_wallet_detail(conn, data):
 
 def db_store_address_block(conn, data):    
 
-    conn.execute(f"""INSERT INTO t_blocks VALUES 
+    conn.execute("""INSERT INTO t_blocks VALUES 
                    (?, ?, ?, ?, ?, ?, ?)
                    """,
          ('bsc',
@@ -100,7 +97,7 @@ def db_store_contracts(conn, datas):
 
     for data in datas:
         try: 
-            conn.execute(f"""INSERT INTO t_contract VALUES 
+            conn.execute("""INSERT INTO t_contract VALUES 
                            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                            ?, ?, ?, ?, ?)
                            """,
@@ -132,33 +129,27 @@ def event_stream_bsc(params):
     coloredlogs.install(level=params['config']['level'], fmt=log_format, logger=logger)
     logger.propagate = False  # INFO: To prevent duplicates with flask
 
-    logger.info(f"Getting information")
-    data = json.dumps({"msg": f"Getting information", "end": False, "error": False, "content": {}})
+    logger.info("Getting information")
+    data = json.dumps({"msg": "Getting information", "end": False, "error": False, "content": {}})
     yield f"data:{data}\n\n"
 
-    message = f"<strong>Blockchain</strong> - Binance Smart Chain"
+    message = "<strong>Blockchain</strong> - Binance Smart Chain"
     logger.info(message.replace('<strong>', '').replace('</strong>', ''))
     data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
     yield f"data:{data}\n\n"
 
     # Checking params
-    logger.info(f"Checking params")
-    data = json.dumps({"msg": f"Checking params", "end": False, "error": False, "content": {}})
+    logger.info("Checking params")
+    data = json.dumps({"msg": "Checking params", "end": False, "error": False, "content": {}})
     yield f"data:{data}\n\n"
 
     if (params.get('address', '') == ''):
-        message = f"<strong>Param address is mandatory</strong>"
+        message = "<strong>Param address is mandatory</strong>"
         logger.error(message.replace('<strong>', '').replace('</strong>', ''))
         data = json.dumps({"msg": message, "end": True, "error": True, "content": {}})
         yield f"data:{data}\n\n"
     else:
         address = params.get('address').lower()
-
-        # INFO: Get Source
-        if (params.get('source', '') == ''):
-            source = 'central'
-        else:
-            source = params.get('source', '')
 
         # FIX: Eliminate chunks and block_to
         # if (params.get('chunk', '') == ''):
@@ -192,17 +183,17 @@ def event_stream_bsc(params):
             # INFO: ERROR
             blockchain = ''
             connection.close()
-            message = f"<strong>Error...</strong>"
+            message = "<strong>Error...</strong>"
             logger.error(f"{message}")
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
             yield f"data:{data}\n\n"
 
-            message = f"<strong>Blockchain must be informed</strong>"
+            message = "<strong>Blockchain must be informed</strong>"
             logger.error(f"{message}")
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
             yield f"data:{data}\n\n"
 
-            message = f" "
+            message = " "
             logger.error(f"{message}")
             data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
             yield f"data:{data}\n\n"
@@ -213,13 +204,13 @@ def event_stream_bsc(params):
 
         # INFO: Warning message about API
         if (params['config']['bscscan'] == '') or (params['config']['bscscan'] == 'XXX'):
-            message = f"<strong>Bscscan.com api key possibly unconfigured</strong>"
+            message = "<strong>Bscscan.com api key possibly unconfigured</strong>"
             logger.error(message.replace('<strong>', '').replace('</strong>', ''))
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
             yield f"data:{data}\n\n"
 
         # INFO: Update central address
-        query = f"SELECT * FROM t_tags WHERE tag = 'central'"
+        query = "SELECT * FROM t_tags WHERE tag = 'central'"
         cursor.execute(query)
         central = cursor.fetchall()
         logger.debug(f"Central address: {central}")
@@ -250,12 +241,12 @@ def event_stream_bsc(params):
         json_nfts = []
         json_multitokens = []
 
-        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
         logger.debug(f" Wallet detail: {wallet_detail}")
-        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
         # INFO: Get information 
-        if (wallet_detail == []) or (wallet_detail == None):
+        if (wallet_detail == []) or (wallet_detail is None):
             # INFO: Verify if address is contract
             type = 'wallet'
             contract_creation = {}
@@ -268,7 +259,7 @@ def event_stream_bsc(params):
                 json_result = response.json()['result']
 
                 if (json_message == "NOTOK"):
-                    message = f"<strong>Error...</strong>"
+                    message = "<strong>Error...</strong>"
                     logger.error(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
@@ -278,19 +269,19 @@ def event_stream_bsc(params):
                     data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
-                    message = f" "
+                    message = " "
                     logger.error(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
                     raise Exception(json_result)
                 elif (json_status == "1"):
                     type = 'contract'
-                    message = f"<strong>ADDRESS</strong> - Contract"
+                    message = "<strong>ADDRESS</strong> - Contract"
                     logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                     data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
                 else:
-                    message = f"<strong>ADDRESS</strong> - Wallet"
+                    message = "<strong>ADDRESS</strong> - Wallet"
                     logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                     data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
@@ -300,7 +291,7 @@ def event_stream_bsc(params):
                 traceback_text = traceback.format_exc()
 
                 connection.close()
-                message = f"<strong>Error...</strong>"
+                message = "<strong>Error...</strong>"
                 logger.warning(f"{message}")
                 data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                 yield f"data:{data}\n\n"
@@ -311,7 +302,7 @@ def event_stream_bsc(params):
                     data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
 
-                message = f" "
+                message = " "
                 logger.warning(f"{message}")
                 data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                 yield f"data:{data}\n\n"
@@ -334,12 +325,12 @@ def event_stream_bsc(params):
                     json_contract = response.json()['result']
 
                     if (len(json_contract) > 0):
-                        message = f"<strong>CONTRACT</strong> - Collected information"
+                        message = "<strong>CONTRACT</strong> - Collected information"
                         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
                     else:
-                        message = f"<strong>CONTRACT<strong> - <strong>NOT FOUND</strong>"
+                        message = "<strong>CONTRACT<strong> - <strong>NOT FOUND</strong>"
                         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
@@ -349,7 +340,7 @@ def event_stream_bsc(params):
                     traceback_text = traceback.format_exc()
 
                     connection.close()
-                    message = f"<strong>Error...</strong>"
+                    message = "<strong>Error...</strong>"
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
@@ -360,14 +351,14 @@ def event_stream_bsc(params):
                         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
-                    message = f" "
+                    message = " "
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
 
                 # INFO: Store data in contract table
                 try:
-                    message = f"<strong>CONTRACT</strong> - Storing information..."
+                    message = "<strong>CONTRACT</strong> - Storing information..."
                     logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                     data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
@@ -379,7 +370,7 @@ def event_stream_bsc(params):
                     traceback_text = traceback.format_exc()
 
                     connection.close()
-                    message = f"<strong>Error...</strong>"
+                    message = "<strong>Error...</strong>"
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
@@ -390,7 +381,7 @@ def event_stream_bsc(params):
                         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
-                    message = f" "
+                    message = " "
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
@@ -402,14 +393,14 @@ def event_stream_bsc(params):
                     json_object = response.json()['result']
 
                     if (len(json_object) > 0):
-                        message = f"<strong>TRANSACTIONS</strong> - Found trx of creation contract"
+                        message = "<strong>TRANSACTIONS</strong> - Found trx of creation contract"
                         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
                         # INFO: Modify the trx creation, necessary to graph
                         json_object[0]['to'] = json_object[0]['contractAddress']
                     else:
-                        message = f"<strong>TRANSACTIONS<strong> - Creation contract <strong>NOT FOUND</strong>"
+                        message = "<strong>TRANSACTIONS<strong> - Creation contract <strong>NOT FOUND</strong>"
                         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
@@ -419,7 +410,7 @@ def event_stream_bsc(params):
                     traceback_text = traceback.format_exc()
 
                     connection.close()
-                    message = f"<strong>Error...</strong>"
+                    message = "<strong>Error...</strong>"
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
@@ -430,14 +421,14 @@ def event_stream_bsc(params):
                         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
-                    message = f" "
+                    message = " "
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
 
                 # INFO: Store wallet detail (contract)
                 try:
-                    message = f"<strong>TRANSACTIONS</strong> - Storing details...Contract..."
+                    message = "<strong>TRANSACTIONS</strong> - Storing details...Contract..."
                     logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                     data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
@@ -468,7 +459,7 @@ def event_stream_bsc(params):
                     traceback_text = traceback.format_exc()
 
                     connection.close()
-                    message = f"<strong>Error...</strong>"
+                    message = "<strong>Error...</strong>"
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
@@ -479,14 +470,14 @@ def event_stream_bsc(params):
                         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
-                    message = f" "
+                    message = " "
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
 
                 # INFO: Store transaction of contract creation
                 try:
-                    message = f"<strong>DATA COLLECTED</strong> - Storing..."
+                    message = "<strong>DATA COLLECTED</strong> - Storing..."
                     logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                     data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
@@ -507,7 +498,7 @@ def event_stream_bsc(params):
                     traceback_text = traceback.format_exc()
 
                     connection.close()
-                    message = f"<strong>Error...</strong>"
+                    message = "<strong>Error...</strong>"
                     logger.error(message.replace('<strong>', '').replace('</strong>', ''))
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
@@ -519,7 +510,7 @@ def event_stream_bsc(params):
                         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
-                    message = f" "
+                    message = " "
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
@@ -606,7 +597,7 @@ def event_stream_bsc(params):
                     traceback_text = traceback.format_exc()
 
                     connection.close()
-                    message = f"<strong>Error...</strong>"
+                    message = "<strong>Error...</strong>"
                     logger.error(message.replace('<strong>', '').replace('</strong>', ''))
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
@@ -618,7 +609,7 @@ def event_stream_bsc(params):
                         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
-                    message = f" "
+                    message = " "
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
@@ -632,12 +623,12 @@ def event_stream_bsc(params):
                     json_object = response.json()['result']
 
                     if (len(json_object) > 0):
-                        message = f"<strong>TRANSACTIONS</strong> - Found first block and trx"
+                        message = "<strong>TRANSACTIONS</strong> - Found first block and trx"
                         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
                     else:
-                        message = f"<strong>TRANSACTIONS<strong> - First block and trx <strong>NOT FOUND</strong>"
+                        message = "<strong>TRANSACTIONS<strong> - First block and trx <strong>NOT FOUND</strong>"
                         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
@@ -647,7 +638,7 @@ def event_stream_bsc(params):
                     traceback_text = traceback.format_exc()
 
                     connection.close()
-                    message = f"<strong>Error...</strong>"
+                    message = "<strong>Error...</strong>"
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
@@ -658,7 +649,7 @@ def event_stream_bsc(params):
                         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
-                    message = f" "
+                    message = " "
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
@@ -671,12 +662,12 @@ def event_stream_bsc(params):
                     json_internals = response.json()['result']
 
                     if (len(json_internals) > 0):
-                        message = f"<strong>INTERNALS</strong> - Found internals"
+                        message = "<strong>INTERNALS</strong> - Found internals"
                         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
                     else:
-                        message = f"<strong>INTERNALS<strong> - Internals <strong>NOT FOUND</strong>"
+                        message = "<strong>INTERNALS<strong> - Internals <strong>NOT FOUND</strong>"
                         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
@@ -686,7 +677,7 @@ def event_stream_bsc(params):
                     traceback_text = traceback.format_exc()
 
                     connection.close()
-                    message = f"<strong>Error...</strong>"
+                    message = "<strong>Error...</strong>"
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
@@ -697,7 +688,7 @@ def event_stream_bsc(params):
                         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
-                    message = f" "
+                    message = " "
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
@@ -710,12 +701,12 @@ def event_stream_bsc(params):
                     json_transfers = response.json()['result']
 
                     if (len(json_transfers) > 0):
-                        message = f"<strong>TRANSFERS</strong> - Found transfers"
+                        message = "<strong>TRANSFERS</strong> - Found transfers"
                         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
                     else:
-                        message = f"<strong>TRANSFERS<strong> - Transfers <strong>NOT FOUND</strong>"
+                        message = "<strong>TRANSFERS<strong> - Transfers <strong>NOT FOUND</strong>"
                         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
@@ -725,7 +716,7 @@ def event_stream_bsc(params):
                     traceback_text = traceback.format_exc()
 
                     connection.close()
-                    message = f"<strong>Error...</strong>"
+                    message = "<strong>Error...</strong>"
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
@@ -736,7 +727,7 @@ def event_stream_bsc(params):
                         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
-                    message = f" "
+                    message = " "
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
@@ -749,12 +740,12 @@ def event_stream_bsc(params):
                     json_nfts = response.json()['result']
 
                     if (len(json_nfts) > 0):
-                        message = f"<strong>NFTs</strong> - Found NFTs"
+                        message = "<strong>NFTs</strong> - Found NFTs"
                         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
                     else:
-                        message = f"<strong>NFTs<strong> - Transfers <strong>NOT FOUND</strong>"
+                        message = "<strong>NFTs<strong> - Transfers <strong>NOT FOUND</strong>"
                         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
@@ -764,7 +755,7 @@ def event_stream_bsc(params):
                     traceback_text = traceback.format_exc()
 
                     connection.close()
-                    message = f"<strong>Error...</strong>"
+                    message = "<strong>Error...</strong>"
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
@@ -775,7 +766,7 @@ def event_stream_bsc(params):
                         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
-                    message = f" "
+                    message = " "
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
@@ -824,7 +815,7 @@ def event_stream_bsc(params):
 
                 # INFO: Store wallet detail in DB
                 try:
-                    message = f"<strong>TRANSACTIONS</strong> - Storing details..."
+                    message = "<strong>TRANSACTIONS</strong> - Storing details..."
                     logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                     data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
@@ -859,7 +850,7 @@ def event_stream_bsc(params):
                     traceback_text = traceback.format_exc()
 
                     connection.close()
-                    message = f"<strong>Error...</strong>"
+                    message = "<strong>Error...</strong>"
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
@@ -870,14 +861,14 @@ def event_stream_bsc(params):
                         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
-                    message = f" "
+                    message = " "
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
 
                 # INFO: Store transaction, internals, transfers and NFTs in DB
                 try:
-                    message = f"<strong>DATA COLLECTED</strong> - Storing..."
+                    message = "<strong>DATA COLLECTED</strong> - Storing..."
                     logger.info(message.replace('<strong>', '').replace('</strong>', ''))
                     data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
@@ -961,7 +952,7 @@ def event_stream_bsc(params):
                     traceback_text = traceback.format_exc()
 
                     connection.close()
-                    message = f"<strong>Error...</strong>"
+                    message = "<strong>Error...</strong>"
                     logger.error(message.replace('<strong>', '').replace('</strong>', ''))
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
@@ -973,7 +964,7 @@ def event_stream_bsc(params):
                         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
-                    message = f" "
+                    message = " "
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
@@ -991,32 +982,32 @@ def event_stream_bsc(params):
         # INFO: Exist information in db
         else:
             # HACK: This is not a good place to continue collecting information if it is not complete
-            logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
-            logger.debug(f"+ Already collected                                +")
-            logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+            logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
+            logger.debug("+ Already collected                                +")
+            logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
         # INFO: Send wallet detail information
         query = "SELECT * FROM t_address_detail WHERE address = ? and blockChain = ?"
         cursor.execute(query, (address, blockchain))
         wallet_detail = cursor.fetchall()
 
-        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
         logger.debug(f" !!!!!! Wallet detail: {wallet_detail}")
-        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
-        message = f"<strong>TRANSACTIONS</strong> - Receiving wallet detail information..."
+        message = "<strong>TRANSACTIONS</strong> - Receiving wallet detail information..."
         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {"wallet_detail": wallet_detail}})
         yield f"data:{data}\n\n"
 
         # INFO: Get address and path
-        query = f"SELECT * FROM t_tags WHERE tag = 'central'" # INFO: Here no need blockchain, only one central must exist
+        query = "SELECT * FROM t_tags WHERE tag = 'central'" # INFO: Here no need blockchain, only one central must exist
         cursor.execute(query)
         address = cursor.fetchone()
         # print(f"ADDRESS: {address}")
-        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
         logger.debug(f"+ wallet detail: {wallet_detail}")
-        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
         type = wallet_detail[0][12]
 
         # TODO: Path must support multichain in the future
@@ -1027,13 +1018,13 @@ def event_stream_bsc(params):
         # Get addresses in path
         addresses = [row[0] for row in rows]
 
-        message = f"<strong>DATA</strong> - Received central and path addresses cached data..."
+        message = "<strong>DATA</strong> - Received central and path addresses cached data..."
         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {"address": address, "addresses": addresses}})
         yield f"data:{data}\n\n"
 
         # INFO: Get trxs, internals and transfers
-        message = f"<strong>DATA</strong> - Getting collected trxs, internals, transfers..."
+        message = "<strong>DATA</strong> - Getting collected trxs, internals, transfers..."
         logger.info(message.replace('<strong>', '').replace('</strong>', ''))
         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
         yield f"data:{data}\n\n"
@@ -1082,7 +1073,7 @@ def event_stream_bsc(params):
                            "content": {"tags": tags['tags'], "labels": tags['labels']}})
         yield f"data:{data}\n\n"
 
-        message = f"<strong>End collection</strong>"
+        message = "<strong>End collection</strong>"
         logger.error(message.replace('<strong>', '').replace('</strong>', ''))
         data = json.dumps({"msg": f"{message}", "end": True, "error": False, "content": {}})
         yield f"data:{data}\n\n"
@@ -1254,9 +1245,9 @@ def get_trx_from_addresses_opt(conn, address_central):
     # ('bsc', '0x7f3acf451e372f517b45f9d2ee0e42e31bc5e53e', 'central')
     # For future Multichain (?)
     
-    logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+    logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
     logger.debug(f"+ Address: {address_central}")
-    logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+    logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
     address_central = address_central[1]
 
@@ -1323,7 +1314,6 @@ def get_trx_from_addresses_opt(conn, address_central):
         to_address = row['to']
         symbol = row['symbol']
         value = float(row['valConv'])
-        type = row['type']
 
         for address in [from_address, to_address]:
             if address not in nodes:
@@ -1413,7 +1403,7 @@ def get_balance_and_gas(conn, address_central, type, key):
 
     if (type == 'wallet'):
         # INFO: Get all Trx, Transfers and internals balance
-        query = f"""
+        query = """
             SELECT 
                 blockChain,
                 :address AS address,
@@ -1448,7 +1438,7 @@ def get_balance_and_gas(conn, address_central, type, key):
         df_balance = pd.read_sql_query(query, conn, params={"address": address_central})
 
         # INFO: Get Gas
-        query = f"""
+        query = """
             SELECT 
                 SUM(gasPrice * gasUsed * 1e-18) as "Gas"
             FROM t_transactions
@@ -1465,9 +1455,9 @@ def get_balance_and_gas(conn, address_central, type, key):
         index = df_balance.index[df_balance['token'] == 'BNB'].tolist()
         balance = df_balance[df_balance['token'] == 'BNB']
 
-        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
         logger.debug(f"+ Balance: {balance}")
-        logger.debug(f"++++++++++++++++++++++++++++++++++++++++++++++++++++")
+        logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
         if (balance.loc[index[0], 'balance'] - gas) >= 0:
             balance.loc[index[0], 'balance'] -= gas
