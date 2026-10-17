@@ -3602,9 +3602,13 @@ def get_nodes_links_bd(conn, address_central, params=[]):
         FROM t_stats
     """
     df_stats = pd.read_sql_query(query, conn)
-    stat_json = df_stats.to_json(orient="records")
+    # INFO: No stats row when the DB predates t_stats or the collection did not finish
+    if df_stats.empty:
+        stat = {column: 0 for column in df_stats.columns}
+    else:
+        stat = json.loads(df_stats.to_json(orient="records"))[0]
 
     toc = time.perf_counter()
     logger.info(f"Time to get nodes and links {toc - tic:0.4f} seconds")
 
-    return {"transactions": transactions, "list": list_trans, "stat": json.loads(stat_json)[0]}
+    return {"transactions": transactions, "list": list_trans, "stat": stat}

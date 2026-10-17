@@ -4,8 +4,8 @@ from contextlib import closing
 
 import pytest
 
-from core import bsc, eth
-from test_sql_injection import insert
+from core import bsc, eth, misc
+from test_sql_injection import insert, run_stream
 
 TIMESTAMP = 1_700_000_000
 TIMESTAMP_MS = TIMESTAMP * 1000  # INFO: Contract with the front: list timeStamp in epoch milliseconds
@@ -69,3 +69,34 @@ def test_list_missing_timestamp_is_null(db, module, chain, complex_graph):
             result = module.get_trx_from_addresses_opt(conn, (chain, "0xa", "central"))
 
     assert list_timestamps(result) == [TIMESTAMP_MS, TIMESTAMP_MS + 1000, None]
+
+
+def stats_columns(path):
+    with closing(sqlite3.connect(path)) as conn:
+        return [row[0] for row in conn.execute("SELECT name FROM pragma_table_info('t_stats')")]
+
+
+def test_complex_without_stats_returns_zero_stats(db):
+    # INFO: DBs collected before t_stats existed (or partial collections) have no stats row
+    seed_transactions(db, "eth", "0xa")
+
+    with closing(sqlite3.connect(db)) as conn:
+        result = eth.get_nodes_links_bd(conn, ("eth", "0xa", "central"), params={"filters": {"filter": False}})
+
+    assert result["stat"] == {column: 0 for column in stats_columns(db)}
+    assert result["transactions"] == {"nodes": [], "links": []}
+    assert list_timestamps(result) == [TIMESTAMP_MS, TIMESTAMP_MS + 1000]
+
+
+def test_checking_complex_without_stats_ends_ok(db):
+    insert(db, "t_tags", blockChain="eth", address="0xa", tag="central")
+    insert(db, "t_address_detail", blockChain="eth", address="0xa", type="wallet")
+    seed_transactions(db, "eth", "0xa")
+    config = {"ethscan": "K", "bscscan": "K", "level": "INFO", "dbname": str(db),
+              "action": "init", "graph": "Complex", "filters": {"filter": False}}
+
+    messages = run_stream(misc.event_stream_checking, config)
+
+    assert "exception" not in json.dumps(messages)
+    assert [m["content"]["stat"] for m in messages if "stat" in m["content"]] == [{column: 0 for column in stats_columns(db)}]
+    assert messages[-1] == {"msg": "End checking...\n", "end": True, "error": False, "content": {}}
