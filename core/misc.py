@@ -33,14 +33,26 @@ logger = logging.getLogger(__name__)
 logger.propagate = False  # INFO: To prevent duplicates with flask
 
 
+def reset_db(dbname):
+    """Delete the project DB. A missing DB is not an error, the next init creates it again."""
+    try:
+        os.remove(dbname)
+    except FileNotFoundError:
+        logger.info(f"Reset: {dbname} not found, nothing to delete")
+        return {"msg": "Database not found, nothing to delete", "deleted": False, "error": False}
+    except OSError as e:
+        logger.error(f"Reset: {dbname} could not be deleted: {e}")
+        return {"msg": f"Database could not be deleted: {e.strerror}", "deleted": False, "error": True}
+
+    logger.info(f"Reset: {dbname} deleted")
+    return {"msg": "Database deleted", "deleted": True, "error": False}
+
+
 def event_stream_checking(config):
 
     # INFO: Config Log Level
     log_format = '%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s'
     coloredlogs.install(level=config['level'], fmt=log_format, logger=logger)
-
-    if (config['action'] == "reset"):
-        os.remove(config['dbname'])
 
     # if (config['filters']):
     #     filters = config['filters']

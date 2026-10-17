@@ -34,11 +34,13 @@ from core import api_client
 from core import eth
 from core import bsc
 
+FRONT_ORIGINS = ["http://127.0.0.1:4200"]  # TODO: Move in API_Server
+
 app = FastAPI(title="trackenn", version=__version__)
 app.state.config = None
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:4200"],  # TODO: Move in API_Server
+    allow_origins=FRONT_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -139,6 +141,10 @@ def internal_test_2(request: Request):
 def get_data_checking(request: Request):
     params = query_params(request)
     config = get_config(request)
+    if params['action'] == 'reset':
+        # INFO: Deleting the DB is a side effect, GET (EventSource) must not do it
+        return JSONResponse({"msg": "Unsupported action 'reset', use POST /reset_db to delete the database",
+                             "end": True, "error": True, "content": {}}, status_code=400)
     config['action'] = params['action']
     config['graph'] = params.get('graph', "Star")
     config['filters'] = get_filters(params)
@@ -168,12 +174,16 @@ def download_investigation():
     return FileResponse(file_path, filename='default.db')
 
 
-@app.get('/reset_db')
-def reset_investigation():
-    # TODO: Get from config file
+@app.post('/reset_db')
+def reset_investigation(request: Request):
+    # INFO: A cross-site <form method=post> is a simple request, CORS alone does not stop its side effects
+    origin = request.headers.get('origin')
+    if origin is not None and origin not in FRONT_ORIGINS:
+        return JSONResponse({"msg": "Origin not allowed", "deleted": False, "error": True}, status_code=403)
+
     # HACK: Multiuser?
-    file_path = './default.db'  # Change for the path
-    return event_stream(misc.event_reset_investigation(file_path))
+    result = misc.reset_db(get_config(request)['dbname'])
+    return JSONResponse(result, status_code=500 if result['error'] else 200)
 
 
 if __name__ == '__main__':

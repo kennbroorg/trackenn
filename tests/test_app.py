@@ -115,17 +115,6 @@ def test_download_db_sends_default_db_as_attachment(client, monkeypatch, tmp_pat
     assert 'filename="default.db"' in response.headers["content-disposition"]
 
 
-def test_reset_db_streams_reset_investigation(client, monkeypatch):
-    calls = []
-    monkeypatch.setattr(misc, "event_reset_investigation", fake_stream(calls, "reset"), raising=False)
-
-    response = client.get("/reset_db")
-
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("text/event-stream")
-    assert calls == [("reset", "./default.db")]
-
-
 def test_recreatedb_streams_generator_result(client, monkeypatch):
     calls = []
     monkeypatch.setattr(eth, "recreate_db", fake_stream(calls, "recreate"))
