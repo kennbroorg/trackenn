@@ -22,6 +22,7 @@ import pandas as pd
 import coloredlogs
 
 from core import api_client
+from core.timestamps import epoch_ms
 
 logger = logging.getLogger(__name__)
 logger.propagate = False  # INFO: To prevent duplicates with flask
@@ -1380,9 +1381,8 @@ def get_trx_from_addresses_opt(conn, address_central):
     transactions = {"nodes": nodes_list, "links": links_list}
 
     # list_trans = df_all[(df_all['from'] == address_central) | (df_all['to'] == address_central)].to_json(orient = "records")  # FIX: Add contractAddress ??
-    # INFO: The front reads timeStamp as epoch milliseconds; pandas 3 deprecates the implicit epoch to_json format
     df_list = df_all.loc[(df_all["from"] == address_central) | (df_all["to"] == address_central)]
-    list_trans = df_list.assign(timeStamp=((df_list["timeStamp"] - pd.Timestamp(0)) // pd.Timedelta(1, "ms")).astype("Int64")).to_json(orient = "records")
+    list_trans = df_list.assign(timeStamp=epoch_ms(df_list["timeStamp"])).to_json(orient = "records")
 
     stat_trx = len(df_all[df_all['type'] == 'transaction'])
     stat_int = len(df_all[df_all['type'] == 'internals'])
