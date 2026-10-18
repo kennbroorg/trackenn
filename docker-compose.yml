@@ -1,0 +1,38 @@
+# trackenn — `just up` (see justfile)
+#
+# Only nginx is published, on 127.0.0.1:4200. The API is reachable through
+# /api; port 5000 stays inside the compose network.
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: ./install/docker/backend/Dockerfile
+      target: runtime
+      args:
+        UID: ${TRACKENN_UID:-1000}
+        GID: ${TRACKENN_GID:-1000}
+    environment:
+      TRACKENN_DB_DIR: /app/db
+      # INFO: Origins the browser sends for the front (CORS + POST /reset_db)
+      TRACKENN_FRONT_ORIGINS: >-
+        ${TRACKENN_FRONT_ORIGINS:-http://127.0.0.1:4200,http://localhost:4200}
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./data-db:/app/db
+    expose:
+      - "5000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: ./install/docker/frontend/Dockerfile
+      args:
+        FRONTEND_VERSION: ${FRONTEND_VERSION:-latest}
+    ports:
+      - "127.0.0.1:${TRACKENN_PORT:-4200}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

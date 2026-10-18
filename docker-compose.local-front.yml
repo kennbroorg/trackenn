@@ -1,0 +1,10 @@
+# Override for `just up-local-front`: builds the front from a local checkout
+# instead of downloading the release asset. TRACKENN_FRONT_DIR points at it.
+
+services:
+  frontend:
+    build:
+      args:
+        FRONTEND_SOURCE: local
+      additional_contexts:
+        front-src: ${TRACKENN_FRONT_DIR:-../trackenn-front}

@@ -215,11 +215,20 @@ def reset_investigation(request: Request):
     return JSONResponse(result, status_code=500 if result['error'] else 200)
 
 
-if __name__ == '__main__':
+def main(argv=None):
+    # INFO: Parse arguments first, --help and bad options must not need config.yaml
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-i', '--ip', action='store', default='127.0.0.1',
+                        help='IP address to bind the API and the front (default 127.0.0.1)')
+    # TODO: Port
+    parser.add_argument('-e', '--env', choices=["prod", "dev"], 
+                        default="prod", help='Environment [dev, prod]')
+    parser.add_argument('--api-only', action='store_true',
+                        help='Run only the API, without the front server (Docker serves the front with nginx)')
 
-    # INFO: For Windows platform
-    if sys.platform == 'win32':
-        multiprocessing.freeze_support()
+    args = parser.parse_args(argv)
+    ip = str(args.ip)
+    env = str(args.env)
 
     # INFO: Read config and keys
     config = load_config()
@@ -238,19 +247,10 @@ if __name__ == '__main__':
     # app.config['config'] = config
     # app.run(host='127.0.0.1', port=5000, debug=True)
 
-    # INFO: Parse arguments
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-i', '--ip', action='store', default='127.0.0.1',
-                        help='IP address to bind the API and the front (default 127.0.0.1)')
-    # TODO: Port
-    parser.add_argument('-e', '--env', choices=["prod", "dev"], 
-                        default="prod", help='Environment [dev, prod]')
-
-    args = parser.parse_args()
-    ip = str(args.ip)
-    env = str(args.env)
-
-    if (env == "prod"):
+    if args.api_only:
+        logger.info('Starting API only')
+        API_Server(ip=ip, port=5000, config=config)
+    elif (env == "prod"):
         logger.info('Starting PROD servers')
         logger.info("API starting...")
         kwargs_api = {"ip": ip, "port": 5000, "config": config}
@@ -272,4 +272,13 @@ if __name__ == '__main__':
         httpd_proc.join()
     else:
         API_Server(ip, port=5000, env='desa', config=config)
+
+
+if __name__ == '__main__':
+
+    # INFO: For Windows platform
+    if sys.platform == 'win32':
+        multiprocessing.freeze_support()
+
+    main()
 

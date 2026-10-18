@@ -39,6 +39,8 @@ config.yaml
 *.yaml
 !config.example.yaml
 *.db
+# Docker bind mount of the project databases
+data-db/
 
 
 # ODD task tracking (local only)

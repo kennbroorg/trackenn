@@ -33,7 +33,23 @@ Traceability project in blockchain. Ethereum and some features in Binance Smart 
 
 <h1 id="installation">Installation</h1>
 
-For now
+<h3 id="docker">Docker (recommended)</h3>
+
+Needs Docker with Compose and [just](https://github.com/casey/just#installation).
+
+``` shell
+git clone https://github.com/kennbroorg/trackenn.git
+cd trackenn
+cp config.example.yaml config.yaml    # then set your API keys, see API Keys
+just up                               # http://127.0.0.1:4200
+```
+
+- Only `127.0.0.1:4200` is published (nginx). The API is reachable at `/api`, port 5000 stays inside Docker.
+- The databases live in `./data-db`. Bring an existing one with `just import default-LB.db` (it is copied with the `dbname` of `config.yaml`) and back it up with `just export`.
+- The front image downloads the latest front release; pin one with `FRONTEND_VERSION=v0.0.6 just up`, or build a local checkout with `just up-local-front` (`TRACKENN_FRONT_DIR`, default `../trackenn-front`).
+- `just` lists every recipe: `down`, `logs`, `ps`, `test`, `scan`, `rebuild`, `clean`...
+
+<h3 id="native">Native</h3>
 
 ``` shell
 git clone https://github.com/kennbroorg/trackenn.git    # Clone repo
