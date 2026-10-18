@@ -5,6 +5,10 @@ compose := "docker compose"
 local_front := "docker compose -f docker-compose.yml -f docker-compose.local-front.yml"
 gitleaks := "zricethezav/gitleaks:v8.28.0"
 
+# INFO: The backend runs as the host user, so data-db stays writable and owned by you
+export TRACKENN_UID := env_var_or_default("TRACKENN_UID", `id -u`)
+export TRACKENN_GID := env_var_or_default("TRACKENN_GID", `id -g`)
+
 # List available recipes
 default:
     @just --list
