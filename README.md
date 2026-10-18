@@ -44,6 +44,12 @@ python3 app.py                                          # Execute the app
 
 The API runs on FastAPI + Uvicorn at `http://127.0.0.1:5000` (interactive docs at `/docs`).
 
+The API only accepts the front from `http://127.0.0.1:4200` (CORS and the `POST /reset_db` origin check). To serve the front from another origin, list them comma separated in `TRACKENN_FRONT_ORIGINS`, exactly as the browser sends them (scheme, host and port, no trailing slash; `*` is ignored):
+
+``` shell
+TRACKENN_FRONT_ORIGINS="http://127.0.0.1:4200,http://localhost:4200" python3 app.py
+```
+
 <h3 id="tests">Tests</h3>
 
 ``` shell

@@ -10,6 +10,7 @@ __maintainer__ = "KennBro"
 __email__ = "kennbro <at> protonmail <dot> com"
 __status__ = "Development"
 
+import os
 import sys
 import yaml
 import json
@@ -34,7 +35,19 @@ from core import api_client
 from core import eth
 from core import bsc
 
-FRONT_ORIGINS = ["http://127.0.0.1:4200"]  # TODO: Move in API_Server
+DEFAULT_FRONT_ORIGINS = ["http://127.0.0.1:4200"]
+
+
+def front_origins():
+    # INFO: Comma separated TRACKENN_FRONT_ORIGINS (e.g. the nginx origin in Docker), default 127.0.0.1:4200
+    #       "*" is dropped: Starlette would open CORS to every site. Browsers send Origin without a trailing slash
+    raw = os.environ.get("TRACKENN_FRONT_ORIGINS", "")
+    origins = [origin.strip().rstrip("/") for origin in raw.split(",")]
+    origins = [origin for origin in origins if origin and origin != "*"]
+    return origins or list(DEFAULT_FRONT_ORIGINS)
+
+
+FRONT_ORIGINS = front_origins()
 
 app = FastAPI(title="trackenn", version=__version__)
 app.state.config = None
