@@ -12,6 +12,7 @@ __status__ = "Development"
 
 
 import os
+import sys
 import time
 import json
 import logging
@@ -31,6 +32,13 @@ logger = logging.getLogger(__name__)
 # log_format = '%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s'
 # coloredlogs.install(level='DEBUG', fmt=log_format, logger=logger)
 logger.propagate = False  # INFO: To prevent duplicates with flask
+
+
+def data_dir():
+    # INFO: Label files live next to the code (or the frozen executable), never relative to cwd
+    if getattr(sys, 'frozen', False):
+        return os.path.join(os.path.dirname(sys.executable), 'data')
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
 
 
 def reset_db(dbname):
@@ -465,7 +473,7 @@ def event_stream_checking(config):
             logger.info(f"{message}")
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
             yield f"data:{data}\n\n"
-            with open('data/etherscanCombinedAllLabels.json', 'r') as file:
+            with open(os.path.join(data_dir(), 'etherscanCombinedAllLabels.json'), 'r') as file:
                 etherscan = json.load(file)
             
             rows = []
@@ -487,7 +495,7 @@ def event_stream_checking(config):
             logger.info(f"{message}")
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
             yield f"data:{data}\n\n"
-            with open('data/bscscanCombinedAllLabels.json', 'r') as file:
+            with open(os.path.join(data_dir(), 'bscscanCombinedAllLabels.json'), 'r') as file:
                 bscscan = json.load(file)
             
             rows = []

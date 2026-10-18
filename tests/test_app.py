@@ -115,6 +115,18 @@ def test_download_db_sends_default_db_as_attachment(client, monkeypatch, tmp_pat
     assert 'filename="default.db"' in response.headers["content-disposition"]
 
 
+def test_download_db_sends_the_configured_db(client, tmp_path):
+    (tmp_path / "default.db").write_bytes(b"SQLite format 3\x00other")
+    (tmp_path / "project-LB.db").write_bytes(b"SQLite format 3\x00project")
+    app_module.app.state.config["dbname"] = str(tmp_path / "project-LB.db")
+
+    response = client.get("/download_db")
+
+    assert response.status_code == 200
+    assert response.content == b"SQLite format 3\x00project"
+    assert 'filename="project-LB.db"' in response.headers["content-disposition"]
+
+
 def test_recreatedb_streams_generator_result(client, monkeypatch):
     calls = []
     monkeypatch.setattr(eth, "recreate_db", fake_stream(calls, "recreate"))

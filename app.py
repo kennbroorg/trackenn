@@ -100,8 +100,17 @@ def httpServer(ip='127.0.0.1'):
 
 def load_config(path='./config.yaml'):
     # INFO: safe_load, config must not be able to build python objects
-    with open(path) as file:
-        return yaml.safe_load(file)
+    try:
+        with open(path) as file:
+            config = yaml.safe_load(file)
+    except FileNotFoundError:
+        sys.exit(f"Config file {path} not found, copy config.example.yaml to config.yaml and set your API keys")
+
+    # INFO: TRACKENN_DB_DIR keeps the DB out of the code folder (the Docker volume /app/db)
+    db_dir = os.environ.get("TRACKENN_DB_DIR", "").strip()
+    if db_dir and not os.path.isabs(config['dbname']):
+        config['dbname'] = os.path.join(db_dir, config['dbname'])
+    return config
 
 
 def query_params(request):
@@ -188,11 +197,10 @@ def get_data_info(request: Request):
 
 
 @app.get('/download_db')
-def download_investigation():
-    # TODO: Get from config file
+def download_investigation(request: Request):
     # HACK: Multiuser?
-    file_path = './default.db'  # Change for the path
-    return FileResponse(file_path, filename='default.db')
+    file_path = get_config(request)['dbname']
+    return FileResponse(file_path, filename=os.path.basename(file_path))
 
 
 @app.post('/reset_db')

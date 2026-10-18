@@ -37,6 +37,7 @@ dump.rdb
 # config & db
 config.yaml
 *.yaml
+!config.example.yaml
 *.db
 
 

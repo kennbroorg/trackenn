@@ -26,7 +26,8 @@ build_options = {
     'include_files': [
         ('front', 'front'),
         ('data', 'data'),
-        'config.yaml',
+        # INFO: The binary ships the placeholder config, never the local one with real keys
+        ('config.example.yaml', 'config.yaml'),
     ],
     'excludes': ['tkinter'],
     'include_msvcr': True,

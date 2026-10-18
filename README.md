@@ -65,13 +65,25 @@ Open the browser in this [url](http://127.0.0.1:4200)
 
 # API Keys
 
-Before start to use this software, you must get an API key from [etherscan](https://etherscan.io/apis) and/or [bscscan](https://bscscan.com/apis), free is enough, and edit the file named config.yaml and change the 'XXX' for your API
+Before start to use this software, you must get an API key from [etherscan](https://etherscan.io/apis) and/or [bscscan](https://bscscan.com/apis), free is enough. Copy the template and change the 'XXX' for your API keys (`config.yaml` is ignored by git, never commit it):
+
+``` shell
+cp config.example.yaml config.yaml
+```
 
 ```
 ethscan: XXX
 bscscan: XXX
 level: INFO
 dbname: default.db
+```
+
+A relative `dbname` is created in the working directory. Set `TRACKENN_DB_DIR` to keep the databases in another folder (Docker uses `/app/db`).
+
+Upgrading an existing clone: `config.yaml` is no longer tracked. If you edited it, back it up before `git pull` and restore it afterwards:
+
+``` shell
+cp config.yaml config.yaml.bkp && git checkout -- config.yaml && git pull && cp config.yaml.bkp config.yaml
 ```
 
 <h1 id="sponsor">Support the project</h1>
