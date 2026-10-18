@@ -63,7 +63,14 @@ def test_api_only_runs_the_api_without_the_front_server(calls):
     app_module.main(["--api-only", "-i", "0.0.0.0"])
 
     assert FakeProcess.started == []
-    assert calls == [("API_Server", (), {"ip": "0.0.0.0", "port": 5000, "config": CONFIG})]
+    assert calls == [("API_Server", (), {"ip": "0.0.0.0", "port": 5000, "config": CONFIG, "env": "prod"})]
+
+
+def test_api_only_keeps_the_dev_env(calls):
+    app_module.main(["--api-only", "-e", "dev"])
+
+    assert FakeProcess.started == []
+    assert calls == [("API_Server", (), {"ip": "127.0.0.1", "port": 5000, "config": CONFIG, "env": "dev"})]
 
 
 def test_help_lists_api_only_without_config(capsys, monkeypatch, tmp_path):

@@ -249,7 +249,7 @@ def main(argv=None):
 
     if args.api_only:
         logger.info('Starting API only')
-        API_Server(ip=ip, port=5000, config=config)
+        API_Server(ip=ip, port=5000, config=config, env=env)
     elif (env == "prod"):
         logger.info('Starting PROD servers')
         logger.info("API starting...")
