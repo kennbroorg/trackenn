@@ -47,7 +47,7 @@ RUN set -e; \
     test -f /dist/index.html || { echo "ERROR: ${ASSET} has no index.html at its root"; exit 1; }
 
 
-FROM node:18-bookworm-slim AS front-local
+FROM node:24-bookworm-slim AS front-local
 
 WORKDIR /src
 # INFO: Explicit copies, the host node_modules and dist never enter the build
