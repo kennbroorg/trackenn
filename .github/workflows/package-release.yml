@@ -5,6 +5,9 @@ on:
     tags:
       - '*'
 
+env:
+  FRONTEND_VERSION: latest
+
 jobs:
   linux-build:
     runs-on: ubuntu-latest
@@ -22,15 +25,30 @@ jobs:
       - name: Install cx_Freeze
         run: pip install cx_Freeze==8.7.2
 
+      - name: Download frontend release asset
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          repo="kennbroorg/trackenn"
+          if [ "${FRONTEND_VERSION}" = "latest" ]; then
+            tag="frontend-latest"
+            asset="frontend-dist-latest.tar.gz"
+          else
+            tag="frontend-${FRONTEND_VERSION}"
+            asset="frontend-dist-${tag}.tar.gz"
+          fi
+          echo ">>> Downloading frontend asset ${asset} from release ${tag}"
+          gh release download "${tag}" --repo "${repo}" --pattern "${asset}" --output frontend.tar.gz
+          mkdir -p front
+          tar -xzf frontend.tar.gz -C front
+          test -f front/index.html || { echo "ERROR: ${asset} has no index.html at its root"; exit 1; }
+          test -f front/assets/config.json && { echo "ERROR: ${asset} must not ship assets/config.json (native/binary front defaults to //127.0.0.1:5000)"; exit 1; } || true
+
       - name: Freeze Python Script
         run: python setup.py build
           # run: cxfreeze -c app.py --target-dir trackenn --target-name trackenn
-
-      # - name: Copy directories and files
-      #   run: |
-      #     cp -r front trackenn/
-      #     cp -r data trackenn/
-      #     cp config.yaml trackenn/
 
       - name: Zip Distribution Directory
         run: zip -r trackenn-linux.zip trackenn/
@@ -58,15 +76,30 @@ jobs:
       - name: Install cx_Freeze
         run: pip install cx_Freeze==8.7.2
 
+      - name: Download frontend release asset
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          repo="kennbroorg/trackenn"
+          if [ "${FRONTEND_VERSION}" = "latest" ]; then
+            tag="frontend-latest"
+            asset="frontend-dist-latest.tar.gz"
+          else
+            tag="frontend-${FRONTEND_VERSION}"
+            asset="frontend-dist-${tag}.tar.gz"
+          fi
+          echo ">>> Downloading frontend asset ${asset} from release ${tag}"
+          gh release download "${tag}" --repo "${repo}" --pattern "${asset}" --output frontend.tar.gz
+          mkdir -p front
+          tar -xzf frontend.tar.gz -C front
+          test -f front/index.html || { echo "ERROR: ${asset} has no index.html at its root"; exit 1; }
+          test -f front/assets/config.json && { echo "ERROR: ${asset} must not ship assets/config.json (native/binary front defaults to //127.0.0.1:5000)"; exit 1; } || true
+
       - name: Freeze Python Script
         run: python setup.py build
           # run: cxfreeze -c app.py --target-dir trackenn --target-name trackenn
-
-      # - name: Copy directories and files
-      #   run: |
-      #     Copy-Item -Path front -Destination trackenn/ -Recurse
-      #     Copy-Item -Path data -Destination trackenn/ -Recurse
-      #     Copy-Item -Path config.yaml -Destination trackenn/
 
       - name: Zip Distribution Directory
         run: Compress-Archive -Path trackenn/* -DestinationPath trackenn-windows.zip

@@ -1,3 +1,12 @@
+import os
+import sys
+
+# INFO: front/ is downloaded, not committed (see `just front`); fail early with a clear message
+#       instead of cx_Freeze silently shipping a binary with no web UI. Checked before importing
+#       cx_Freeze so the error is clear even when cx_Freeze itself is not installed yet.
+if not os.path.isfile(os.path.join('front', 'index.html')):
+    sys.exit("front/index.html not found: run 'just front' (or 'just front <version>') before building")
+
 from cx_Freeze import setup, Executable
 
 output_directory = "trackenn"

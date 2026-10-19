@@ -84,11 +84,21 @@ def API_Server(ip='127.0.0.1', port=5000, config=None, env="prod"):
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory="./front/", **kwargs)
+        # INFO: front_dir() is cwd-independent (code dir in source runs, executable dir when frozen)
+        super().__init__(*args, directory=misc.front_dir(), **kwargs)
 
 
 def httpServer(ip='127.0.0.1'):
     PORT = 4200
+    front_path = misc.front_dir()
+    if not os.path.isfile(os.path.join(front_path, 'index.html')):
+        # INFO: A missing front must not look like a crash or a silent 404 wall; the API
+        #       process is independent and keeps running, only this static server stops
+        logger.error(f"Front not found at {front_path} (missing index.html).")
+        logger.error("Run 'just front' to download the web UI, or build it from the front repo. "
+                      "The API keeps running without it.")
+        return
+
     logger.info("HTTPD ready...")
     logger.info("")
     logger.info("===================================================")

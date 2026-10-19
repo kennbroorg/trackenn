@@ -56,8 +56,11 @@ just up                               # http://127.0.0.1:4200
 git clone https://github.com/kennbroorg/trackenn.git    # Clone repo
 cd trackenn                                             # Enter to directory cloned
 pip install -r requirements.txt                         # Install dependencies
+just front                                              # Download the web UI into ./front (see below)
 python3 app.py                                          # Execute the app
 ```
+
+`just front` downloads the latest front release asset into `./front` (same source the Docker image and the packaged binaries use). Pin a version with `just front v1.2.3`, or set `FRONTEND_VERSION` for an equivalent `curl` one-liner without `just`. The binaries (`trackenn-linux.zip`, `trackenn-windows.zip`) already bundle the front, no download needed there.
 
 The API runs on FastAPI + Uvicorn at `http://127.0.0.1:5000` (interactive docs at `/docs`).
 

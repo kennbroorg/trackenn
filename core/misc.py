@@ -34,11 +34,23 @@ logger = logging.getLogger(__name__)
 logger.propagate = False  # INFO: To prevent duplicates with flask
 
 
+def _code_dir():
+    # INFO: Shared by data_dir()/front_dir(): the code folder (source run) or the
+    #       frozen executable's folder (cx_Freeze build), never relative to cwd
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
 def data_dir():
     # INFO: Label files live next to the code (or the frozen executable), never relative to cwd
-    if getattr(sys, 'frozen', False):
-        return os.path.join(os.path.dirname(sys.executable), 'data')
-    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
+    return os.path.join(_code_dir(), 'data')
+
+
+def front_dir():
+    # INFO: The Angular build (just front / the release asset) is a sibling of data/,
+    #       same resolution rule as data_dir(); see setup.py's include_files for the frozen layout
+    return os.path.join(_code_dir(), 'front')
 
 
 def reset_db(dbname):

@@ -48,3 +48,7 @@ odd/
 
 # Backups (config.yaml.bkp holds real API keys)
 *.bkp
+
+# Front: downloaded by `just front` from the release asset (kennbroorg/trackenn), no longer committed
+front/
+.front-tmp.*/

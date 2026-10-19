@@ -58,6 +58,36 @@ rebuild: init
     {{ compose }} build --no-cache
     {{ compose }} up -d
 
+# Download the front release asset into ./front, for native runs and cx_Freeze builds (same tag/asset mapping as install/docker/frontend/Dockerfile)
+front version="latest":
+    #!/usr/bin/env sh
+    set -eu
+    repo="kennbroorg/trackenn"
+    if [ "{{ version }}" = "latest" ]; then
+        tag="frontend-latest"
+        asset="frontend-dist-latest.tar.gz"
+    else
+        tag="frontend-{{ version }}"
+        asset="frontend-dist-${tag}.tar.gz"
+    fi
+    url="https://github.com/${repo}/releases/download/${tag}/${asset}"
+    echo ">>> Downloading frontend from: ${url}"
+    # INFO: tmp lives inside the repo so the final mv is an atomic same-filesystem rename
+    tmp=$(mktemp -d ./.front-tmp.XXXXXX)
+    trap 'rm -rf "$tmp"' EXIT
+    curl -fSL -o "$tmp/frontend.tar.gz" "$url" || {
+        echo "ERROR: Failed to download ${url}"
+        echo "       Check that release '${tag}' exists on ${repo},"
+        echo "       or build the front from a local checkout (see README)."
+        exit 1
+    }
+    mkdir -p "$tmp/dist"
+    tar -xzf "$tmp/frontend.tar.gz" -C "$tmp/dist"
+    test -f "$tmp/dist/index.html" || { echo "ERROR: ${asset} has no index.html at its root"; exit 1; }
+    rm -rf front
+    mv "$tmp/dist" front
+    echo "front/ ready from ${tag}"
+
 # Run the backend tests in a throwaway container
 test *args:
     docker build -q --target test -f install/docker/backend/Dockerfile -t trackenn-backend-test .
