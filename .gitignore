@@ -37,5 +37,18 @@ dump.rdb
 # config & db
 config.yaml
 *.yaml
+!config.example.yaml
 *.db
+# Docker bind mount of the project databases
+data-db/
 
+
+# ODD task tracking (local only)
+odd/
+
+# Backups (config.yaml.bkp holds real API keys)
+*.bkp
+
+# Front: downloaded by `just front` from the release asset (kennbroorg/trackenn), no longer committed
+front/
+.front-tmp.*/

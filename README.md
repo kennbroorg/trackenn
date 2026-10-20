@@ -5,8 +5,8 @@
 </div>
 
 <div align="center" style="margin-bottom: 10px;">
-    <img alt="Python" src="https://img.shields.io/badge/python-3.10-informational.svg?style=for-the-badge">
-    <img alt="Flask" src="https://img.shields.io/badge/interface-flask-yellowgreen.svg?style=for-the-badge">
+    <img alt="Python" src="https://img.shields.io/badge/python-3.14-informational.svg?style=for-the-badge">
+    <img alt="FastAPI" src="https://img.shields.io/badge/interface-fastapi-yellowgreen.svg?style=for-the-badge">
 </div>
 
 ---
@@ -33,13 +33,48 @@ Traceability project in blockchain. Ethereum and some features in Binance Smart 
 
 <h1 id="installation">Installation</h1>
 
-For now
+<h3 id="docker">Docker (recommended)</h3>
+
+Needs Docker with Compose and [just](https://github.com/casey/just#installation).
+
+``` shell
+git clone https://github.com/kennbroorg/trackenn.git
+cd trackenn
+cp config.example.yaml config.yaml    # then set your API keys, see API Keys
+just up                               # http://127.0.0.1:4200
+```
+
+- Only `127.0.0.1:4200` is published (nginx). The API is reachable at `/api`, port 5000 stays inside Docker. Use another port with `TRACKENN_PORT=8080 just up`; the allowed origins follow it unless `TRACKENN_FRONT_ORIGINS` is set.
+- The backend runs with your user id (`id -u`/`id -g`, or `TRACKENN_UID`/`TRACKENN_GID`), so `./data-db` stays yours.
+- The databases live in `./data-db`. Bring an existing one with `just import default-LB.db` (it is copied with the `dbname` of `config.yaml`) and back it up with `just export`.
+- The front image downloads the latest front release; pin one with `FRONTEND_VERSION=v0.0.6 just up`, or build a local checkout with `just up-local-front` (`TRACKENN_FRONT_DIR`, default `../trackenn-front`).
+- `just` lists every recipe: `down`, `logs`, `ps`, `test`, `scan`, `rebuild`, `clean`...
+
+<h3 id="native">Native</h3>
 
 ``` shell
 git clone https://github.com/kennbroorg/trackenn.git    # Clone repo
 cd trackenn                                             # Enter to directory cloned
 pip install -r requirements.txt                         # Install dependencies
+just front                                              # Download the web UI into ./front (see below)
 python3 app.py                                          # Execute the app
+```
+
+`just front` downloads the latest front release asset into `./front` (same source the Docker image and the packaged binaries use). Pin a version with `just front v1.2.3`, or set `FRONTEND_VERSION` for an equivalent `curl` one-liner without `just`. The binaries (`trackenn-linux.zip`, `trackenn-windows.zip`) already bundle the front, no download needed there.
+
+The API runs on FastAPI + Uvicorn at `http://127.0.0.1:5000` (interactive docs at `/docs`).
+
+The API only accepts the front from `http://127.0.0.1:4200` (CORS and the `POST /reset_db` origin check). To serve the front from another origin, list them comma separated in `TRACKENN_FRONT_ORIGINS`, exactly as the browser sends them (scheme, host and port, no trailing slash; `*` is ignored):
+
+``` shell
+TRACKENN_FRONT_ORIGINS="http://127.0.0.1:4200,http://localhost:4200" python3 app.py
+```
+
+<h3 id="tests">Tests</h3>
+
+``` shell
+pip install -r requirements-dev.txt
+python -m pytest
 ```
 
 And, finally, [browse](#browse) it.
@@ -50,13 +85,25 @@ Open the browser in this [url](http://127.0.0.1:4200)
 
 # API Keys
 
-Before start to use this software, you must get an API key from [etherscan](https://etherscan.io/apis) and/or [bscscan](https://bscscan.com/apis), free is enough, and edit the file named config.yaml and change the 'XXX' for your API
+Before start to use this software, you must get an API key from [etherscan](https://etherscan.io/apis) and/or [bscscan](https://bscscan.com/apis), free is enough. Copy the template and change the 'XXX' for your API keys (`config.yaml` is ignored by git, never commit it):
+
+``` shell
+cp config.example.yaml config.yaml
+```
 
 ```
 ethscan: XXX
 bscscan: XXX
 level: INFO
 dbname: default.db
+```
+
+A relative `dbname` is created in the working directory. Set `TRACKENN_DB_DIR` to keep the databases in another folder (Docker uses `/app/db`).
+
+Upgrading an existing clone: `config.yaml` is no longer tracked. If you edited it, back it up before `git pull` and restore it afterwards:
+
+``` shell
+cp config.yaml config.yaml.bkp && git checkout -- config.yaml && git pull && cp config.yaml.bkp config.yaml
 ```
 
 <h1 id="sponsor">Support the project</h1>

@@ -1,0 +1,28 @@
+# INFO: The Dockerfiles copy explicit paths; this keeps secrets and bulk out of the build context
+
+# Secrets and local data
+config.yaml
+*.bkp
+*.db
+data-db/
+
+# Version control and tooling
+.git/
+.github/
+.codegraph/
+odd/
+.gitleaks.toml
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# Old front build, served by nginx now
+front/
+
+# Binaries
+build/
+trackenn/
+*.zip

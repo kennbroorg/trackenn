@@ -1,0 +1,12 @@
+title = "trackenn gitleaks config"
+
+# Keep every default rule and add the explorer API keys, which no default rule matches
+[extend]
+useDefault = true
+
+[[rules]]
+id = "explorer-api-key"
+description = "Etherscan/BscScan API key (config.yaml keys or apikey= query parameter)"
+regex = '''(?i)(?:ethscan|bscscan|etherscan|apikey)['"]?\s*[:=]\s*['"]?([A-Z0-9]{32,40})\b'''
+secretGroup = 1
+keywords = ["ethscan", "bscscan", "etherscan", "apikey"]

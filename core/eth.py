@@ -14,12 +14,11 @@ __status__ = "Development"
 import time
 import json
 import logging
-import requests
 import sqlite3
 import traceback
 import pandas as pd  # pyright: ignore
-import pandasql as psql  # pyright: ignore
 from collections import defaultdict
+from contextlib import closing
 import yaml
 
 # from sqlalchemy import text
@@ -30,6 +29,8 @@ from termcolor import colored  # pyright: ignore
 import coloredlogs  # pyright: ignore
 
 from core import misc
+from core import api_client
+from core.timestamps import epoch_ms
 
 logger = logging.getLogger(__name__)
 # logger.propagate = False  # INFO: To prevent duplicates with flask
@@ -46,6 +47,15 @@ def insert_with_ignore(table, conn, keys, data_iter):
 
     for data in data_dicts:
         conn.execute(stmt, data)
+
+
+def sqldf(query, data_frames):
+    # INFO: Replacement of pandasql.sqldf, run the query over the dataframes in an in-memory db
+    with closing(sqlite3.connect(":memory:")) as conn:
+        for name, df in data_frames.items():
+            # INFO: Same rule as pandasql, load index only if all levels are named
+            df.to_sql(name, conn, index=not any(level is None for level in df.index.names))
+        return pd.read_sql_query(query, conn)
 
 
 def db_store_wallet_detail(conn, data):
@@ -233,26 +243,26 @@ def event_stream_ether(params):
         central = cursor.fetchall()
         logger.debug(f"Central address: {central}")
         if central:
-            update = f"UPDATE t_tags SET blockChain = '{blockchain}', address = '{address}' WHERE tag = 'central'"
-            connection.execute(update)
-            logger.debug(f"UPDATE Central: {update}")
+            update = "UPDATE t_tags SET blockChain = ?, address = ? WHERE tag = 'central'"
+            connection.execute(update, (blockchain, address))
+            logger.debug("UPDATE Central: %s %s", update, (blockchain, address))
             connection.commit()
         else:
-            insert = f"INSERT INTO t_tags (blockChain, address, tag) VALUES ('{blockchain}', '{address}', 'central')"
-            connection.execute(insert)
-            logger.debug(f"INSERT Central: {insert}")
+            insert = "INSERT INTO t_tags (blockChain, address, tag) VALUES (?, ?, 'central')"
+            connection.execute(insert, (blockchain, address))
+            logger.debug("INSERT Central: %s %s", insert, (blockchain, address))
             connection.commit()
 
         # INFO: Update path address
-        insert = f"INSERT OR IGNORE INTO t_tags (blockChain, address, tag) VALUES ('{blockchain}', '{address}', 'path')"
-        connection.execute(insert)
-        logger.debug(f"INSERT Path: {insert}")
+        insert = "INSERT OR IGNORE INTO t_tags (blockChain, address, tag) VALUES (?, ?, 'path')"
+        connection.execute(insert, (blockchain, address))
+        logger.debug("INSERT Path: %s %s", insert, (blockchain, address))
         connection.commit()
 
         # INFO: Verify info of address
-        query = f"SELECT * FROM t_address_detail WHERE address = '{address}' AND blockChain = '{blockchain}'"
-        logger.debug(f"SELECT address_detail: {query}")
-        cursor.execute(query)
+        query = "SELECT * FROM t_address_detail WHERE address = ? AND blockChain = ?"
+        logger.debug("SELECT address_detail: %s %s", query, (address, blockchain))
+        cursor.execute(query, (address, blockchain))
         wallet_detail = cursor.fetchone()
         json_object = []
         json_internals = []
@@ -286,7 +296,7 @@ def event_stream_ether(params):
             contract_creation = {}
             try:
                 url = f"https://api.etherscan.io/api?module=contract&action=getcontractcreation&contractaddresses={address}&apikey={key}"
-                response = requests.get(url)
+                response = api_client.api_get(url)
                 contract_creation = response.json()
                 json_status = response.json()["status"]
                 json_message = response.json()["message"]
@@ -355,7 +365,7 @@ def event_stream_ether(params):
                 json_contract = []
                 try:
                     url = f"https://api.etherscan.io/api?module=contract&action=getsourcecode&address={address}&apikey={key}"
-                    response = requests.get(url)
+                    response = api_client.api_get(url)
                     json_contract = response.json()["result"]
 
                     if len(json_contract) > 0:
@@ -423,7 +433,7 @@ def event_stream_ether(params):
                 # INFO: Get trx creation
                 try:
                     url = f"https://api.etherscan.io/api?module=account&action=txlist&address={address}&startblock=0&endblock=99999999&page=1&offset=1&sort=asc&apikey={key}"
-                    response = requests.get(url)
+                    response = api_client.api_get(url)
                     json_object = response.json()["result"]
 
                     if len(json_object) > 0:
@@ -577,8 +587,8 @@ def event_stream_ether(params):
                     tic = time.perf_counter()
 
                     # INFO: Check if address exist in labels table
-                    query = f"SELECT * FROM t_labels WHERE address = '{address}'"
-                    cursor.execute(query)
+                    query = "SELECT * FROM t_labels WHERE address = ?"
+                    cursor.execute(query, (address,))
                     label = cursor.fetchall()
                     if (len(label) == 0) and (len(json_contract) > 0):
                         # INFO: Store internal label
@@ -659,7 +669,7 @@ def event_stream_ether(params):
                 # INFO: Get trx
                 try:
                     url = f"https://api.etherscan.io/api?module=account&action=txlist&address={address}&startblock=0&endblock=99999999&sort=asc&apikey={key}"
-                    response = requests.get(url)
+                    response = api_client.api_get(url)
                     json_object = response.json()["result"]
 
                     if len(json_object) > 0:
@@ -698,7 +708,7 @@ def event_stream_ether(params):
                 try:
                     url = f"https://api.etherscan.io/api?module=account&action=txlistinternal&address={address}&startblock=0&endblock=99999999&sort=asc&apikey={key}"
 
-                    response = requests.get(url)
+                    response = api_client.api_get(url)
                     json_internals = response.json()["result"]
 
                     if len(json_internals) > 0:
@@ -737,7 +747,7 @@ def event_stream_ether(params):
                 try:
                     url = f"https://api.etherscan.io/api?module=account&action=tokentx&address={address}&startblock=0&endblock=99999999&sort=asc&apikey={key}"
 
-                    response = requests.get(url)
+                    response = api_client.api_get(url)
                     json_transfers = response.json()["result"]
 
                     if len(json_transfers) > 0:
@@ -776,7 +786,7 @@ def event_stream_ether(params):
                 try:
                     url = f"https://api.etherscan.io/api?module=account&action=tokennfttx&address={address}&sort=asc&apikey={key}"
 
-                    response = requests.get(url)
+                    response = api_client.api_get(url)
                     json_nfts = response.json()["result"]
 
                     if len(json_nfts) > 0:
@@ -815,7 +825,7 @@ def event_stream_ether(params):
                 try:
                     url = f"https://api.etherscan.io/api?module=account&action=token1155tx&address={address}&sort=asc&apikey={key}"
 
-                    response = requests.get(url)
+                    response = api_client.api_get(url)
                     json_multitokens = response.json()["result"]
 
                     if len(json_multitokens) > 0:
@@ -1033,8 +1043,8 @@ def event_stream_ether(params):
             # TODO: Add contract validation (Read the HACK comment)
 
             # Validate if all trxs are collected
-            query = f"SELECT all_data FROM t_blocks WHERE address = '{address}';"
-            cursor.execute(query)
+            query = "SELECT all_data FROM t_blocks WHERE address = ?;"
+            cursor.execute(query, (address,))
             all_data_collected = cursor.fetchone()
 
             # INFO: No more info to collect
@@ -1137,8 +1147,8 @@ def event_stream_ether(params):
             #     # TODO: Generating internals tags
 
         # INFO: Send wallet detail information
-        query = f"SELECT * FROM t_address_detail WHERE address = '{address}' AND blockChain = '{blockchain}'"
-        cursor.execute(query)
+        query = "SELECT * FROM t_address_detail WHERE address = ? AND blockChain = ?"
+        cursor.execute(query, (address, blockchain))
         wallet_detail = cursor.fetchall()
 
         logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
@@ -1158,8 +1168,8 @@ def event_stream_ether(params):
         type = wallet_detail[0][12]
 
         # TODO: Path must support multichain in the future
-        query = f"SELECT address FROM t_tags WHERE tag = 'path' AND blockChain = '{blockchain}'"
-        cursor.execute(query)
+        query = "SELECT address FROM t_tags WHERE tag = 'path' AND blockChain = ?"
+        cursor.execute(query, (blockchain,))
         rows = cursor.fetchall()
 
         # Get addresses in path
@@ -1206,6 +1216,11 @@ def event_stream_ether(params):
         tic = time.perf_counter()
         balance = get_balance_and_gas(connection, address, type, key)
         toc = time.perf_counter()
+        if "warning" in balance:
+            message = f"<strong>BALANCE</strong> - {balance['warning']}"
+            logger.warning(message.replace("<strong>", "").replace("</strong>", ""))
+            data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
+            yield f"data:{data}\n\n"
         message = f"<strong>DATA</strong> - Balance and Gas...<strong>{toc - tic:0.4f}</strong> seconds"
         logger.info(message.replace("<strong>", "").replace("</strong>", ""))
         data = json.dumps({
@@ -1247,7 +1262,7 @@ def recreate_db(params):
     # NOTE:
     # Simulate graphic gathering from initial db
     with open(r"./config.yaml") as file:
-        config = yaml.load(file, Loader=yaml.FullLoader)
+        config = yaml.safe_load(file)
     config["action"] = "reset"
     data = misc.event_stream_checking(config)  # WARN: Recreate db
 
@@ -1270,7 +1285,7 @@ def test_function_1(params):
     # NOTE:
     # Simulate graphic gathering from initial db
     with open(r"./config.yaml") as file:
-        config = yaml.load(file, Loader=yaml.FullLoader)
+        config = yaml.safe_load(file)
     params["graph"] = "complex"
     params["network"] = "eth"
     params["config"] = config
@@ -1731,7 +1746,8 @@ def get_trx_from_addresses_opt(conn, address_central):
     transactions = {"nodes": nodes_list, "links": links_list}
 
     # list_trans = df_all[(df_all['from'] == address_central) | (df_all['to'] == address_central)].to_json(orient = "records")  # FIX: Add contractAddress ??
-    list_trans = df_all.loc[(df_all["from"] == address_central) | (df_all["to"] == address_central)].to_json(orient="records")
+    df_list = df_all.loc[(df_all["from"] == address_central) | (df_all["to"] == address_central)]
+    list_trans = df_list.assign(timeStamp=epoch_ms(df_list["timeStamp"])).to_json(orient="records")
 
     stat_trx = len(df_all[df_all["type"] == "transaction"])
     stat_int = len(df_all[df_all["type"] == "internals"])
@@ -1767,13 +1783,13 @@ def get_balance_and_gas(conn, address_central, type, key):
         query = f"""
             SELECT 
                 blockChain,
-                '{address_central}',
+                :address AS address,
                 token,
                 tokenName,
                 SUM(
                     CASE 
-                        WHEN "From" = '{address_central}' THEN -value / POWER(10, SymbolDecimal)
-                        WHEN "To" = '{address_central}' THEN value / POWER(10, SymbolDecimal)
+                        WHEN "From" = :address THEN -value / POWER(10, SymbolDecimal)
+                        WHEN "To" = :address THEN value / POWER(10, SymbolDecimal)
                         ELSE 0
                     END
                 ) AS balance
@@ -1790,12 +1806,12 @@ def get_balance_and_gas(conn, address_central, type, key):
                 ) AS balance_temp
             WHERE 
                 "isError" = 0 AND
-                ("From" = '{address_central}' OR "To" = '{address_central}')
+                ("From" = :address OR "To" = :address)
             GROUP BY 
                 token;
         """
         # df_balance = pd.read_sql_query(query, conn).to_json(orient = "records")
-        df_balance = pd.read_sql_query(query, conn)
+        df_balance = pd.read_sql_query(query, conn, params={"address": address_central})
 
         # INFO: Get Gas
         query = f"""
@@ -1804,10 +1820,10 @@ def get_balance_and_gas(conn, address_central, type, key):
             FROM t_transactions
             WHERE 
                 "isError" = 0 AND
-                "From" = '{address_central}'
+                "From" = :address
         """
         cursor = conn.cursor()
-        cursor.execute(query)
+        cursor.execute(query, {"address": address_central})
         gas = cursor.fetchone()[0]
 
         # Get index of ETH row
@@ -1833,10 +1849,15 @@ def get_balance_and_gas(conn, address_central, type, key):
     else:
         # INFO: Get balance of contract
         url = f"https://api.etherscan.io/api?module=account&action=balance&address={address_central}&tag=latest&apikey={key}"
-        response = requests.get(url)
-        json_object = response.json()["result"]
-        # print(f"BALANCE: {json_object}")
-        balance = [{"blockChain": "eth", "balance": int(json_object) / 1e18, "token": "ETH", "tokenName": "Ether"}]
+        try:
+            response = api_client.api_get(url)
+            json_object = response.json()["result"]
+            # print(f"BALANCE: {json_object}")
+            balance = [{"blockChain": "eth", "balance": int(json_object) / 1e18, "token": "ETH", "tokenName": "Ether"}]
+        except (api_client.requests.RequestException, ValueError, KeyError, TypeError) as error:
+            # INFO: Explorer down or answering an error (e.g. invalid key), the stream goes on without balance
+            logger.warning("Balance not available: %s", api_client.redact(repr(error)))
+            return {"balance": [], "tokens": [], "gas": [], "warning": "Balance not available"}
         # TODO: Use scrapping to get all of tokens balance
 
         return {"balance": balance, "tokens": [], "gas": []}
@@ -1846,8 +1867,8 @@ def get_funders_creators(conn, address_central):
     address_central = address_central[1]
 
     # INFO: Get Funders
-    query = f"SELECT * FROM t_funders_creators WHERE `to` = '{address_central}';"
-    df_funders_creators = pd.read_sql_query(query, conn).to_json(orient="records")
+    query = "SELECT * FROM t_funders_creators WHERE `to` = ?;"
+    df_funders_creators = pd.read_sql_query(query, conn, params=(address_central,)).to_json(orient="records")
 
     return {"funders": df_funders_creators}
 
@@ -1858,12 +1879,12 @@ def get_tags_labels(conn, address_central):
     # PERF: I think that need to remove the blockchain condition
 
     # INFO: Get Tags
-    query = f"SELECT * FROM t_tags WHERE blockChain = 'eth' and address = '{address_central}';"
-    df_tags = json.loads(pd.read_sql_query(query, conn).to_json(orient="records"))
+    query = "SELECT * FROM t_tags WHERE blockChain = 'eth' and address = ?;"
+    df_tags = json.loads(pd.read_sql_query(query, conn, params=(address_central,)).to_json(orient="records"))
 
     # INFO: Get Labels
-    query = f"SELECT * FROM t_labels WHERE blockChain = 'ethereum' and address = '{address_central}';"
-    df_labels = json.loads(pd.read_sql_query(query, conn).to_json(orient="records"))
+    query = "SELECT * FROM t_labels WHERE blockChain = 'ethereum' and address = ?;"
+    df_labels = json.loads(pd.read_sql_query(query, conn, params=(address_central,)).to_json(orient="records"))
 
     return {"tags": df_tags, "labels": df_labels}
 
@@ -2039,7 +2060,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
     """
 
     # Ejecutar la consulta
-    df_all = psql.sqldf(query, data_frames)
+    df_all = sqldf(query, data_frames)
 
     # INFO: Convert to datetime
     df_all["decimal"] = df_all["decimal"].astype("int64")
@@ -3456,7 +3477,7 @@ def get_nodes_links_bd(conn, address_central, params=[]):
 
     logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
     logger.debug(f"+ Address: {address_central}")
-    logger.debug(f"+ Params: {params}")
+    logger.debug(f"+ Params: {api_client.public_params(params)}")
     logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
     address_central = address_central[1]
@@ -3572,16 +3593,21 @@ def get_nodes_links_bd(conn, address_central, params=[]):
     df_all["timeStamp"] = pd.to_datetime(df_all["timeStamp"], unit="s")
     df_all = df_all[df_all["isError"] == 0]
 
-    list_trans = df_all.loc[(df_all["from"] == address_central) | (df_all["to"] == address_central)].to_json(orient="records")
+    df_list = df_all.loc[(df_all["from"] == address_central) | (df_all["to"] == address_central)]
+    list_trans = df_list.assign(timeStamp=epoch_ms(df_list["timeStamp"])).to_json(orient="records")
 
     query = """
         SELECT *
         FROM t_stats
     """
     df_stats = pd.read_sql_query(query, conn)
-    stat_json = df_stats.to_json(orient="records")
+    # INFO: No stats row when the DB predates t_stats or the collection did not finish
+    if df_stats.empty:
+        stat = {column: 0 for column in df_stats.columns}
+    else:
+        stat = json.loads(df_stats.to_json(orient="records"))[0]
 
     toc = time.perf_counter()
     logger.info(f"Time to get nodes and links {toc - tic:0.4f} seconds")
 
-    return {"transactions": transactions, "list": list_trans, "stat": json.loads(stat_json)[0]}
+    return {"transactions": transactions, "list": list_trans, "stat": stat}

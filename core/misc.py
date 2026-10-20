@@ -12,6 +12,7 @@ __status__ = "Development"
 
 
 import os
+import sys
 import time
 import json
 import logging
@@ -33,14 +34,45 @@ logger = logging.getLogger(__name__)
 logger.propagate = False  # INFO: To prevent duplicates with flask
 
 
+def _code_dir():
+    # INFO: Shared by data_dir()/front_dir(): the code folder (source run) or the
+    #       frozen executable's folder (cx_Freeze build), never relative to cwd
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def data_dir():
+    # INFO: Label files live next to the code (or the frozen executable), never relative to cwd
+    return os.path.join(_code_dir(), 'data')
+
+
+def front_dir():
+    # INFO: The Angular build (just front / the release asset) is a sibling of data/,
+    #       same resolution rule as data_dir(); see setup.py's include_files for the frozen layout
+    return os.path.join(_code_dir(), 'front')
+
+
+def reset_db(dbname):
+    """Delete the project DB. A missing DB is not an error, the next init creates it again."""
+    try:
+        os.remove(dbname)
+    except FileNotFoundError:
+        logger.info(f"Reset: {dbname} not found, nothing to delete")
+        return {"msg": "Database not found, nothing to delete", "deleted": False, "error": False}
+    except OSError as e:
+        logger.error(f"Reset: {dbname} could not be deleted: {e}")
+        return {"msg": f"Database could not be deleted: {e.strerror}", "deleted": False, "error": True}
+
+    logger.info(f"Reset: {dbname} deleted")
+    return {"msg": "Database deleted", "deleted": True, "error": False}
+
+
 def event_stream_checking(config):
 
     # INFO: Config Log Level
     log_format = '%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s'
     coloredlogs.install(level=config['level'], fmt=log_format, logger=logger)
-
-    if (config['action'] == "reset"):
-        os.remove(config['dbname'])
 
     # if (config['filters']):
     #     filters = config['filters']
@@ -453,7 +485,7 @@ def event_stream_checking(config):
             logger.info(f"{message}")
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
             yield f"data:{data}\n\n"
-            with open('data/etherscanCombinedAllLabels.json', 'r') as file:
+            with open(os.path.join(data_dir(), 'etherscanCombinedAllLabels.json'), 'r') as file:
                 etherscan = json.load(file)
             
             rows = []
@@ -475,7 +507,7 @@ def event_stream_checking(config):
             logger.info(f"{message}")
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
             yield f"data:{data}\n\n"
-            with open('data/bscscanCombinedAllLabels.json', 'r') as file:
+            with open(os.path.join(data_dir(), 'bscscanCombinedAllLabels.json'), 'r') as file:
                 bscscan = json.load(file)
             
             rows = []
@@ -514,8 +546,8 @@ def event_stream_checking(config):
             address_central = address[1]
             blockchain = address[0]
             logger.debug(f"ADDRESS: {address}")
-            query = f"SELECT address FROM t_tags WHERE tag = 'path' AND blockChain = '{blockchain}';"
-            cursor.execute(query)
+            query = "SELECT address FROM t_tags WHERE tag = 'path' AND blockChain = ?;"
+            cursor.execute(query, (blockchain,))
             rows = cursor.fetchall()
             logger.debug(f"ROWS: {rows}")
 
@@ -524,8 +556,8 @@ def event_stream_checking(config):
             logger.debug(f"ADDRESSES: {addresses}")
 
             # INFO: Send wallet detail information
-            query = f"SELECT * FROM t_address_detail WHERE address = '{address_central}'"
-            cursor.execute(query)
+            query = "SELECT * FROM t_address_detail WHERE address = ?"
+            cursor.execute(query, (address_central,))
             wallet_detail = cursor.fetchall()
             type = wallet_detail[0][12]
 
@@ -610,6 +642,11 @@ def event_stream_checking(config):
             else: # INFO: ETH
                 balance = eth.get_balance_and_gas(connection, address, type, key)
             toc = time.perf_counter()
+            if 'warning' in balance:
+                message = f"<strong>BALANCE</strong> - {balance['warning']}"
+                logger.warning(message.replace('<strong>', '').replace('</strong>', ''))
+                data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
+                yield f"data:{data}\n\n"
             message = f"<strong>DATA</strong> - Balance and Gas...<strong>{toc - tic:0.4f}</strong> seconds"
             logger.info(message.replace('<strong>', '').replace('</strong>', ''))
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, 
