@@ -74,6 +74,10 @@ def event_stream_checking(config):
     log_format = '%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s'
     coloredlogs.install(level=config['level'], fmt=log_format, logger=logger)
 
+    # INFO: Defined before the try block: if sqlite3.connect() itself fails (e.g. the db
+    # path is unopenable), the except block below must not call .close() on an unbound name.
+    connection = None
+
     # if (config['filters']):
     #     filters = config['filters']
     # else:
@@ -559,6 +563,18 @@ def event_stream_checking(config):
             query = "SELECT * FROM t_address_detail WHERE address = ?"
             cursor.execute(query, (address_central,))
             wallet_detail = cursor.fetchall()
+
+            # INFO: The central address is tagged but t_address_detail has no row for it
+            # (aftermath of a partial store elsewhere). Surface a clean error instead of
+            # IndexError on wallet_detail[0].
+            if not wallet_detail:
+                connection.close()
+                message = "Central address data is incomplete, reset the investigation"
+                logger.error(message)
+                data = json.dumps({"msg": message, "end": True, "error": True, "content": {}})
+                yield f"data:{data}\n\n"
+                return
+
             type = wallet_detail[0][12]
 
             # INFO: Getting address and addresses and blockchain
@@ -677,7 +693,8 @@ def event_stream_checking(config):
         traceback.print_exc()
         traceback_text = traceback.format_exc()
 
-        connection.close()
+        if connection is not None:
+            connection.close()
         message = f"<strong>Error...</strong>"
         logger.error(message.replace('<strong>', '').replace('</strong>', ''))
         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})

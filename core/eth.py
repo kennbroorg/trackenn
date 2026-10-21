@@ -37,11 +37,22 @@ logger = logging.getLogger(__name__)
 
 
 def insert_with_ignore(table, conn, keys, data_iter):
+    # INFO: Etherscan API V2 responses can include fields the existing table schema does not
+    # have (e.g. transactionIndex in txlistinternal). Keep only columns the table actually
+    # has instead of failing the whole insert; NEVER alter the table schema here, the front
+    # and existing user DBs depend on it as-is. sqlite3 ignores extra keys in a named-param
+    # dict, so only the columns/placeholders built below need filtering.
+    table_columns = {row[1] for row in conn.execute(f'PRAGMA table_info("{table.name}")')}
+    known_keys = [k for k in keys if k in table_columns]
+    dropped_keys = [k for k in keys if k not in table_columns]
+    if dropped_keys:
+        logger.debug(f"insert_with_ignore: dropping unknown columns for {table.name}: {dropped_keys}")
+
     # INFO: This escape is for reserved words
-    escaped_keys = [f'"{k}"' if (k.lower() == "from") or (k.lower() == "to") else k for k in keys]
+    escaped_keys = [f'"{k}"' if (k.lower() == "from") or (k.lower() == "to") else k for k in known_keys]
 
     columns = ",".join(escaped_keys)
-    placeholders = ",".join([f":{k}" for k in keys])
+    placeholders = ",".join([f":{k}" for k in known_keys])
     stmt = f"INSERT INTO {table.name} ({columns}) VALUES ({placeholders}) ON CONFLICT DO NOTHING"
     data_dicts = (dict(zip(keys, data)) for data in data_iter)
 
@@ -170,6 +181,7 @@ def event_stream_ether(params):
         logger.error(message.replace("<strong>", "").replace("</strong>", ""))
         data = json.dumps({"msg": message, "end": True, "error": True, "content": {}})
         yield f"data:{data}\n\n"
+        return
     else:
         address = params.get("address").lower()
         filters = params.get("filters")
@@ -352,6 +364,7 @@ def event_stream_ether(params):
                 logger.warning(f"{message}")
                 data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                 yield f"data:{data}\n\n"
+                return
 
                 # HACK: Here should be a raise?
 
@@ -403,6 +416,7 @@ def event_stream_ether(params):
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
+                    return
 
                 # INFO: Store data in contract table
                 try:
@@ -433,6 +447,7 @@ def event_stream_ether(params):
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
+                    return
 
                 # INFO: Get trx creation
                 try:
@@ -476,6 +491,7 @@ def event_stream_ether(params):
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
+                    return
 
                 # INFO: Store wallet detail (contract)
                 try:
@@ -525,6 +541,7 @@ def event_stream_ether(params):
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
+                    return
 
                 # INFO: Store transaction of contract creation
                 try:
@@ -565,6 +582,7 @@ def event_stream_ether(params):
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
+                    return
 
                 # INFO: Store internal tagging and labels of contract
                 try:
@@ -670,6 +688,7 @@ def event_stream_ether(params):
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
+                    return
 
             # INFO: Get wallet info
             elif type == "wallet":
@@ -713,6 +732,7 @@ def event_stream_ether(params):
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
+                    return
 
                 # INFO: Get internals
                 try:
@@ -755,6 +775,7 @@ def event_stream_ether(params):
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
+                    return
 
                 # INFO: Get transfers
                 try:
@@ -797,6 +818,7 @@ def event_stream_ether(params):
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
+                    return
 
                 # INFO: Get NFTs (ERC-721)
                 try:
@@ -838,6 +860,7 @@ def event_stream_ether(params):
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
+                    return
 
                 # INFO: Get Multitoken trx (ERC-1551)
                 try:
@@ -879,6 +902,7 @@ def event_stream_ether(params):
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
+                    return
 
                 # TODO: If wallet is a contract, get and store contract information
 
@@ -934,6 +958,7 @@ def event_stream_ether(params):
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
+                    return
 
                 # INFO: Store transaction, internals, transfers and NFTs in DB
                 try:
@@ -1036,6 +1061,7 @@ def event_stream_ether(params):
                     logger.warning(f"{message}")
                     data = json.dumps({"msg": f"{message}", "end": True, "error": True, "content": {}})
                     yield f"data:{data}\n\n"
+                    return
 
                 # INFO: Generating internals tags
                 tic = time.perf_counter()
