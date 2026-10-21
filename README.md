@@ -100,11 +100,14 @@ dbname: default.db
 
 A relative `dbname` is created in the working directory. Set `TRACKENN_DB_DIR` to keep the databases in another folder (Docker uses `/app/db`).
 
-Upgrading an existing clone: `config.yaml` is no longer tracked. If you edited it, back it up before `git pull` and restore it afterwards:
+Upgrading an existing clone: `config.yaml` is no longer tracked, but git still silently overwrites an *ignored* file when it is tracked on the branch you are moving to (old history, stashes). This can happen on `git pull` **and** on `git switch`/`git checkout <branch>`. Always back it up first and restore it afterwards:
 
 ``` shell
 cp config.yaml config.yaml.bkp && git checkout -- config.yaml && git pull && cp config.yaml.bkp config.yaml
+cp config.yaml config.yaml.bkp && git switch main && cp config.yaml.bkp config.yaml
 ```
+
+Always run the project through `just up` (never `python app.py` or an old native run) — it owns `data-db`/`config.yaml` as bind mounts with the right permissions and fails with a clear message if `config.yaml` is missing; running some other way first can leave root-owned directories that later break `just up`.
 
 <h1 id="sponsor">Support the project</h1>
 Whether you use this project, have learned something from it, or just like it, please consider supporting it by buying me a coffee, so I can dedicate more time on open-source projects like this.
