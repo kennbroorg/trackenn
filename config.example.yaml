@@ -1,4 +1,6 @@
 ethscan: XXX
+# bscscan is optional/legacy: BSC now uses the Etherscan key above through API V2.
+# Only set this as a fallback if you have a BscScan key but no Etherscan key.
 bscscan: XXX
 level: INFO
 dbname: default.db

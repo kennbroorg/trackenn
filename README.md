@@ -85,7 +85,7 @@ Open the browser in this [url](http://127.0.0.1:4200)
 
 # API Keys
 
-Before start to use this software, you must get an API key from [etherscan](https://etherscan.io/apis) and/or [bscscan](https://bscscan.com/apis), free is enough. Copy the template and change the 'XXX' for your API keys (`config.yaml` is ignored by git, never commit it):
+Before start to use this software, you must get a single API key from [etherscan](https://etherscan.io/myapikey). This key is used for both Ethereum and BNB Smart Chain through [Etherscan API V2](https://docs.etherscan.io/v2-migration) — BscScan's own V1 API was shut down. Note: the free Etherscan plan may not cover every chain, so BNB Smart Chain access can require a paid plan. Copy the template and change the 'XXX' for your API key (`config.yaml` is ignored by git, never commit it):
 
 ``` shell
 cp config.example.yaml config.yaml
@@ -93,7 +93,7 @@ cp config.example.yaml config.yaml
 
 ```
 ethscan: XXX
-bscscan: XXX
+bscscan: XXX  # optional/legacy fallback, only used if ethscan is empty
 level: INFO
 dbname: default.db
 ```

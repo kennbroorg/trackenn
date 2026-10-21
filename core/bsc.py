@@ -172,7 +172,9 @@ def event_stream_bsc(params):
         # TODO: Validate if user send configs
 
         # Checking wallet and first trx
-        key = params['config']['bscscan']
+        # INFO: BSC is now served by Etherscan API V2 too; bscscan is only a legacy fallback,
+        # and absent only when neither key is configured (never crashes on a missing bscscan key)
+        key = params['config'].get('ethscan') or params['config'].get('bscscan') or ''
         dbname = params['config']['dbname']
 
         connection = sqlite3.connect(dbname)
@@ -204,8 +206,8 @@ def event_stream_bsc(params):
         logger.debug(f"Blockchain: {blockchain}")
 
         # INFO: Warning message about API
-        if (params['config']['bscscan'] == '') or (params['config']['bscscan'] == 'XXX'):
-            message = "<strong>Bscscan.com api key possibly unconfigured</strong>"
+        if (key == '') or (key == 'XXX'):
+            message = "<strong>Etherscan.io api key possibly unconfigured</strong>"
             logger.error(message.replace('<strong>', '').replace('</strong>', ''))
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
             yield f"data:{data}\n\n"
@@ -252,7 +254,9 @@ def event_stream_bsc(params):
             type = 'wallet'
             contract_creation = {}
             try:
-                url = f"https://api.bscscan.com/api?module=contract&action=getcontractcreation&contractaddresses={address}&apikey={key}"
+                url = api_client.explorer_url(
+                    api_client.BSC_CHAIN_ID, module="contract", action="getcontractcreation", contractaddresses=address, apikey=key
+                )
                 response = api_client.api_get(url)
                 contract_creation = response.json()
                 json_status = response.json()['status']
@@ -321,7 +325,9 @@ def event_stream_bsc(params):
                 # INFO: Get contract information
                 json_contract = []
                 try:
-                    url = f"https://api.bscscan.com/api?module=contract&action=getsourcecode&address={address}&apikey={key}"
+                    url = api_client.explorer_url(
+                        api_client.BSC_CHAIN_ID, module="contract", action="getsourcecode", address=address, apikey=key
+                    )
                     response = api_client.api_get(url)
                     json_contract = response.json()['result']
 
@@ -389,7 +395,10 @@ def event_stream_bsc(params):
 
                 # INFO: Get trx creation
                 try:
-                    url = f"https://api.bscscan.com/api?module=account&action=txlist&address={address}&startblock=0&endblock=99999999&page=1&offset=1&sort=asc&apikey={key}"
+                    url = api_client.explorer_url(
+                        api_client.BSC_CHAIN_ID, module="account", action="txlist", address=address, startblock=0,
+                        endblock=99999999, page=1, offset=1, sort="asc", apikey=key
+                    )
                     response = api_client.api_get(url)
                     json_object = response.json()['result']
 
@@ -619,7 +628,10 @@ def event_stream_bsc(params):
             elif (type == "wallet"):
                 # INFO: Get trx
                 try:
-                    url = f"https://api.bscscan.com/api?module=account&action=txlist&address={address}&startblock=0&endblock=99999999&sort=asc&apikey={key}"
+                    url = api_client.explorer_url(
+                        api_client.BSC_CHAIN_ID, module="account", action="txlist", address=address, startblock=0,
+                        endblock=99999999, sort="asc", apikey=key
+                    )
                     response = api_client.api_get(url)
                     json_object = response.json()['result']
 
@@ -657,7 +669,10 @@ def event_stream_bsc(params):
 
                 # INFO: Get internals
                 try:
-                    url = f"https://api.bscscan.com/api?module=account&action=txlistinternal&address={address}&startblock=0&endblock=99999999&sort=asc&apikey={key}"
+                    url = api_client.explorer_url(
+                        api_client.BSC_CHAIN_ID, module="account", action="txlistinternal", address=address, startblock=0,
+                        endblock=99999999, sort="asc", apikey=key
+                    )
 
                     response = api_client.api_get(url)
                     json_internals = response.json()['result']
@@ -696,7 +711,10 @@ def event_stream_bsc(params):
 
                 # INFO: Get transfers
                 try:
-                    url = f"https://api.bscscan.com/api?module=account&action=tokentx&address={address}&startblock=0&endblock=99999999&sort=asc&apikey={key}"
+                    url = api_client.explorer_url(
+                        api_client.BSC_CHAIN_ID, module="account", action="tokentx", address=address, startblock=0,
+                        endblock=99999999, sort="asc", apikey=key
+                    )
 
                     response = api_client.api_get(url)
                     json_transfers = response.json()['result']
@@ -735,7 +753,9 @@ def event_stream_bsc(params):
 
                 # INFO: Get NFTs (ERC-721)
                 try:
-                    url = f"https://api.bscscan.com/api?module=account&action=tokennfttx&address={address}&sort=asc&apikey={key}"
+                    url = api_client.explorer_url(
+                        api_client.BSC_CHAIN_ID, module="account", action="tokennfttx", address=address, sort="asc", apikey=key
+                    )
 
                     response = api_client.api_get(url)
                     json_nfts = response.json()['result']
@@ -775,7 +795,7 @@ def event_stream_bsc(params):
                 # INFO: Get Multitoken trx (ERC-1551) (NOT IN BSC)
 
                 # try:
-                #     url = f"https://api.bscscan.com/api?module=account&action=token1155tx&address={address}&sort=asc&apikey={key}"
+                #     url = api_client.explorer_url(api_client.BSC_CHAIN_ID, module="account", action="token1155tx", address=address, sort="asc", apikey=key)
 
                 #     response = requests.get(url)
                 #     json_multitokens = response.json()['result']
@@ -1479,7 +1499,9 @@ def get_balance_and_gas(conn, address_central, type, key):
 
     else:
         # INFO: Get balance of contract
-        url = f"https://api.bscscan.com/api?module=account&action=balance&address={address_central}&tag=latest&apikey={key}"
+        url = api_client.explorer_url(
+            api_client.BSC_CHAIN_ID, module="account", action="balance", address=address_central, tag="latest", apikey=key
+        )
         logger.debug(f"BALANCE BSC URL: {api_client.redact(url)}")
         try:
             response = api_client.api_get(url)
