@@ -12,10 +12,10 @@ jobs:
   linux-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.14'
 
@@ -54,7 +54,7 @@ jobs:
         run: zip -r trackenn-linux.zip trackenn/
 
       - name: Upload Linux Asset
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: trackenn-linux.zip
           path: trackenn-linux.zip
@@ -63,10 +63,10 @@ jobs:
     runs-on: windows-latest
     needs: linux-build
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.14'
 
@@ -105,7 +105,7 @@ jobs:
         run: Compress-Archive -Path trackenn/* -DestinationPath trackenn-windows.zip
 
       - name: Upload Windows Asset
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: trackenn-windows.zip
           path: trackenn-windows.zip
@@ -114,42 +114,23 @@ jobs:
     needs: [linux-build, windows-build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
 
       - name: List files in the current directory
         run: ls -la
 
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
+      # INFO: actions/create-release@v1/upload-release-asset@v1 are deprecated
+      #       (save-state/set-output shutdown); gh does create+upload in one step.
+      - name: Create Release and Upload Assets
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
-
-      - name: Upload Release Asset (Linux)
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./trackenn-linux.zip/trackenn-linux.zip
-          asset_name: trackenn-linux.zip
-          asset_content_type: application/zip
-
-      - name: Upload Release Asset (Windows)
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./trackenn-windows.zip/trackenn-windows.zip
-          asset_name: trackenn-windows.zip
-          asset_content_type: application/zip
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "Release ${GITHUB_REF_NAME}" \
+            --verify-tag \
+            "trackenn-linux.zip/trackenn-linux.zip" \
+            "trackenn-windows.zip/trackenn-windows.zip"
 
