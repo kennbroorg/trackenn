@@ -70,6 +70,12 @@ The API only accepts the front from `http://127.0.0.1:4200` (CORS and the `POST 
 TRACKENN_FRONT_ORIGINS="http://127.0.0.1:4200,http://localhost:4200" python3 app.py
 ```
 
+The internal test routes (`/recreatedb`, `/internal-test-1`, `/internal-test-2`) answer 404 unless you opt in with `TRACKENN_DEV_ROUTES=1`:
+
+``` shell
+TRACKENN_DEV_ROUTES=1 python3 app.py
+```
+
 <h3 id="tests">Tests</h3>
 
 ``` shell

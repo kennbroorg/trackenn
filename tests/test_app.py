@@ -128,6 +128,7 @@ def test_download_db_sends_the_configured_db(client, tmp_path):
 
 
 def test_recreatedb_streams_generator_result(client, monkeypatch):
+    monkeypatch.setenv("TRACKENN_DEV_ROUTES", "1")
     calls = []
     monkeypatch.setattr(eth, "recreate_db", fake_stream(calls, "recreate"))
 
@@ -139,6 +140,7 @@ def test_recreatedb_streams_generator_result(client, monkeypatch):
 
 
 def test_internal_test_1_streams_generator_result(client, monkeypatch):
+    monkeypatch.setenv("TRACKENN_DEV_ROUTES", "1")
     monkeypatch.setattr(eth, "test_function_1", fake_stream([], "test1"))
 
     response = client.get("/internal-test-1", params={"address": "0xabc"})
@@ -148,9 +150,84 @@ def test_internal_test_1_streams_generator_result(client, monkeypatch):
 
 
 def test_internal_test_2_returns_dict_as_json(client, monkeypatch):
+    monkeypatch.setenv("TRACKENN_DEV_ROUTES", "1")
     monkeypatch.setattr(eth, "test_function_2", lambda params: {"stat": {"n": 1}, "address": params["address"]})
 
     response = client.get("/internal-test-2", params={"address": "0xabc"})
 
     assert response.status_code == 200
     assert response.json() == {"stat": {"n": 1}, "address": "0xabc"}
+
+
+# --- T4.15: missing required params must answer 400, not crash with 500 ---
+
+def test_stream_data_info_missing_network_answers_400(client, monkeypatch):
+    calls = []
+    monkeypatch.setattr(eth, "event_stream_ether", fake_stream(calls, "eth"))
+
+    response = client.get("/stream-data-info", params={"address": "0xabc"})
+
+    assert response.status_code == 400
+    assert "network" in response.json()["detail"]
+    assert calls == []
+
+
+def test_stream_data_info_missing_address_answers_400(client, monkeypatch):
+    monkeypatch.setattr(eth, "event_stream_ether", fake_stream([], "eth"))
+
+    response = client.get("/stream-data-info", params={"network": "eth"})
+
+    assert response.status_code == 400
+    assert "address" in response.json()["detail"]
+
+
+def test_stream_data_info_defaults_graph_to_star(client, monkeypatch):
+    calls = []
+    monkeypatch.setattr(eth, "event_stream_ether", fake_stream(calls, "eth"))
+
+    client.get("/stream-data-info", params={"address": "0xabc", "network": "eth"})
+
+    assert calls[0][1]["graph"] == "Star"
+
+
+def test_stream_data_checking_missing_action_answers_400(client, monkeypatch):
+    monkeypatch.setattr(misc, "event_stream_checking", fake_stream([], "checking"))
+
+    response = client.get("/stream-data-checking")
+
+    assert response.status_code == 400
+    assert "action" in response.json()["detail"]
+
+
+# --- T4.11: malformed filters JSON must answer 400, not crash with 500 ---
+
+def test_stream_data_info_malformed_filters_json_answers_400(client, monkeypatch):
+    monkeypatch.setattr(eth, "event_stream_ether", fake_stream([], "eth"))
+
+    response = client.get("/stream-data-info",
+                          params={"address": "0xabc", "network": "eth", "filters": "{not json"})
+
+    assert response.status_code == 400
+    assert "filters" in response.json()["detail"]
+
+
+def test_stream_data_checking_malformed_filters_json_answers_400(client, monkeypatch):
+    monkeypatch.setattr(misc, "event_stream_checking", fake_stream([], "checking"))
+
+    response = client.get("/stream-data-checking?action=init&filters=[broken")
+
+    assert response.status_code == 400
+    assert "filters" in response.json()["detail"]
+
+
+# --- T4.12: dev-only routes stay hidden unless TRACKENN_DEV_ROUTES=1 ---
+
+def test_dev_routes_answer_404_when_gate_off(client, monkeypatch):
+    monkeypatch.delenv("TRACKENN_DEV_ROUTES", raising=False)
+    monkeypatch.setattr(eth, "recreate_db", fake_stream([], "recreate"))
+    monkeypatch.setattr(eth, "test_function_1", fake_stream([], "test1"))
+    monkeypatch.setattr(eth, "test_function_2", lambda params: {"stat": {}})
+
+    assert client.get("/recreatedb", params={"address": "0xabc"}).status_code == 404
+    assert client.get("/internal-test-1", params={"address": "0xabc"}).status_code == 404
+    assert client.get("/internal-test-2", params={"address": "0xabc"}).status_code == 404

@@ -18,7 +18,7 @@ import json
 import inspect
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
@@ -139,8 +139,25 @@ def get_config(request):
 def get_filters(params):
     filters_json = params.get('filters')
     if filters_json:
-        return json.loads(filters_json)
+        try:
+            return json.loads(filters_json)
+        except json.JSONDecodeError:
+            # INFO: client input, answer 400 instead of an unhandled 500 (T4.11)
+            raise HTTPException(status_code=400, detail="Invalid 'filters' JSON")
     return {"filter": False}
+
+
+def require_params(params, names):
+    # INFO: missing required query params answered 500 (KeyError) before (T4.15)
+    missing = [name for name in names if not params.get(name)]
+    if missing:
+        raise HTTPException(status_code=400,
+                            detail=f"Missing required parameter(s): {', '.join(missing)}")
+
+
+def dev_routes_enabled():
+    # INFO: dev-only routes stay hidden (404) unless explicitly enabled (T4.12)
+    return os.environ.get("TRACKENN_DEV_ROUTES", "").strip() == "1"
 
 
 def event_stream(generator):
@@ -155,6 +172,8 @@ def test_response(data):
 
 @app.get('/recreatedb')  # NOTE: Used to test cases
 def recreatedb(request: Request):
+    if not dev_routes_enabled():
+        raise HTTPException(status_code=404)
     params = query_params(request)
     params['config'] = get_config(request)
     data = eth.recreate_db(params)
@@ -163,6 +182,8 @@ def recreatedb(request: Request):
 
 @app.get('/internal-test-1')  # NOTE: Used to test cases
 def internal_test_1(request: Request):
+    if not dev_routes_enabled():
+        raise HTTPException(status_code=404)
     params = query_params(request)
     params['config'] = get_config(request)
     data = eth.test_function_1(params)
@@ -171,6 +192,8 @@ def internal_test_1(request: Request):
 
 @app.get('/internal-test-2')  # NOTE: Used to test cases
 def internal_test_2(request: Request):
+    if not dev_routes_enabled():
+        raise HTTPException(status_code=404)
     params = query_params(request)
     params['config'] = get_config(request)
     data = eth.test_function_2(params)
@@ -181,6 +204,7 @@ def internal_test_2(request: Request):
 def get_data_checking(request: Request):
     params = query_params(request)
     config = get_config(request)
+    require_params(params, ('action',))
     if params['action'] == 'reset':
         # INFO: Deleting the DB is a side effect, GET (EventSource) must not do it
         return JSONResponse({"msg": "Unsupported action 'reset', use POST /reset_db to delete the database",
@@ -196,8 +220,12 @@ def get_data_checking(request: Request):
 @app.get('/stream-data-info')
 def get_data_info(request: Request):
     params = query_params(request)
+    require_params(params, ('address', 'network'))
     params['config'] = get_config(request)
     params['filters'] = get_filters(params)
+    # INFO: same default as /stream-data-checking; a missing graph crashed the
+    #       stream with KeyError('graph') further down (T4.15)
+    params['graph'] = params.get('graph', "Star")
     logger.debug(f"PARAM: {api_client.public_params(params)}")
 
     if (params['network'] == 'bsc'):
