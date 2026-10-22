@@ -3,7 +3,7 @@ name: Cross-Platform Package Release
 on:
   push:
     tags:
-      - '*'
+      - 'v*'
 
 env:
   FRONTEND_VERSION: latest

@@ -85,7 +85,7 @@ Open the browser in this [url](http://127.0.0.1:4200)
 
 # API Keys
 
-Before start to use this software, you must get an API key from [etherscan](https://etherscan.io/apis) and/or [bscscan](https://bscscan.com/apis), free is enough. Copy the template and change the 'XXX' for your API keys (`config.yaml` is ignored by git, never commit it):
+Before start to use this software, you must get a single API key from [etherscan](https://etherscan.io/myapikey). This key is used for both Ethereum and BNB Smart Chain through [Etherscan API V2](https://docs.etherscan.io/v2-migration) — BscScan's own V1 API was shut down. Note: the free Etherscan plan may not cover every chain, so BNB Smart Chain access can require a paid plan. Copy the template and change the 'XXX' for your API key (`config.yaml` is ignored by git, never commit it):
 
 ``` shell
 cp config.example.yaml config.yaml
@@ -93,18 +93,21 @@ cp config.example.yaml config.yaml
 
 ```
 ethscan: XXX
-bscscan: XXX
+bscscan: XXX  # optional/legacy fallback, only used if ethscan is empty
 level: INFO
 dbname: default.db
 ```
 
 A relative `dbname` is created in the working directory. Set `TRACKENN_DB_DIR` to keep the databases in another folder (Docker uses `/app/db`).
 
-Upgrading an existing clone: `config.yaml` is no longer tracked. If you edited it, back it up before `git pull` and restore it afterwards:
+Upgrading an existing clone: `config.yaml` is no longer tracked, but git still silently overwrites an *ignored* file when it is tracked on the branch you are moving to (old history, stashes). This can happen on `git pull` **and** on `git switch`/`git checkout <branch>`. Always back it up first and restore it afterwards:
 
 ``` shell
 cp config.yaml config.yaml.bkp && git checkout -- config.yaml && git pull && cp config.yaml.bkp config.yaml
+cp config.yaml config.yaml.bkp && git switch main && cp config.yaml.bkp config.yaml
 ```
+
+Always run the project through `just up` (never `python app.py` or an old native run) — it owns `data-db`/`config.yaml` as bind mounts with the right permissions and fails with a clear message if `config.yaml` is missing; running some other way first can leave root-owned directories that later break `just up`.
 
 <h1 id="sponsor">Support the project</h1>
 Whether you use this project, have learned something from it, or just like it, please consider supporting it by buying me a coffee, so I can dedicate more time on open-source projects like this.

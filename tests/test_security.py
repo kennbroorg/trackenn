@@ -130,7 +130,14 @@ class FakeTCPServer:
         pass
 
 
-def test_front_server_binds_localhost_by_default(monkeypatch):
+def built_front(monkeypatch, tmp_path):
+    # INFO: front/ is downloaded (just front), never committed; give httpServer a built front
+    (tmp_path / "index.html").write_text("<html></html>")
+    monkeypatch.setattr(app_module.misc, "front_dir", lambda: str(tmp_path))
+
+
+def test_front_server_binds_localhost_by_default(monkeypatch, tmp_path):
+    built_front(monkeypatch, tmp_path)
     monkeypatch.setattr(app_module.socketserver, "TCPServer", FakeTCPServer)
 
     app_module.httpServer()
@@ -138,7 +145,8 @@ def test_front_server_binds_localhost_by_default(monkeypatch):
     assert FakeTCPServer.address == ("127.0.0.1", 4200)
 
 
-def test_front_server_binds_given_ip(monkeypatch):
+def test_front_server_binds_given_ip(monkeypatch, tmp_path):
+    built_front(monkeypatch, tmp_path)
     monkeypatch.setattr(app_module.socketserver, "TCPServer", FakeTCPServer)
 
     app_module.httpServer("10.0.0.5")

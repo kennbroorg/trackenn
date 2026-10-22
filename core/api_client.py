@@ -22,6 +22,18 @@ APIKEY_PATTERN = re.compile(r"(apikey=)[^&\s'\"]*")
 # INFO: urllib3 logs every requested url (apikey included) at DEBUG level
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
+# INFO: Etherscan API V1 was shut down; V2 unifies every chain behind a single host,
+# selected by chainid. Module/action/param names are unchanged from V1.
+API_V2_URL = "https://api.etherscan.io/v2/api"
+ETH_CHAIN_ID = 1
+BSC_CHAIN_ID = 56
+
+
+def explorer_url(chainid, **params):
+    """Build an Etherscan API V2 url for the given chainid with the given query params"""
+    query = "&".join(f"{key}={value}" for key, value in params.items())
+    return f"{API_V2_URL}?chainid={chainid}&{query}"
+
 
 def redact(text):
     """Mask the apikey query value of any url in text"""
