@@ -60,6 +60,15 @@ def insert_with_ignore(table, conn, keys, data_iter):
         conn.execute(stmt, data)
 
 
+def drop_v2_method_columns(df):
+    # INFO: Etherscan V2 returns methodId/functionName in transfer-like responses too
+    # (tokentx/nft/1155). Merging those frames with df_trx_store[["hash","methodId",
+    # "functionName"]] creates methodId_x/_y suffixes, the real columns vanish from the
+    # INSERT and it fails with NOT NULL (t_transfers.methodId, live run 2026-10-22).
+    # The tx-list join stays the source of truth, same as V1.
+    return df.drop(columns=["methodId", "functionName"], errors="ignore")
+
+
 def sqldf(query, data_frames):
     # INFO: Replacement of pandasql.sqldf, run the query over the dataframes in an in-memory db
     with closing(sqlite3.connect(":memory:")) as conn:
@@ -987,7 +996,7 @@ def event_stream_ether(params):
                     if json_internals != []:
                         df_internals_store = pd.DataFrame(json_internals)
                         df_internals_store["blockChain"] = blockchain
-                        df_internals_merged = df_internals_store.merge(df_trx_store[["hash", "methodId", "functionName"]], on="hash", how="left")
+                        df_internals_merged = drop_v2_method_columns(df_internals_store).merge(df_trx_store[["hash", "methodId", "functionName"]], on="hash", how="left")
                         df_internals_merged.fillna("", inplace=True)
                         df_internals_merged.to_sql("t_internals", connection, if_exists="append", index=False, method=insert_with_ignore)
                     toc = time.perf_counter()
@@ -1002,7 +1011,7 @@ def event_stream_ether(params):
                     if json_transfers != []:
                         df_transfers_store = pd.DataFrame(json_transfers)
                         df_transfers_store["blockChain"] = blockchain
-                        df_transfers_merged = df_transfers_store.merge(df_trx_store[["hash", "methodId", "functionName"]], on="hash", how="left")
+                        df_transfers_merged = drop_v2_method_columns(df_transfers_store).merge(df_trx_store[["hash", "methodId", "functionName"]], on="hash", how="left")
                         df_transfers_merged.fillna("", inplace=True)
                         df_transfers_merged.to_sql("t_transfers", connection, if_exists="append", index=False, method=insert_with_ignore)
                     toc = time.perf_counter()
@@ -1017,7 +1026,7 @@ def event_stream_ether(params):
                     if json_nfts != []:
                         df_nfts_store = pd.DataFrame(json_nfts)
                         df_nfts_store["blockChain"] = blockchain
-                        df_nfts_merged = df_nfts_store.merge(df_trx_store[["hash", "methodId", "functionName"]], on="hash", how="left")
+                        df_nfts_merged = drop_v2_method_columns(df_nfts_store).merge(df_trx_store[["hash", "methodId", "functionName"]], on="hash", how="left")
                         df_nfts_merged.fillna("", inplace=True)
                         df_nfts_merged.to_sql("t_nfts", connection, if_exists="append", index=False, method=insert_with_ignore)
                     toc = time.perf_counter()
@@ -1032,7 +1041,7 @@ def event_stream_ether(params):
                     if json_multitokens != []:
                         df_multitoken_store = pd.DataFrame(json_multitokens)
                         df_multitoken_store["blockChain"] = blockchain
-                        df_multitoken_merged = df_multitoken_store.merge(df_trx_store[["hash", "methodId", "functionName"]], on="hash", how="left")
+                        df_multitoken_merged = drop_v2_method_columns(df_multitoken_store).merge(df_trx_store[["hash", "methodId", "functionName"]], on="hash", how="left")
                         df_multitoken_merged.fillna("", inplace=True)
                         df_multitoken_merged.to_sql("t_multitoken", connection, if_exists="append", index=False, method=insert_with_ignore)
                     toc = time.perf_counter()

@@ -150,3 +150,40 @@ def test_checking_with_unopenable_db_yields_clean_error(tmp_path):
     assert "UnboundLocalError" not in json.dumps(messages)
     assert messages[-1]["end"] is True and messages[-1]["error"] is True
     assert any("unable to open database file" in m.get("msg", "") for m in messages)
+
+
+# ---------------------------------------------------------------------------
+# Fix D (2026-10-22 live run): V2 transfer-like responses carry methodId/
+# functionName themselves; the merge with the tx columns creates _x/_y suffixes,
+# the real columns vanish and the INSERT fails with NOT NULL constraint
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("stream, chain", STREAMS)
+def test_store_survives_v2_tokentx_methodid_collision(db, monkeypatch, stream, chain):
+    import copy
+    # INFO: same shape the live V2 run returned: tokentx rows include methodId/functionName
+    v2 = copy.deepcopy(EXPLORER)
+    transfer_row = v2["tokentx"]["result"][0]
+    transfer_row["hash"] = "0xt3"  # INFO: a tx that exists in txlist, methodId 0xa9059cbb
+    transfer_row["methodId"] = "0xdeadbeef"
+    transfer_row["functionName"] = "colliding(v2)"
+
+    def get(url):
+        action = url.split("action=")[1].split("&")[0]
+        response = eth.api_client.requests.Response()
+        response.status_code = 200
+        response._content = json.dumps(v2[action]).encode()
+        return response
+
+    monkeypatch.setattr(eth.api_client, "api_get", get)
+
+    messages = drain_fully(stream, stream_params(db, CENTRAL, chain))
+
+    assert "exception" not in json.dumps(messages)
+    terminal = [m for m in messages if m["end"]]
+    assert len(terminal) == 1 and terminal[0]["error"] is False
+    with closing(sqlite3.connect(db)) as conn:
+        stored = conn.execute("SELECT methodId, functionName FROM t_transfers").fetchall()
+    # INFO: the tx-join stays the source of truth (V1 behavior); V2's own field is dropped
+    assert stored == [("0xa9059cbb", "")]
