@@ -92,8 +92,8 @@ def event_stream_checking(config):
         data = json.dumps({"msg": f"Get config information", "end": False, "error": False, "content": {}})
         yield f"data:{data}\n\n"
 
-        message = f"<strong>Using dbname: {config['dbname']}</strong>"
-        logger.error(message.replace('<strong>', '').replace('</strong>', ''))
+        message = f"Using dbname: {config['dbname']}"
+        logger.error(message.replace('', '').replace('', ''))
         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
         yield f"data:{data}\n\n"
 
@@ -108,8 +108,8 @@ def event_stream_checking(config):
 
         # WARN: This isn't the best check
         if (config['ethscan'] == '') or (config['ethscan'] == 'XXX'):
-            message = f"<strong>Etherscan.io api key possibly unconfigured</strong>"
-            logger.error(message.replace('<strong>', '').replace('</strong>', ''))
+            message = f"Etherscan.io api key possibly unconfigured"
+            logger.error(message.replace('', '').replace('', ''))
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
             yield f"data:{data}\n\n"
 
@@ -124,8 +124,8 @@ def event_stream_checking(config):
         except Exception:
             start_time = time.time()
 
-            message = f"<strong>Database empty</strong>"
-            logger.error(message.replace('<strong>', '').replace('</strong>', ''))
+            message = f"Database empty"
+            logger.error(message.replace('', '').replace('', ''))
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
             yield f"data:{data}\n\n"
 
@@ -531,8 +531,8 @@ def event_stream_checking(config):
             end_time = time.time()
             elapsed_time = end_time - start_time
 
-            message = f"End of tables creation in <strong>{elapsed_time} s</strong>"
-            logger.error(message.replace('<strong>', '').replace('</strong>', ''))
+            message = f"End of tables creation in {elapsed_time} s"
+            logger.error(message.replace('', '').replace('', ''))
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
             yield f"data:{data}\n\n"
 
@@ -578,8 +578,8 @@ def event_stream_checking(config):
             type = wallet_detail[0][12]
 
             # INFO: Getting address and addresses and blockchain
-            message = f"<strong>DATA</strong> - Received central and path addresses cached data..."
-            logger.info(message.replace('<strong>', '').replace('</strong>', ''))
+            message = f"DATA - Received central and path addresses cached data..."
+            logger.info(message.replace('', '').replace('', ''))
             # TODO: Pass source, trx and type
             # data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {"address": address[1], 
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {"address": address, 
@@ -589,13 +589,13 @@ def event_stream_checking(config):
                                                                                               "network": blockchain}})
             yield f"data:{data}\n\n"
 
-            message = f"<strong>TRANSACTIONS</strong> - Receiving wallet detail information..."
-            logger.info(message.replace('<strong>', '').replace('</strong>', ''))
+            message = f"TRANSACTIONS - Receiving wallet detail information..."
+            logger.info(message.replace('', '').replace('', ''))
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {"wallet_detail": wallet_detail}})
             yield f"data:{data}\n\n"
 
-            message = f"<strong>DATA</strong> - Getting collected trxs, internals, transfers..."
-            logger.info(message.replace('<strong>', '').replace('</strong>', ''))
+            message = f"DATA - Getting collected trxs, internals, transfers..."
+            logger.info(message.replace('', '').replace('', ''))
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
             yield f"data:{data}\n\n"
 
@@ -616,12 +616,12 @@ def event_stream_checking(config):
             else:
                 # INFO: ERROR handle. Not in the followings
                 connection.close()
-                message = f"<strong>Error...</strong>"
+                message = f"Error..."
                 logger.error(f"{message}")
                 data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                 yield f"data:{data}\n\n"
 
-                message = f"<strong>Blockchain must be informed</strong>"
+                message = f"Blockchain must be informed"
                 logger.error(f"{message}")
                 data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
                 yield f"data:{data}\n\n"
@@ -633,8 +633,8 @@ def event_stream_checking(config):
                 raise Exception("Blockchain must be informed")
 
             toc = time.perf_counter()
-            message = f"<strong>DATA</strong> - Proccesed...<strong>{toc - tic:0.4f}</strong> seconds"
-            logger.info(message.replace('<strong>', '').replace('</strong>', ''))
+            message = f"DATA - Proccesed...{toc - tic:0.4f} seconds"
+            logger.info(message.replace('', '').replace('', ''))
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, 
                                "content": {"graph": trxs['transactions'], "list": trxs['list'], "stat": trxs['stat']}})
             yield f"data:{data}\n\n"
@@ -646,8 +646,8 @@ def event_stream_checking(config):
             else: # INFO: ETH
                 funders = eth.get_funders_creators(connection, address)
             toc = time.perf_counter()
-            message = f"<strong>DATA</strong> - Funders and creators...<strong>{toc - tic:0.4f}</strong> seconds"
-            logger.info(message.replace('<strong>', '').replace('</strong>', ''))
+            message = f"DATA - Funders and creators...{toc - tic:0.4f} seconds"
+            logger.info(message.replace('', '').replace('', ''))
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {"funders": funders}})
             yield f"data:{data}\n\n"
 
@@ -659,12 +659,12 @@ def event_stream_checking(config):
                 balance = eth.get_balance_and_gas(connection, address, type, key)
             toc = time.perf_counter()
             if 'warning' in balance:
-                message = f"<strong>BALANCE</strong> - {balance['warning']}"
-                logger.warning(message.replace('<strong>', '').replace('</strong>', ''))
+                message = f"BALANCE - {balance['warning']}"
+                logger.warning(message.replace('', '').replace('', ''))
                 data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                 yield f"data:{data}\n\n"
-            message = f"<strong>DATA</strong> - Balance and Gas...<strong>{toc - tic:0.4f}</strong> seconds"
-            logger.info(message.replace('<strong>', '').replace('</strong>', ''))
+            message = f"DATA - Balance and Gas...{toc - tic:0.4f} seconds"
+            logger.info(message.replace('', '').replace('', ''))
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, 
                                "content": {"balance": balance['balance'], "tokens": balance['tokens'], "gas": balance['gas']}})
             yield f"data:{data}\n\n"
@@ -676,8 +676,8 @@ def event_stream_checking(config):
             else: # INFO: ETH
                 tags = eth.get_tags_labels(connection, address)
             toc = time.perf_counter()
-            message = f"<strong>DATA</strong> - Tags and Labels...<strong>{toc - tic:0.4f}</strong> seconds"
-            logger.info(message.replace('<strong>', '').replace('</strong>', ''))
+            message = f"DATA - Tags and Labels...{toc - tic:0.4f} seconds"
+            logger.info(message.replace('', '').replace('', ''))
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, 
                                "content": {"tags": tags['tags'], "labels": tags['labels']}})
             yield f"data:{data}\n\n"
@@ -695,8 +695,8 @@ def event_stream_checking(config):
 
         if connection is not None:
             connection.close()
-        message = f"<strong>Error...</strong>"
-        logger.error(message.replace('<strong>', '').replace('</strong>', ''))
+        message = f"Error..."
+        logger.error(message.replace('', '').replace('', ''))
         data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
         yield f"data:{data}\n\n"
 

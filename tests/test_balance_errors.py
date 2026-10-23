@@ -8,7 +8,7 @@ from core import api_client, bsc, eth, misc
 from test_sql_injection import insert, run_stream, seed_activity, stream_params
 
 UNAVAILABLE = {"balance": [], "tokens": [], "gas": [], "warning": "Balance not available"}
-WARNING_MSG = "<strong>BALANCE</strong> - Balance not available"
+WARNING_MSG = "BALANCE - Balance not available"
 SECRET = "SECRETKEY"
 
 
@@ -93,7 +93,7 @@ def test_stream_goes_on_without_contract_balance(db, monkeypatch, stream, chain,
 
     messages = run_stream(stream, stream_params(db, "0xc", chain))
 
-    assert_degraded(messages, "<strong>End collection</strong>")
+    assert_degraded(messages, "End collection")
 
 
 @pytest.mark.parametrize("chain", ["eth", "bsc"])
