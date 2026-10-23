@@ -1690,7 +1690,7 @@ def get_trx_from_addresses_opt(conn, address_central):
 
     # INFO: Labels
     df_labels = pd.read_sql_query("SELECT * FROM t_labels WHERE blockChain = 'ethereum'", conn)  # TODO: Multichain
-    labels_dict = df_labels.set_index("address").apply(lambda row: row.to_dict(), axis=1).to_dict()
+    labels_dict = df_labels.set_index("address").to_dict("index")
 
     # stat_coo =
     # stat_con = len(json_tags) - stat_coo
@@ -1728,12 +1728,10 @@ def get_trx_from_addresses_opt(conn, address_central):
     nodes = {}
     links = {}
 
-    for _, row in df_all.iterrows():
-        from_address = row["from"]
-        to_address = row["to"]
-        symbol = row["symbol"]
-        value = float(row["valConv"])
-        type = row["type"]
+    for from_address, to_address, symbol, valConv, type in zip(
+        df_all["from"], df_all["to"], df_all["symbol"], df_all["valConv"], df_all["type"]
+    ):
+        value = float(valConv)
 
         for address in [from_address, to_address]:
             if address not in nodes:
@@ -1989,7 +1987,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
     # NOTE: Get nodes and links in db
     cursor.execute("SELECT address FROM t_nodes_classification")
     nodes_sql = cursor.fetchall()
-    nodes_db = [address[0] for address in nodes_sql]
+    nodes_db = {address[0] for address in nodes_sql}
     # print(nodes_db)
     cursor.execute("SELECT link_key FROM t_links_classification")
     links_sql = cursor.fetchall()
@@ -2085,7 +2083,7 @@ def store_nodes_links_db(conn, address_central, params=[], df_trx=[], df_int=[],
 
     # INFO: Labels
     df_labels = pd.read_sql_query("SELECT * FROM t_labels WHERE blockChain = 'ethereum'", conn)
-    labels_dict = df_labels.set_index("address").apply(lambda row: row.to_dict(), axis=1).to_dict()
+    labels_dict = df_labels.set_index("address").to_dict("index")
 
     # INFO: Get all Trx, Transfers, internals, nfts and multitoken
     query = """

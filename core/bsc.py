@@ -1327,7 +1327,7 @@ def get_trx_from_addresses_opt(conn, address_central):
 
     # INFO: Labels
     df_labels = pd.read_sql_query("SELECT * FROM t_labels WHERE blockChain = 'ethereum'", conn)  # TODO: Multichain
-    labels_dict = df_labels.set_index('address').apply(lambda row: row.to_dict(), axis=1).to_dict()
+    labels_dict = df_labels.set_index('address').to_dict('index')
 
     # stat_coo = 
     # stat_con = len(json_tags) - stat_coo
