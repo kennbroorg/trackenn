@@ -102,7 +102,7 @@ def test_new_address_queries_explorer_and_ends_ok(db, explorer, stream, chain, c
 
     assert explorer == api_actions
     assert all("exception" not in message and message["error"] is False for message in messages)
-    assert messages[-1] == {"msg": "<strong>End collection</strong>", "end": True, "error": False, "content": {}}
+    assert messages[-1] == {"msg": "End collection", "end": True, "error": False, "content": {}}
     assert sorted(content) == ["address", "addresses", "balance", "funders", "gas", "graph", "labels", "list", "stat",
                                "tags", "tokens", "wallet_detail"]
     assert content["address"] == [chain, CENTRAL, "central"]
@@ -199,3 +199,12 @@ def test_cached_address_is_served_from_db_without_explorer(db, explorer, graph):
     assert rows(db, "SELECT count(*) FROM t_transactions") == stored
     for key in ["graph", "list", "stat", "funders", "balance", "tokens", "gas", "tags", "labels"]:
         assert again[key] == first[key], key
+
+
+@pytest.mark.parametrize("stream, chain, coin, coin_name, api_actions", CHAINS)
+def test_sse_messages_are_plain_text(db, explorer, stream, chain, coin, coin_name, api_actions):
+    # INFO: the front renders log lines as text (T4.21); messages must not carry
+    # HTML markup like <strong> or it shows up literally in the log panel.
+    messages, _ = collect(stream, db, chain)
+    offenders = [m["msg"] for m in messages if "<strong>" in m["msg"]]
+    assert offenders == []
