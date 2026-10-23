@@ -22,6 +22,10 @@ APIKEY_PATTERN = re.compile(r"(apikey=)[^&\s'\"]*")
 # INFO: urllib3 logs every requested url (apikey included) at DEBUG level
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
+# INFO: Reuse the TCP/TLS connection across calls instead of reconnecting on every
+# requests.get (measured ~0.37s of ~0.54s per call was connect+TLS handshake)
+_session = requests.Session()
+
 # INFO: Etherscan API V1 was shut down; V2 unifies every chain behind a single host,
 # selected by chainid. Module/action/param names are unchanged from V1.
 API_V2_URL = "https://api.etherscan.io/v2/api"
@@ -51,7 +55,7 @@ def public_params(params):
 def api_get(url):
     """GET to the explorer APIs with timeout. Errors are re-raised without the apikey"""
     try:
-        return requests.get(url, timeout=API_TIMEOUT)
+        return _session.get(url, timeout=API_TIMEOUT)
     except requests.RequestException as error:
         # INFO: Messages include the url, and core/* streams tracebacks to the front
         raise type(error)(redact(error)) from None
