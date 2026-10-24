@@ -59,3 +59,15 @@ def api_get(url):
     except requests.RequestException as error:
         # INFO: Messages include the url, and core/* streams tracebacks to the front
         raise type(error)(redact(error)) from None
+
+
+def extract_result(response):
+    """Return response.json()['result'], or raise with Etherscan's own error text when
+    the explorer answered NOTOK (e.g. rate limit, invalid key) instead of data. 'result'
+    is only a list on success; on NOTOK it's an error string, which callers must not feed
+    straight into pd.DataFrame (it raises an opaque 'DataFrame constructor not properly
+    called!' instead of the actual explorer error)."""
+    payload = response.json()
+    if payload.get("message") == "NOTOK":
+        raise Exception(payload.get("result"))
+    return payload["result"]

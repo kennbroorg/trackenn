@@ -662,7 +662,7 @@ def event_stream_bsc(params):
                         endblock=99999999, sort="asc", apikey=key
                     )
                     response = api_client.api_get(url)
-                    json_object = response.json()['result']
+                    json_object = api_client.extract_result(response)
 
                     if (len(json_object) > 0):
                         message = "TRANSACTIONS - Found first block and trx"
@@ -705,7 +705,7 @@ def event_stream_bsc(params):
                     )
 
                     response = api_client.api_get(url)
-                    json_internals = response.json()['result']
+                    json_internals = api_client.extract_result(response)
 
                     if (len(json_internals) > 0):
                         message = "INTERNALS - Found internals"
@@ -748,7 +748,7 @@ def event_stream_bsc(params):
                     )
 
                     response = api_client.api_get(url)
-                    json_transfers = response.json()['result']
+                    json_transfers = api_client.extract_result(response)
 
                     if (len(json_transfers) > 0):
                         message = "TRANSFERS - Found transfers"
@@ -790,7 +790,7 @@ def event_stream_bsc(params):
                     )
 
                     response = api_client.api_get(url)
-                    json_nfts = response.json()['result']
+                    json_nfts = api_client.extract_result(response)
 
                     if (len(json_nfts) > 0):
                         message = "NFTs - Found NFTs"
