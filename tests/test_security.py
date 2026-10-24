@@ -28,7 +28,7 @@ def fake_stream(params):
 
 def test_api_get_uses_timeout(monkeypatch):
     calls = []
-    monkeypatch.setattr(api_client.requests, "get", lambda url, **kwargs: calls.append((url, kwargs)) or "response")
+    monkeypatch.setattr(api_client._session, "get", lambda url, **kwargs: calls.append((url, kwargs)) or "response")
 
     response = api_client.api_get("https://api.etherscan.io/api?module=account&apikey=ETH-SECRET-KEY")
 
@@ -43,7 +43,7 @@ def test_api_get_uses_timeout(monkeypatch):
 def test_api_get_errors_hide_api_key(monkeypatch, error):
     def failing_get(url, **kwargs):
         raise error(f"HTTPSConnectionPool(host='api.etherscan.io', port=443): Max retries exceeded with url: {url}")
-    monkeypatch.setattr(api_client.requests, "get", failing_get)
+    monkeypatch.setattr(api_client._session, "get", failing_get)
     # INFO: Same shape as core/*, the url (with apikey) is in a variable, not in the source line
     url = "https://api.etherscan.io/api?module=account&apikey=" + SECRET_CONFIG["ethscan"] + "&page=1"
 

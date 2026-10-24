@@ -208,3 +208,37 @@ def test_sse_messages_are_plain_text(db, explorer, stream, chain, coin, coin_nam
     messages, _ = collect(stream, db, chain)
     offenders = [m["msg"] for m in messages if "<strong>" in m["msg"]]
     assert offenders == []
+
+
+@pytest.fixture
+def rate_limited_explorer(monkeypatch):
+    # INFO: Live bug found manually (mitest stack, real Etherscan API, address
+    # 0x99b9c2b49ff03dd1f4d6e537c4d94d73a75e7c4f, 2026-10-24): Etherscan answers NOTOK
+    # (e.g. rate limit, invalid key) with 'result' as an error STRING, not a list. No
+    # call site validated status/message before feeding 'result' into pd.DataFrame,
+    # crashing with an opaque "DataFrame constructor not properly called!" instead of
+    # surfacing the explorer's own error text. Pre-existing gap, independent of any
+    # concurrency change -- reproducible with plain sequential calls once the free-tier
+    # quota is spent.
+    NOTOK = {"status": "0", "message": "NOTOK", "result": "Max rate limit reached"}
+
+    def get(url):
+        action = url.split("action=")[1].split("&")[0]
+        payload = NOTOK if action == "tokentx" else EXPLORER[action]
+        response = api_client.requests.Response()
+        response.status_code = 200
+        response._content = json.dumps(payload).encode()
+        return response
+
+    monkeypatch.setattr(api_client, "api_get", get)
+
+
+@pytest.mark.parametrize("stream, chain", [pytest.param(eth.event_stream_ether, "eth", id="eth"),
+                                            pytest.param(bsc.event_stream_bsc, "bsc", id="bsc")])
+def test_notok_response_surfaces_explorer_error_not_a_dataframe_crash(db, rate_limited_explorer, stream, chain):
+    messages, _ = collect(stream, db, chain)
+
+    assert messages[-1]["error"] is True
+    assert messages[-1]["end"] is True
+    assert any("Max rate limit reached" in m["msg"] for m in messages)
+    assert not any("DataFrame constructor not properly called" in m["msg"] for m in messages)
