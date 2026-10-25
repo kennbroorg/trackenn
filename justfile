@@ -52,9 +52,8 @@ shell:
 restart service:
     {{ compose }} restart {{ service }}
 
-# Full rebuild without cache
+# Full rebuild without cache (build first, only then swap the running containers)
 rebuild: init
-    {{ compose }} down
     {{ compose }} build --no-cache
     {{ compose }} up -d
 
@@ -98,6 +97,7 @@ import file: init
     #!/usr/bin/env sh
     set -eu
     dbname=$(awk -F': *' '$1=="dbname"{print $2}' config.yaml | tr -d "\"' ")
+    test -n "$dbname" || { echo "config.yaml has no 'dbname' entry"; exit 1; }
     target="data-db/$(basename "$dbname")"
     if [ -e "$target" ]; then
         echo "$target already exists, run 'just export' first or remove it"; exit 1
@@ -110,6 +110,7 @@ export dest=".":
     #!/usr/bin/env sh
     set -eu
     dbname=$(awk -F': *' '$1=="dbname"{print $2}' config.yaml | tr -d "\"' ")
+    test -n "$dbname" || { echo "config.yaml has no 'dbname' entry"; exit 1; }
     source="data-db/$(basename "$dbname")"
     target="{{ dest }}/$(basename "$dbname" .db)-$(date +%Y%m%d-%H%M%S).db"
     cp -- "$source" "$target"
