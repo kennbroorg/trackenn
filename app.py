@@ -51,6 +51,7 @@ FRONT_ORIGINS = front_origins()
 
 app = FastAPI(title="trackenn", version=__version__)
 app.state.config = None
+app.state.config_path = './config.yaml'
 app.add_middleware(
     CORSMiddleware,
     allow_origins=FRONT_ORIGINS,
@@ -251,6 +252,40 @@ def reset_investigation(request: Request):
     # HACK: Multiuser?
     result = misc.reset_db(get_config(request)['dbname'])
     return JSONResponse(result, status_code=500 if result['error'] else 200)
+
+
+@app.get('/config/keys')
+def get_explorer_keys(request: Request):
+    # INFO: Never answer the key value itself, only whether one is configured
+    config = get_config(request)
+    return JSONResponse({
+        "ethscan": bool(config.get('ethscan')),
+        "bscscan": bool(config.get('bscscan')),
+    })
+
+
+@app.post('/config/keys')
+async def set_explorer_keys(request: Request):
+    body = await request.json()
+    updates = {name: str(body[name]).strip() for name in ('ethscan', 'bscscan') if name in body}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No explorer key given (ethscan, bscscan)")
+    blank = [name for name, value in updates.items() if not value]
+    if blank:
+        raise HTTPException(status_code=400, detail=f"Key(s) must not be blank: {', '.join(blank)}")
+
+    config_path = request.app.state.config_path
+    with open(config_path) as file:
+        config = yaml.safe_load(file)
+    config.update(updates)
+    with open(config_path, 'w') as file:
+        yaml.safe_dump(config, file)
+
+    request.app.state.config.update(updates)
+    return JSONResponse({
+        "ethscan": bool(request.app.state.config.get('ethscan')),
+        "bscscan": bool(request.app.state.config.get('bscscan')),
+    })
 
 
 def main(argv=None):
