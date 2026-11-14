@@ -30,6 +30,7 @@ import coloredlogs  # pyright: ignore
 
 from core import misc
 from core import api_client
+from core import token_classifier
 from core.timestamps import epoch_ms
 
 logger = logging.getLogger(__name__)
@@ -1528,6 +1529,13 @@ def db_store_tagging_opt(connection, address, trxs, transfers, internals, nfts, 
     insert_tag = "INSERT OR IGNORE INTO t_tags (address, blockChain, tag) VALUES (?, ?, ?)"
     cursor.executemany(insert_tag, df_addresses.to_records(index=False))
     connection.commit()
+
+    # INFO: Internal spam/phishing classifier: tags token contracts, never deletes stored transfers
+    spam_tags = token_classifier.classify_tokens(transfers, trxs, address)
+    if spam_tags:
+        spam_rows = [(contract, "eth", tag) for contract, tags in spam_tags.items() for tag in tags]
+        cursor.executemany(insert_tag, spam_rows)
+        connection.commit()
 
     # Store trxs Funders
     funders = df_funders["address"].tolist()
