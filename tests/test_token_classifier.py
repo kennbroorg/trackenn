@@ -17,6 +17,7 @@ WETH = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
 USDC = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
 DAI = "0x6b175474e89094c44da98b954eedeac495271d0f"
 FRIEND = "0xb0000000000000000000000000000000000000bb"
+ETH_FOUNDATION = "0xde0b295669a9fd93d5f28d9ec85e40f4cb697bae"
 
 
 def transfer(contract, frm, to, token_name, token_symbol, n=1):
@@ -103,6 +104,62 @@ def test_classify_tokens_combines_both_criteria_without_mixing_tags():
         USDREWARD: {token_classifier.TAG_PHISHING, token_classifier.TAG_UNSOLICITED},
         HACKER_INU: {token_classifier.TAG_UNSOLICITED},
     }
+
+
+# ---- Spoofed sender (S6) ----
+
+def test_spoofed_sender_when_known_token_contract_emits_a_foreign_token():
+    # INFO: Euler: "Visit https://usdreward.org..." claims to come from the real USDC contract
+    transfers = [transfer(USDREWARD, USDC, CENTRAL, "# usdreward.org", "Visit https://usdreward.org to claim rewards", 1)]
+
+    assert token_classifier.find_spoofed_sender_contracts(transfers) == {USDREWARD}
+
+
+def test_spoofed_sender_is_case_insensitive():
+    transfers = [transfer(HACKER_INU, USDC.upper().replace("0X", "0x"), CENTRAL, "Euler Hacker Inu", "EULERHACKERINU", 1)]
+
+    assert token_classifier.find_spoofed_sender_contracts(transfers) == {HACKER_INU}
+
+
+def test_spoofed_sender_when_known_wallet_sends_a_phishing_token():
+    # INFO: Euler: "Visit https://aeth.trade..." claims to come from the Ethereum Foundation
+    transfers = [transfer(AETH_TRADE, ETH_FOUNDATION, CENTRAL, "# aeth.trade", "Visit https://aeth.trade to claim rewards", 1)]
+
+    assert token_classifier.find_spoofed_sender_contracts(transfers) == {AETH_TRADE}
+
+
+@pytest.mark.parametrize("contract, frm, name, symbol", [
+    (USDC, USDC, "USD Coin", "USDC"),                      # mint/burn of the token itself
+    (DAI, FRIEND, "Dai Stablecoin", "DAI"),                # ordinary sender
+    (DAI, ETH_FOUNDATION, "Dai Stablecoin", "DAI"),        # known wallet sending a legit token
+    (USDREWARD, FRIEND, "# usdreward.org", "Visit https://usdreward.org to claim rewards"),
+])
+def test_not_spoofed_sender(contract, frm, name, symbol):
+    transfers = [transfer(contract, frm, CENTRAL, name, symbol, 1)]
+
+    assert token_classifier.find_spoofed_sender_contracts(transfers) == set()
+
+
+def test_classify_tokens_adds_spoofed_sender_tag():
+    transfers = [transfer(USDREWARD, USDC, CENTRAL, "# usdreward.org", "Visit https://usdreward.org to claim rewards", 1)]
+
+    result = token_classifier.classify_tokens(transfers, [], CENTRAL)
+
+    assert result == {USDREWARD: {token_classifier.TAG_PHISHING, token_classifier.TAG_UNSOLICITED,
+                                  token_classifier.TAG_SPOOFED_SENDER}}
+
+
+def test_spoofed_sender_token_contract_is_tagged_and_transfers_are_kept(db):
+    t = transfer(USDREWARD, USDC, CENTRAL, "# usdreward.org", "Visit https://usdreward.org to claim rewards", 1)
+    insert_transfer(db, t)
+
+    with closing(sqlite3.connect(db)) as conn:
+        eth.db_store_tagging_opt(conn, CENTRAL, [], [t], [], [], [])
+        conn.commit()
+
+    assert ("spam-spoofed-sender",) in stored_tags(db, USDREWARD)
+    assert ("spam-spoofed-sender",) not in stored_tags(db, USDC)
+    assert stored_transfers(db) == [("0xt1", USDREWARD)]
 
 
 # ---- Integration with db_store_tagging_opt (S1, S4 support) ----
