@@ -599,6 +599,16 @@ def event_stream_checking(config):
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
             yield f"data:{data}\n\n"
 
+            # INFO: S7 - the download path tags token contracts via db_store_tagging_opt, which
+            # never runs for a cached address; classify here over the already-stored transfers/
+            # transactions so cached addresses get the same spam tags. Must not break the stream.
+            # BSC out of scope.
+            if (blockchain == "eth"):
+                try:
+                    eth.classify_cached_tokens(connection, address)
+                except Exception:
+                    logger.warning("Token classifier failed on cached data for %s", address_central, exc_info=True)
+
             # INFO: Getting trxs, internals and transfers
             tic = time.perf_counter()
 
