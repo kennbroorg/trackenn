@@ -1,5 +1,6 @@
 """Internal spam/phishing token classifier (core/token_classifier.py, wired into
-core/eth.py db_store_tagging_opt). Fixtures from the Euler case (documents/EULER.md).
+core/eth.py db_store_tagging_opt and the cached path, S7). Fixtures from the Euler
+case (documents/EULER.md).
 """
 import sqlite3
 from contextlib import closing
@@ -7,6 +8,7 @@ from contextlib import closing
 import pytest
 
 from core import eth, token_classifier
+from test_sql_injection import insert, run_stream, stream_params
 
 CENTRAL = "0xb2698c2d99ad2c302a95a8db26b08d17a77cedd4"
 USDREWARD = "0x470662ab26fdcf1b9e10de4c5287fd4948b2a370"
@@ -251,3 +253,101 @@ def test_existing_tags_for_an_address_are_unchanged(db):
         conn.commit()
 
     assert stored_tags(db, DAI) == [("contract",)]
+
+
+# ---- S7: classifier on the cached path + Complex node tag sync ----
+
+def seed_cached_case(db):
+    # INFO: Euler phishing token (from USDC) + an unsolicited token + a legit DAI token
+    # the central both received and sent, stored exactly as the download path would.
+    insert_transfer(db, transfer(USDREWARD, USDC, CENTRAL, "# usdreward.org", "Visit https://usdreward.org to claim rewards", 1))
+    insert_transfer(db, transfer(HACKER_INU, FRIEND, CENTRAL, "Euler Hacker Inu", "EULERHACKERINU", 2))
+    insert_transfer(db, transfer(DAI, FRIEND, CENTRAL, "Dai Stablecoin", "DAI", 3))
+    insert_transfer(db, transfer(DAI, CENTRAL, FRIEND, "Dai Stablecoin", "DAI", 4))
+
+
+def test_cached_path_classifies_stored_transfers_and_is_idempotent(db):
+    seed_cached_case(db)
+
+    with closing(sqlite3.connect(db)) as conn:
+        eth.classify_cached_tokens(conn, ("eth", CENTRAL, "central"))
+        conn.commit()
+
+    assert stored_tags(db, USDREWARD) == sorted([
+        (token_classifier.TAG_PHISHING,),
+        (token_classifier.TAG_SPOOFED_SENDER,),
+        (token_classifier.TAG_UNSOLICITED,),
+    ])
+    assert stored_tags(db, HACKER_INU) == [(token_classifier.TAG_UNSOLICITED,)]
+    assert stored_tags(db, DAI) == []
+
+    with closing(sqlite3.connect(db)) as conn:
+        eth.classify_cached_tokens(conn, ("eth", CENTRAL, "central"))
+        conn.commit()
+
+    assert stored_tags(db, USDREWARD) == sorted([
+        (token_classifier.TAG_PHISHING,),
+        (token_classifier.TAG_SPOOFED_SENDER,),
+        (token_classifier.TAG_UNSOLICITED,),
+    ])
+
+
+def test_cached_path_merges_tags_into_existing_node_rows_without_duplicates(db):
+    seed_cached_case(db)
+    with closing(sqlite3.connect(db)) as conn:
+        conn.execute("INSERT INTO t_nodes_classification VALUES (?, ?, ?, '[]')", (USDREWARD, USDREWARD, '["contract", "path"]'))
+        conn.execute("INSERT INTO t_nodes_classification VALUES (?, ?, ?, '[]')", (HACKER_INU, HACKER_INU, '["contract"]'))
+        conn.commit()
+
+        eth.classify_cached_tokens(conn, ("eth", CENTRAL, "central"))
+        conn.commit()
+
+        def node_tags(address):
+            import json
+            return json.loads(conn.execute("SELECT tag FROM t_nodes_classification WHERE address = ?", (address,)).fetchone()[0])
+
+        usdreward_tags = node_tags(USDREWARD)
+        hacker_inu_tags = node_tags(HACKER_INU)
+
+        assert set(usdreward_tags) == {"contract", "path", token_classifier.TAG_PHISHING,
+                                       token_classifier.TAG_SPOOFED_SENDER, token_classifier.TAG_UNSOLICITED}
+        assert "contract" in usdreward_tags and "path" in usdreward_tags  # INFO: existing tags never removed
+        assert set(hacker_inu_tags) == {"contract", token_classifier.TAG_UNSOLICITED}
+
+        # INFO: run again, idempotent, no duplicate entries in the JSON list
+        eth.classify_cached_tokens(conn, ("eth", CENTRAL, "central"))
+        conn.commit()
+        usdreward_tags_again = node_tags(USDREWARD)
+
+    assert sorted(usdreward_tags_again) == sorted(usdreward_tags)
+    assert len(usdreward_tags_again) == len(set(usdreward_tags_again))
+
+
+def seed_cached_stream(db):
+    insert(db, "t_tags", blockChain="eth", address=CENTRAL, tag="central")
+    insert(db, "t_tags", blockChain="eth", address=CENTRAL, tag="path")
+    insert(db, "t_address_detail", blockChain="eth", address=CENTRAL, type="wallet")
+    insert(db, "t_transactions", blockChain="eth", hash="0xeth1", **{"from": CENTRAL, "to": FRIEND},
+           value=10**18, gasPrice=10**9, gasUsed=21000, isError=0)
+    seed_cached_case(db)
+
+
+def test_stream_cached_path_stores_tags_and_still_ends(db, monkeypatch):
+    seed_cached_stream(db)
+
+    messages = run_stream(eth.event_stream_ether, stream_params(db, CENTRAL, "eth"))
+
+    assert messages[-1] == {"msg": "End collection", "end": True, "error": False, "content": {}}
+    assert stored_tags(db, USDREWARD) != []
+    assert stored_tags(db, DAI) == []
+
+
+def test_stream_cached_path_survives_classifier_exception(db, monkeypatch):
+    seed_cached_stream(db)
+    monkeypatch.setattr(eth, "classify_cached_tokens", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    messages = run_stream(eth.event_stream_ether, stream_params(db, CENTRAL, "eth"))
+
+    assert messages[-1] == {"msg": "End collection", "end": True, "error": False, "content": {}}
+    assert "exception" not in [tuple(m.keys()) for m in messages]
+    assert stored_tags(db, USDREWARD) == []  # INFO: classifier never ran, but the stream still finished cleanly

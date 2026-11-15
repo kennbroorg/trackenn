@@ -1096,6 +1096,14 @@ def event_stream_ether(params):
             logger.debug("+ Already collected                                +")
             logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
+            # INFO: S7 - the download path tags token contracts via db_store_tagging_opt, which
+            # never runs for a cached address; classify here over the already-stored transfers/
+            # transactions so cached addresses get the same spam tags. Must not break the stream.
+            try:
+                classify_cached_tokens(connection, (blockchain, address, "central"))
+            except Exception:
+                logger.warning("Token classifier failed on cached data for %s", address, exc_info=True)
+
             # TODO: Add contract validation (Read the HACK comment)
 
             # Validate if all trxs are collected
@@ -1375,6 +1383,67 @@ def test_function_2(params):
     return data
 
 
+def apply_classifier_tags(connection, address, transfers, trxs):
+    """Run the internal spam/phishing classifier (core/token_classifier.py) over the given
+    transfers/trxs for `address` and persist the resulting tags.
+
+    Shared by the download path (db_store_tagging_opt) and the cached path
+    (classify_cached_tokens) so there is a single implementation that writes classifier
+    tags. Idempotent: t_tags has UNIQUE(blockChain, address, tag), and the
+    t_nodes_classification tag JSON list is only extended with tags not already present.
+    """
+    spam_tags = token_classifier.classify_tokens(transfers, trxs, address)
+    if not spam_tags:
+        return spam_tags
+
+    cursor = connection.cursor()
+    insert_tag = "INSERT OR IGNORE INTO t_tags (address, blockChain, tag) VALUES (?, ?, ?)"
+    spam_rows = [(contract, "eth", tag) for contract, tags in spam_tags.items() for tag in tags]
+    cursor.executemany(insert_tag, spam_rows)
+    connection.commit()
+
+    # INFO: t_nodes_classification.tag is a JSON list frozen at node creation (the Complex
+    # graph reads it instead of t_tags live), so merge the new tags into existing node rows
+    # without ever removing a tag already there. No-op when the node does not exist yet
+    # (e.g. first download, before store_nodes_links_db creates it from fresh t_tags).
+    for contract, tags in spam_tags.items():
+        cursor.execute("SELECT tag FROM t_nodes_classification WHERE address = ?", (contract,))
+        row = cursor.fetchone()
+        if not row:
+            continue
+        existing = json.loads(row[0])
+        missing = [tag for tag in tags if tag not in existing]
+        if missing:
+            cursor.execute(
+                "UPDATE t_nodes_classification SET tag = ? WHERE address = ?",
+                (json.dumps(existing + missing), contract),
+            )
+    connection.commit()
+
+    return spam_tags
+
+
+def classify_cached_tokens(connection, address_central):
+    """Classify token contracts for a central address already served from cache (S7).
+
+    The download path classifies fresh data via db_store_tagging_opt/apply_classifier_tags,
+    but a cached address never goes through that path again, so its tags are computed here
+    straight from the ERC-20 transfers/transactions already stored in SQLite.
+    """
+    address = address_central[1].lower()
+    cursor = connection.cursor()
+
+    cursor.execute("SELECT * FROM t_transfers WHERE lower(`from`) = ? OR lower(`to`) = ?", (address, address))
+    columns = [c[0] for c in cursor.description]
+    transfers = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    cursor.execute("SELECT * FROM t_transactions WHERE lower(`from`) = ? OR lower(`to`) = ?", (address, address))
+    columns = [c[0] for c in cursor.description]
+    trxs = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    return apply_classifier_tags(connection, address, transfers, trxs)
+
+
 # TODO: Include type of address and evaluate
 # HACK: Merge with labels??
 # TODO: Add NFTs and Multitoken
@@ -1531,11 +1600,7 @@ def db_store_tagging_opt(connection, address, trxs, transfers, internals, nfts, 
     connection.commit()
 
     # INFO: Internal spam/phishing classifier: tags token contracts, never deletes stored transfers
-    spam_tags = token_classifier.classify_tokens(transfers, trxs, address)
-    if spam_tags:
-        spam_rows = [(contract, "eth", tag) for contract, tags in spam_tags.items() for tag in tags]
-        cursor.executemany(insert_tag, spam_rows)
-        connection.commit()
+    apply_classifier_tags(connection, address, transfers, trxs)
 
     # Store trxs Funders
     funders = df_funders["address"].tolist()
