@@ -1599,8 +1599,12 @@ def db_store_tagging_opt(connection, address, trxs, transfers, internals, nfts, 
     cursor.executemany(insert_tag, df_addresses.to_records(index=False))
     connection.commit()
 
-    # INFO: Internal spam/phishing classifier: tags token contracts, never deletes stored transfers
-    apply_classifier_tags(connection, address, transfers, trxs)
+    # INFO: Internal spam/phishing classifier: tags token contracts, never deletes stored transfers.
+    #       Its failure must not skip the funders stored below.
+    try:
+        apply_classifier_tags(connection, address, transfers, trxs)
+    except Exception:
+        logger.warning("Token classifier failed for %s", address, exc_info=True)
 
     # Store trxs Funders
     funders = df_funders["address"].tolist()

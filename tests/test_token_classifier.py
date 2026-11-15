@@ -7,7 +7,7 @@ from contextlib import closing
 
 import pytest
 
-from core import eth, token_classifier
+from core import eth, misc, token_classifier
 from test_sql_injection import insert, run_stream, stream_params
 
 CENTRAL = "0xb2698c2d99ad2c302a95a8db26b08d17a77cedd4"
@@ -351,3 +351,29 @@ def test_stream_cached_path_survives_classifier_exception(db, monkeypatch):
     assert messages[-1] == {"msg": "End collection", "end": True, "error": False, "content": {}}
     assert "exception" not in [tuple(m.keys()) for m in messages]
     assert stored_tags(db, USDREWARD) == []  # INFO: classifier never ran, but the stream still finished cleanly
+
+
+def test_checking_stream_cached_path_stores_tags(db):
+    # INFO: core/misc.py event_stream_checking passes the t_tags 'central' row to the classifier
+    seed_cached_stream(db)
+    config = {"ethscan": "K", "bscscan": "K", "level": "INFO", "dbname": str(db), "action": "checking",
+              "graph": "Star", "filters": {"filter": False}}
+
+    messages = run_stream(lambda c: misc.event_stream_checking(c), config)
+
+    assert "exception" not in [key for m in messages for key in m]
+    assert ("spam-phishing",) in stored_tags(db, USDREWARD)
+    assert stored_tags(db, DAI) == []
+
+
+def test_download_path_classifier_failure_keeps_funder_tags(db, monkeypatch):
+    # INFO: a classifier error must not abort db_store_tagging_opt before the funders are stored
+    monkeypatch.setattr(token_classifier, "classify_tokens", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    funding = trx(FRIEND, CENTRAL, 1)
+    first_out = trx(CENTRAL, DAI, 2)
+
+    with closing(sqlite3.connect(db)) as conn:
+        eth.db_store_tagging_opt(conn, CENTRAL, [funding, first_out], [], [], [], [])
+        conn.commit()
+
+    assert ("funder",) in stored_tags(db, FRIEND)
