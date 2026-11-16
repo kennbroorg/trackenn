@@ -328,3 +328,35 @@ def test_cached_incomplete_wallet_with_nothing_new_settles_all_data_true(db, mon
     calls.clear()
     run_stream(stream, stream_params(db, CENTRAL, chain))
     assert calls == []
+
+
+@pytest.mark.parametrize("stream, chain", [pytest.param(eth.event_stream_ether, "eth", id="eth"),
+                                            pytest.param(bsc.event_stream_bsc, "bsc", id="bsc")])
+def test_cached_catch_up_failure_leaves_no_partial_rows(db, monkeypatch, stream, chain):
+    # INFO: txlist catch-up succeeds, then txlistinternal fails: the txlist rows written in the
+    #       same catch-up must not be flushed by a later commit without their t_blocks update
+    seed_truncated_wallet(db, chain, CENTRAL, 1000, all_data=0)
+    with closing(sqlite3.connect(db)) as conn:
+        columns = [r[0] for r in conn.execute("SELECT name FROM pragma_table_info('t_internals')")]
+        values = {"blockChain": chain, "blockNumber": 150, "timeStamp": 1_700_000_050, "hash": "0xi1",
+                  "from": FRIEND, "to": CENTRAL, "value": 1, "methodId": "", "functionName": "", "type": "call"}
+        pd.DataFrame([{c: values.get(c, 0) for c in columns}]).to_sql("t_internals", conn, if_exists="append", index=False)
+        conn.commit()
+
+    def txlist_pager(startblock):
+        return [dict(tx(2000 + i, CENTRAL, FRIEND, 10**18), blockNumber=str(1100 + i)) for i in range(34)
+                if 1100 + i >= startblock]
+
+    def failing_internals(startblock):
+        raise api_client.requests.ConnectionError("explorer unavailable")
+
+    paged_explorer(monkeypatch, {"txlist": txlist_pager, "txlistinternal": failing_internals})
+
+    messages = run_stream(stream, stream_params(db, CENTRAL, chain))
+
+    with closing(sqlite3.connect(db)) as conn:
+        count = conn.execute("SELECT count(*) FROM t_transactions").fetchone()[0]
+        block_to = conn.execute("SELECT block_to FROM t_blocks WHERE address = ?", (CENTRAL,)).fetchone()[0]
+    assert count == 1000
+    assert block_to == 1099
+    assert messages[-1]["end"] is True

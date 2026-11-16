@@ -90,6 +90,9 @@ def complete_cached_lists(connection, address, blockchain, key):
     new_last_date = date_to
     messages = []
 
+    # INFO: fetch every list first and store afterwards: pandas to_sql commits by itself,
+    #       so a failure on a later list must happen before any row is written
+    fetched = []
     for table, action, label in specs:
         cursor.execute(
             f'SELECT count(*), max(blockNumber) FROM {table} WHERE blockChain = ? AND (`from` = ? OR `to` = ?)',
@@ -103,9 +106,10 @@ def complete_cached_lists(connection, address, blockchain, key):
         rows, complete = api_client.fetch_all_pages(api_client.BSC_CHAIN_ID, action, address, key, startblock=int(last_block))
         overall_complete = overall_complete and complete
         checked = True
-        if not rows:
-            continue
+        if rows:
+            fetched.append((table, label, rows))
 
+    for table, label, rows in fetched:
         messages.append(f"{label} - Completing truncated history...{len(rows)} more rows")
 
         df = pd.DataFrame(rows)
@@ -1138,6 +1142,8 @@ def event_stream_bsc(params):
                     data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                     yield f"data:{data}\n\n"
             except Exception:
+                # INFO: drop rows of the failed catch-up, never commit them without their t_blocks update
+                connection.rollback()
                 logger.warning("Completing truncated history failed for %s", address, exc_info=True)
 
         # INFO: Send wallet detail information
