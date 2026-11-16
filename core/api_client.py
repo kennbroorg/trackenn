@@ -115,7 +115,11 @@ def _row_key(row):
     )
 
 
-def fetch_all_pages(chainid, action, address, key, page_size=1000, max_rows=50000, startblock=0):
+# INFO: Rows per account list per investigation; reaching it leaves the history incomplete (all_data false)
+MAX_ROWS_PER_LIST = 50000
+
+
+def fetch_all_pages(chainid, action, address, key, page_size=1000, max_rows=None, startblock=0):
     """Download every row of an account list (txlist, txlistinternal, tokentx,
     tokennfttx, token1155tx), paging by startblock (S5): each request starts at the
     last block received by the previous page (not +1, a block can be split across
@@ -123,6 +127,8 @@ def fetch_all_pages(chainid, action, address, key, page_size=1000, max_rows=5000
     page brings fewer rows than page_size, is empty, or brings nothing new (a single
     block with more rows than a page would otherwise loop forever). Stops and marks
     incomplete after max_rows rows (S6). Returns (rows, complete)."""
+    if max_rows is None:
+        max_rows = MAX_ROWS_PER_LIST
     rows = []
     seen = set()
     current_start = startblock

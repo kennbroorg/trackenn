@@ -5,6 +5,7 @@ import json
 import sqlite3
 from contextlib import closing
 
+import pandas as pd
 import pytest
 
 from core import api_client, bsc, eth
@@ -214,7 +215,9 @@ def test_new_wallet_with_1034_txlist_rows_stores_all_and_all_data_true(db, monke
 @pytest.mark.parametrize("stream, chain", [pytest.param(eth.event_stream_ether, "eth", id="eth"),
                                             pytest.param(bsc.event_stream_bsc, "bsc", id="bsc")])
 def test_new_wallet_cap_hit_stores_cap_and_emits_incomplete_message(db, monkeypatch, stream, chain):
-    overrides = {"txlist": make_txlist_pager(60000)}
+    # INFO: a small cap keeps the test fast; the real 50000 default is pinned below
+    monkeypatch.setattr(api_client, "MAX_ROWS_PER_LIST", 2500)
+    overrides = {"txlist": make_txlist_pager(3100)}
     paged_explorer(monkeypatch, overrides)
 
     params = stream_params(db, CENTRAL, chain)
@@ -224,7 +227,7 @@ def test_new_wallet_cap_hit_stores_cap_and_emits_incomplete_message(db, monkeypa
         count = conn.execute("SELECT count(*) FROM t_transactions").fetchone()[0]
         all_data = conn.execute("SELECT all_data FROM t_blocks WHERE address = ?", (CENTRAL,)).fetchone()[0]
 
-    assert count == 50000
+    assert count == 2500
     assert all_data == 0
     assert any("incomplete" in m["msg"].lower() for m in messages)
 
@@ -235,9 +238,17 @@ def test_new_wallet_cap_hit_stores_cap_and_emits_incomplete_message(db, monkeypa
 
 
 def seed_truncated_wallet(db, chain, address, stored_rows, all_data):
-    for i in range(stored_rows):
-        insert(db, "t_transactions", blockChain=chain, hash=f"0xc{i}", blockNumber=100 + i, timeStamp=1_700_000_000 + i,
-               **{"from": FUNDER if i == 0 else address, "to": address if i == 0 else FRIEND}, value=10**18)
+    # INFO: same defaults as test_sql_injection.insert (missing columns = 0) but one write
+    #       for the whole seed; a commit per row made these tests slow
+    with closing(sqlite3.connect(db)) as conn:
+        columns = [r[0] for r in conn.execute("SELECT name FROM pragma_table_info('t_transactions')")]
+        rows = []
+        for i in range(stored_rows):
+            values = {"blockChain": chain, "hash": f"0xc{i}", "blockNumber": 100 + i, "timeStamp": 1_700_000_000 + i,
+                      "from": FUNDER if i == 0 else address, "to": address if i == 0 else FRIEND, "value": 10**18}
+            rows.append({column: values.get(column, 0) for column in columns})
+        pd.DataFrame(rows).to_sql("t_transactions", conn, if_exists="append", index=False)
+        conn.commit()
     insert(db, "t_address_detail", blockChain=chain, address=address, type="wallet",
            first_block=100, last_block=100 + stored_rows - 1)
     with closing(sqlite3.connect(db)) as conn:
@@ -279,3 +290,7 @@ def test_cached_wallet_with_fewer_than_1000_rows_and_all_data_true_makes_no_api_
     run_stream(stream, stream_params(db, CENTRAL, chain))
 
     assert calls == []
+
+
+def test_default_cap_is_50000_rows_per_list():
+    assert api_client.MAX_ROWS_PER_LIST == 50000

@@ -137,7 +137,7 @@ def complete_cached_lists(connection, address, blockchain, key):
         connection.commit()
 
         if not overall_complete:
-            messages.append("TRANSACTIONS - INCOMPLETE, history too large (50000 rows cap reached)")
+            messages.append(f"TRANSACTIONS - INCOMPLETE, history too large ({api_client.MAX_ROWS_PER_LIST} rows cap reached)")
 
     return messages
 
@@ -750,7 +750,7 @@ def event_stream_bsc(params):
                         yield f"data:{data}\n\n"
 
                     if not txlist_complete:
-                        message = "TRANSACTIONS - INCOMPLETE, history too large (50000 rows cap reached)"
+                        message = f"TRANSACTIONS - INCOMPLETE, history too large ({api_client.MAX_ROWS_PER_LIST} rows cap reached)"
                         logger.warning(message.replace('', '').replace('', ''))
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
@@ -795,7 +795,7 @@ def event_stream_bsc(params):
                         yield f"data:{data}\n\n"
 
                     if not txlistinternal_complete:
-                        message = "INTERNALS - INCOMPLETE, history too large (50000 rows cap reached)"
+                        message = f"INTERNALS - INCOMPLETE, history too large ({api_client.MAX_ROWS_PER_LIST} rows cap reached)"
                         logger.warning(message.replace('', '').replace('', ''))
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
@@ -840,7 +840,7 @@ def event_stream_bsc(params):
                         yield f"data:{data}\n\n"
 
                     if not tokentx_complete:
-                        message = "TRANSFERS - INCOMPLETE, history too large (50000 rows cap reached)"
+                        message = f"TRANSFERS - INCOMPLETE, history too large ({api_client.MAX_ROWS_PER_LIST} rows cap reached)"
                         logger.warning(message.replace('', '').replace('', ''))
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
@@ -885,7 +885,7 @@ def event_stream_bsc(params):
                         yield f"data:{data}\n\n"
 
                     if not tokennfttx_complete:
-                        message = "NFTs - INCOMPLETE, history too large (50000 rows cap reached)"
+                        message = f"NFTs - INCOMPLETE, history too large ({api_client.MAX_ROWS_PER_LIST} rows cap reached)"
                         logger.warning(message.replace('', '').replace('', ''))
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
