@@ -1494,6 +1494,7 @@ def complete_cached_lists(connection, address, blockchain, key):
     ]
 
     overall_complete = True
+    checked = False
     new_last_block = int(block_to)
     new_last_date = date_to
     messages = []
@@ -1510,6 +1511,7 @@ def complete_cached_lists(connection, address, blockchain, key):
 
         rows, complete = api_client.fetch_all_pages(api_client.ETH_CHAIN_ID, action, address, key, startblock=int(last_block))
         overall_complete = overall_complete and complete
+        checked = True
         if not rows:
             continue
 
@@ -1534,7 +1536,9 @@ def complete_cached_lists(connection, address, blockchain, key):
             new_last_block = row_last_block
             new_last_date = rows[-1]["timeStamp"]
 
-    if messages:
+    # INFO: write back whenever a list was checked, even with no new rows, so an
+    #       incomplete wallet whose history is already whole settles to all_data true
+    if checked:
         cursor.execute(
             "UPDATE t_blocks SET block_to = ?, date_to = ?, all_data = ? WHERE blockChain = ? AND address = ?",
             (new_last_block, new_last_date, overall_complete, blockchain, address),

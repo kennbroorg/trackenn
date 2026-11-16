@@ -146,10 +146,20 @@ def fetch_all_pages(chainid, action, address, key, page_size=1000, max_rows=None
             seen.add(_row_key(row))
         rows.extend(new_rows)
 
-        if len(rows) >= max_rows:
-            return rows[:max_rows], False
-
         if len(page) < page_size or not page or not new_rows:
-            return rows, True
+            return rows[:max_rows], len(rows) <= max_rows
+
+        if len(rows) >= max_rows:
+            # INFO: the cap fell on a full page; one more page tells a list of exactly
+            #       max_rows rows (complete) from a longer one (truncated)
+            if len(rows) == max_rows:
+                current_start = int(page[-1]["blockNumber"])
+                next_page = extract_result(api_get(explorer_url(
+                    chainid, module="account", action=action, address=address, startblock=current_start,
+                    endblock=99999999, sort="asc", apikey=key,
+                )))
+                if not [r for r in next_page if _row_key(r) not in seen]:
+                    return rows, True
+            return rows[:max_rows], False
 
         current_start = int(page[-1]["blockNumber"])

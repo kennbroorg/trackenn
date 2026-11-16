@@ -294,3 +294,37 @@ def test_cached_wallet_with_fewer_than_1000_rows_and_all_data_true_makes_no_api_
 
 def test_default_cap_is_50000_rows_per_list():
     assert api_client.MAX_ROWS_PER_LIST == 50000
+
+
+def test_helper_list_of_exactly_max_rows_is_complete():
+    # INFO: 2000 rows in two full pages, then an empty page: a cap of 2000 must not report it truncated
+    all_rows = [row(100 + i, i) for i in range(2000)]
+
+    def get(url):
+        startblock = int(url.split("startblock=")[1].split("&")[0])
+        return page_response([r for r in all_rows if int(r["blockNumber"]) >= startblock][:1000])
+
+    import unittest.mock
+    with unittest.mock.patch.object(api_client, "api_get", get):
+        rows, complete = api_client.fetch_all_pages(CHAIN_ID, "txlist", "0xabc", "K", page_size=1000, max_rows=2000)
+
+    assert len(rows) == 2000
+    assert complete is True
+
+
+@pytest.mark.parametrize("stream, chain", [pytest.param(eth.event_stream_ether, "eth", id="eth"),
+                                            pytest.param(bsc.event_stream_bsc, "bsc", id="bsc")])
+def test_cached_incomplete_wallet_with_nothing_new_settles_all_data_true(db, monkeypatch, stream, chain):
+    # INFO: all_data false but the stored history is already whole: the catch-up finds no new
+    #       row, and all_data must still become true so later searches stop calling the API
+    seed_truncated_wallet(db, chain, CENTRAL, 10, all_data=0)
+    calls = paged_explorer(monkeypatch, {"txlist": lambda startblock: []})
+
+    run_stream(stream, stream_params(db, CENTRAL, chain))
+    with closing(sqlite3.connect(db)) as conn:
+        all_data = conn.execute("SELECT all_data FROM t_blocks WHERE address = ?", (CENTRAL,)).fetchone()[0]
+    assert all_data == 1
+
+    calls.clear()
+    run_stream(stream, stream_params(db, CENTRAL, chain))
+    assert calls == []
