@@ -704,12 +704,9 @@ def event_stream_ether(params):
             elif type == "wallet":
                 # INFO: Get trx
                 try:
-                    url = api_client.explorer_url(
-                        api_client.ETH_CHAIN_ID, module="account", action="txlist", address=address, startblock=0,
-                        endblock=99999999, sort="asc", apikey=key
+                    json_object, txlist_complete = api_client.fetch_all_pages(
+                        api_client.ETH_CHAIN_ID, "txlist", address, key
                     )
-                    response = api_client.api_get(url)
-                    json_object = api_client.extract_result(response)
 
                     if len(json_object) > 0:
                         message = "TRANSACTIONS - Found first block and trx"
@@ -719,6 +716,12 @@ def event_stream_ether(params):
                     else:
                         message = "TRANSACTIONS - First block and trx NOT FOUND"
                         logger.info(message)
+                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
+                        yield f"data:{data}\n\n"
+
+                    if not txlist_complete:
+                        message = "TRANSACTIONS - INCOMPLETE, history too large (50000 rows cap reached)"
+                        logger.warning(message)
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
@@ -746,13 +749,9 @@ def event_stream_ether(params):
 
                 # INFO: Get internals
                 try:
-                    url = api_client.explorer_url(
-                        api_client.ETH_CHAIN_ID, module="account", action="txlistinternal", address=address, startblock=0,
-                        endblock=99999999, sort="asc", apikey=key
+                    json_internals, txlistinternal_complete = api_client.fetch_all_pages(
+                        api_client.ETH_CHAIN_ID, "txlistinternal", address, key
                     )
-
-                    response = api_client.api_get(url)
-                    json_internals = api_client.extract_result(response)
 
                     if len(json_internals) > 0:
                         message = "INTERNALS - Found internals"
@@ -762,6 +761,12 @@ def event_stream_ether(params):
                     else:
                         message = "INTERNALS - Internals NOT FOUND"
                         logger.info(message)
+                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
+                        yield f"data:{data}\n\n"
+
+                    if not txlistinternal_complete:
+                        message = "INTERNALS - INCOMPLETE, history too large (50000 rows cap reached)"
+                        logger.warning(message)
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
@@ -789,13 +794,9 @@ def event_stream_ether(params):
 
                 # INFO: Get transfers
                 try:
-                    url = api_client.explorer_url(
-                        api_client.ETH_CHAIN_ID, module="account", action="tokentx", address=address, startblock=0,
-                        endblock=99999999, sort="asc", apikey=key
+                    json_transfers, tokentx_complete = api_client.fetch_all_pages(
+                        api_client.ETH_CHAIN_ID, "tokentx", address, key
                     )
-
-                    response = api_client.api_get(url)
-                    json_transfers = api_client.extract_result(response)
 
                     if len(json_transfers) > 0:
                         message = "TRANSFERS - Found transfers"
@@ -805,6 +806,12 @@ def event_stream_ether(params):
                     else:
                         message = "TRANSFERS - Transfers NOT FOUND"
                         logger.info(message)
+                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
+                        yield f"data:{data}\n\n"
+
+                    if not tokentx_complete:
+                        message = "TRANSFERS - INCOMPLETE, history too large (50000 rows cap reached)"
+                        logger.warning(message)
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
@@ -832,12 +839,9 @@ def event_stream_ether(params):
 
                 # INFO: Get NFTs (ERC-721)
                 try:
-                    url = api_client.explorer_url(
-                        api_client.ETH_CHAIN_ID, module="account", action="tokennfttx", address=address, sort="asc", apikey=key
+                    json_nfts, tokennfttx_complete = api_client.fetch_all_pages(
+                        api_client.ETH_CHAIN_ID, "tokennfttx", address, key
                     )
-
-                    response = api_client.api_get(url)
-                    json_nfts = api_client.extract_result(response)
 
                     if len(json_nfts) > 0:
                         message = "NFTs - Found NFTs"
@@ -847,6 +851,12 @@ def event_stream_ether(params):
                     else:
                         message = "NFTs - Transfers NOT FOUND"
                         logger.info(message)
+                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
+                        yield f"data:{data}\n\n"
+
+                    if not tokennfttx_complete:
+                        message = "NFTs - INCOMPLETE, history too large (50000 rows cap reached)"
+                        logger.warning(message)
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
@@ -874,12 +884,9 @@ def event_stream_ether(params):
 
                 # INFO: Get Multitoken trx (ERC-1551)
                 try:
-                    url = api_client.explorer_url(
-                        api_client.ETH_CHAIN_ID, module="account", action="token1155tx", address=address, sort="asc", apikey=key
+                    json_multitokens, token1155tx_complete = api_client.fetch_all_pages(
+                        api_client.ETH_CHAIN_ID, "token1155tx", address, key
                     )
-
-                    response = api_client.api_get(url)
-                    json_multitokens = api_client.extract_result(response)
 
                     if len(json_multitokens) > 0:
                         message = "MULTITOKENS - Found Multi Token Standard"
@@ -889,6 +896,12 @@ def event_stream_ether(params):
                     else:
                         message = "MULTITOKENS - Transfers NOT FOUND"
                         logger.info(message)
+                        data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
+                        yield f"data:{data}\n\n"
+
+                    if not token1155tx_complete:
+                        message = "MULTITOKENS - INCOMPLETE, history too large (50000 rows cap reached)"
+                        logger.warning(message)
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
                         yield f"data:{data}\n\n"
 
@@ -934,11 +947,10 @@ def event_stream_ether(params):
                     # Get last block collected
                     first["last_block"] = json_object[-1]["blockNumber"]
                     first["timeStamp_to"] = json_object[-1]["timeStamp"]
-                    # TODO: Do this check more complex for large wallets and contracts,
-                    if len(json_object) == 10000:
-                        first["all_data"] = False
-                    else:
-                        first["all_data"] = True
+                    # INFO: all_data is true only if every account list was fully downloaded (S2)
+                    first["all_data"] = all([
+                        txlist_complete, txlistinternal_complete, tokentx_complete, tokennfttx_complete, token1155tx_complete
+                    ])
                     # Set address
                     first["address"] = address
 
@@ -1096,7 +1108,17 @@ def event_stream_ether(params):
             logger.debug("+ Already collected                                +")
             logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
-            # INFO: S7 - the download path tags token contracts via db_store_tagging_opt, which
+            # INFO: S7 - complete any truncated account list (old 1000-row signature or
+            # all_data False) from its last stored block before using the cached data below.
+            try:
+                for message in complete_cached_lists(connection, address, blockchain, key):
+                    logger.info(message)
+                    data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
+                    yield f"data:{data}\n\n"
+            except Exception:
+                logger.warning("Completing truncated history failed for %s", address, exc_info=True)
+
+            # INFO: the download path tags token contracts via db_store_tagging_opt, which
             # never runs for a cached address; classify here over the already-stored transfers/
             # transactions so cached addresses get the same spam tags. Must not break the stream.
             try:
@@ -1442,6 +1464,91 @@ def classify_cached_tokens(connection, address_central):
     trxs = [dict(zip(columns, row)) for row in cursor.fetchall()]
 
     return apply_classifier_tags(connection, address, transfers, trxs)
+
+
+def complete_cached_lists(connection, address, blockchain, key):
+    """S7: continue a previously truncated download on the cached path.
+
+    Detects any stored account list of the central address that is either the old 1000-row
+    truncation signature or part of an investigation that never finished (all_data False),
+    fetches the missing rows from that list's last stored block via the shared pagination
+    helper (S5/S6), stores them through the same insert path a fresh download uses
+    (insert_with_ignore dedups), and updates t_blocks/t_address_detail so later reads see
+    the new range. Returns the stream messages to emit (empty when nothing was incomplete).
+    """
+    cursor = connection.cursor()
+    cursor.execute("SELECT block_to, date_to, all_data FROM t_blocks WHERE blockChain = ? AND address = ?", (blockchain, address))
+    block_row = cursor.fetchone()
+    if block_row is None:
+        return []
+
+    block_to, date_to, all_data = block_row
+    needs_full_catchup = not bool(all_data)
+
+    specs = [
+        ("t_transactions", "txlist", "TRANSACTIONS"),
+        ("t_internals", "txlistinternal", "INTERNALS"),
+        ("t_transfers", "tokentx", "TRANSFERS"),
+        ("t_nfts", "tokennfttx", "NFTs"),
+        ("t_multitoken", "token1155tx", "MULTITOKENS"),
+    ]
+
+    overall_complete = True
+    new_last_block = int(block_to)
+    new_last_date = date_to
+    messages = []
+
+    for table, action, label in specs:
+        cursor.execute(
+            f'SELECT count(*), max(blockNumber) FROM {table} WHERE blockChain = ? AND (`from` = ? OR `to` = ?)',
+            (blockchain, address, address),
+        )
+        count, last_block = cursor.fetchone()
+        count = count or 0
+        if count == 0 or last_block is None or not (needs_full_catchup or count == 1000):
+            continue
+
+        rows, complete = api_client.fetch_all_pages(api_client.ETH_CHAIN_ID, action, address, key, startblock=int(last_block))
+        overall_complete = overall_complete and complete
+        if not rows:
+            continue
+
+        messages.append(f"{label} - Completing truncated history...{len(rows)} more rows")
+
+        df = pd.DataFrame(rows)
+        df["blockChain"] = blockchain
+        if table != "t_transactions":
+            df = drop_v2_method_columns(df)
+            hashes = tuple(df["hash"].unique().tolist())
+            placeholders = ",".join("?" for _ in hashes)
+            methods = pd.read_sql_query(
+                f"SELECT hash, methodId, functionName FROM t_transactions WHERE hash IN ({placeholders})",
+                connection, params=hashes,
+            )
+            df = df.merge(methods, on="hash", how="left")
+            df.fillna("", inplace=True)
+        df.to_sql(table, connection, if_exists="append", index=False, method=insert_with_ignore)
+
+        row_last_block = int(rows[-1]["blockNumber"])
+        if row_last_block > new_last_block:
+            new_last_block = row_last_block
+            new_last_date = rows[-1]["timeStamp"]
+
+    if messages:
+        cursor.execute(
+            "UPDATE t_blocks SET block_to = ?, date_to = ?, all_data = ? WHERE blockChain = ? AND address = ?",
+            (new_last_block, new_last_date, overall_complete, blockchain, address),
+        )
+        cursor.execute(
+            "UPDATE t_address_detail SET last_block = ?, last_date = ? WHERE blockChain = ? AND address = ?",
+            (new_last_block, new_last_date, blockchain, address),
+        )
+        connection.commit()
+
+        if not overall_complete:
+            messages.append("TRANSACTIONS - INCOMPLETE, history too large (50000 rows cap reached)")
+
+    return messages
 
 
 # TODO: Include type of address and evaluate

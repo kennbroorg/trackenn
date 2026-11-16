@@ -12,8 +12,10 @@ from core import api_client, bsc, eth, misc
 
 ROOT = Path(__file__).resolve().parent.parent
 CORE_MODULES = ["core/eth.py", "core/bsc.py", "core/misc.py"]
-# INFO: Names built by the code itself (insert_with_ignore), never user input
-SAFE_SQL_NAMES = {"table.name", "columns", "placeholders"}
+# INFO: Names built by the code itself (insert_with_ignore), never user input. "table" is
+# the S7 cached-completion loop variable (core/eth.py, core/bsc.py complete_cached_lists),
+# always one of a fixed hardcoded list of table names, never user input.
+SAFE_SQL_NAMES = {"table.name", "columns", "placeholders", "table"}
 
 OR_PAYLOAD = "0xabc' or '1'='1"
 UPDATE_ALL_PAYLOAD = "0xabc' where 1=1 --"
