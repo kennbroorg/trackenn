@@ -3,11 +3,10 @@ from contextlib import closing
 
 import pandas as pd
 import pytest
-import yaml
 from fastapi.testclient import TestClient
 
 import app as app_module
-from core import api_client, onchain_messages
+from core import onchain_messages
 
 EULER_MESSAGE_TX = "0x539c6fff0fce70e02dddd80a5534acf3df57deafbdc40f41abb20aa8f94a6d0d"
 EXPLOITER_2 = "0xb66cd966670d962c227b3eaba30a872dbfb995db"
@@ -24,15 +23,14 @@ CONTRACT_CALL_INPUT = (
 )
 
 
-def euler_message_input_hex():
-    # INFO: Reproduce the exact bytes of tx 0x539c... from the real explorer, not a hardcoded hex
-    with open("config.yaml") as file:
-        config = yaml.safe_load(file)
-    url = api_client.explorer_url(api_client.ETH_CHAIN_ID, module="proxy",
-                                   action="eth_getTransactionByHash", txhash=EULER_MESSAGE_TX,
-                                   apikey=config["ethscan"])
-    response = api_client.api_get(url)
-    return response.json()["result"]["input"]
+# INFO: exact input of tx 0x539c... as returned by eth_getTransactionByHash, captured once
+#       so the tests never call the explorer
+EULER_MESSAGE_INPUT = (
+    "0x576520756e6465727374616e64207468617420796f752061726520726573706f6e7369626c6520666f722074686973"
+    "206d6f726e696e6727732061747461636b206f6e207468652045756c657220706c6174666f726d2e2057652061726520"
+    "77726974696e6720746f20736565207768657468657220796f7520776f756c64206265206f70656e20746f2073706561"
+    "6b696e6720776974682075732061626f757420616e7920706f74656e7469616c206e6578742073746570732e"
+)
 
 
 # ---- S1: decoder ----
@@ -42,7 +40,7 @@ def test_decodes_readable_utf8_text():
 
 
 def test_euler_message_decodes_to_its_text():
-    assert onchain_messages.decode_message(euler_message_input_hex()) == EULER_MESSAGE_TEXT
+    assert onchain_messages.decode_message(EULER_MESSAGE_INPUT) == EULER_MESSAGE_TEXT
 
 
 def test_ordinary_contract_call_is_not_a_message():
@@ -79,7 +77,7 @@ def insert_transaction(path, **values):
 def seed_messages(db):
     insert_transaction(db, blockChain="eth", hash=EULER_MESSAGE_TX, blockNumber=16818800,
                        timeStamp=1678714000, **{"from": EULER_SUPPORT, "to": EXPLOITER_2},
-                       input=euler_message_input_hex())
+                       input=EULER_MESSAGE_INPUT)
     insert_transaction(db, blockChain="eth", hash="0xcontractcall", blockNumber=16818801,
                        timeStamp=1678714100, **{"from": "0xc", "to": EXPLOITER_2},
                        input=CONTRACT_CALL_INPUT)
