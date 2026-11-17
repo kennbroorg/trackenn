@@ -53,6 +53,47 @@ def front_dir():
     return os.path.join(_code_dir(), 'front')
 
 
+def apply_ofac_labels(connection):
+    """Merge data/ofacSdnCryptoAddresses.json into t_labels.
+
+    An address already present in t_labels (e.g. an etherscan_label row) keeps its
+    existing name and gets the OFAC labels unioned into its labels column, so
+    labels_dict's set_index("address") (core/eth.py) never sees a duplicate address.
+    A new address is inserted with source='ofac_sdn'. Comparing the merged labels to
+    the stored ones before writing makes this a no-op on repeated calls, so it is safe
+    to run on every init/checking pass, including on databases created before this
+    function existed.
+    """
+    cursor = connection.cursor()
+    with open(os.path.join(data_dir(), 'ofacSdnCryptoAddresses.json'), 'r') as file:
+        ofac = json.load(file)
+
+    for address, info in ofac.items():
+        cursor.execute(
+            "SELECT rowid, labels FROM t_labels WHERE blockChain = 'ethereum' AND address = ?",
+            (address,),
+        )
+        existing = cursor.fetchone()
+        new_labels = info['labels']
+
+        if existing:
+            rowid, labels_json = existing
+            current_labels = json.loads(labels_json)
+            merged_labels = current_labels + [label for label in new_labels if label not in current_labels]
+            if merged_labels != current_labels:
+                cursor.execute(
+                    "UPDATE t_labels SET labels = ? WHERE rowid = ?",
+                    (json.dumps(merged_labels), rowid),
+                )
+        else:
+            cursor.execute(
+                "INSERT INTO t_labels (blockChain, source, address, name, labels) VALUES (?, ?, ?, ?, ?)",
+                ('ethereum', 'ofac_sdn', address, info['name'], json.dumps(new_labels)),
+            )
+
+    connection.commit()
+
+
 def reset_db(dbname):
     """Delete the project DB. A missing DB is not an error, the next init creates it again."""
     try:
@@ -535,6 +576,15 @@ def event_stream_checking(config):
             logger.error(message.replace('', '').replace('', ''))
             data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
             yield f"data:{data}\n\n"
+
+        # INFO: Merge OFAC SDN labels: runs every pass (not only on a fresh DB) so
+        # databases created before this existed get the labels too; apply_ofac_labels
+        # is a no-op once an address already carries the ofac-sdn-only label content.
+        message = "Loading Table t_labels with OFAC SDN labels"
+        logger.info(f"{message}")
+        data = json.dumps({"msg": f"{message}", "end": False, "error": False, "content": {}})
+        yield f"data:{data}\n\n"
+        apply_ofac_labels(connection)
 
         # INFO: Getting data from DB
         message = "Getting cached info"
