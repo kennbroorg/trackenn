@@ -103,3 +103,63 @@ def extract_result(response):
     if payload.get("message") == "NOTOK":
         raise Exception(payload.get("result"))
     return payload["result"]
+
+
+def _row_key(row):
+    # INFO: Same identity as the tables' UNIQUE constraint (blockChain is added by the
+    # caller, not part of the raw API row): blockNumber, timeStamp, hash, from, to and
+    # either value (txlist/txlistinternal/tokentx) or tokenID (tokennfttx/token1155tx).
+    return (
+        row.get("blockNumber"), row.get("timeStamp"), row.get("hash"),
+        row.get("from"), row.get("to"), row.get("value", row.get("tokenID")),
+    )
+
+
+# INFO: Rows per account list per investigation; reaching it leaves the history incomplete (all_data false)
+MAX_ROWS_PER_LIST = 50000
+
+
+def fetch_all_pages(chainid, action, address, key, page_size=1000, max_rows=None, startblock=0):
+    """Download every row of an account list (txlist, txlistinternal, tokentx,
+    tokennfttx, token1155tx), paging by startblock (S5): each request starts at the
+    last block received by the previous page (not +1, a block can be split across
+    pages) and rows already seen are dropped by their UNIQUE row key. Stops when a
+    page brings fewer rows than page_size, is empty, or brings nothing new (a single
+    block with more rows than a page would otherwise loop forever). Stops and marks
+    incomplete after max_rows rows (S6). Returns (rows, complete)."""
+    if max_rows is None:
+        max_rows = MAX_ROWS_PER_LIST
+    rows = []
+    seen = set()
+    current_start = startblock
+
+    while True:
+        url = explorer_url(
+            chainid, module="account", action=action, address=address, startblock=current_start,
+            endblock=99999999, sort="asc", apikey=key,
+        )
+        response = api_get(url)
+        page = extract_result(response)
+
+        new_rows = [row for row in page if _row_key(row) not in seen]
+        for row in new_rows:
+            seen.add(_row_key(row))
+        rows.extend(new_rows)
+
+        if len(page) < page_size or not page or not new_rows:
+            return rows[:max_rows], len(rows) <= max_rows
+
+        if len(rows) >= max_rows:
+            # INFO: the cap fell on a full page; one more page tells a list of exactly
+            #       max_rows rows (complete) from a longer one (truncated)
+            if len(rows) == max_rows:
+                current_start = int(page[-1]["blockNumber"])
+                next_page = extract_result(api_get(explorer_url(
+                    chainid, module="account", action=action, address=address, startblock=current_start,
+                    endblock=99999999, sort="asc", apikey=key,
+                )))
+                if not [r for r in next_page if _row_key(r) not in seen]:
+                    return rows, True
+            return rows[:max_rows], False
+
+        current_start = int(page[-1]["blockNumber"])
