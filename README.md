@@ -70,6 +70,8 @@ The API only accepts the front from `http://127.0.0.1:4200` (CORS and the `POST 
 TRACKENN_FRONT_ORIGINS="http://127.0.0.1:4200,http://localhost:4200" python3 app.py
 ```
 
+`GET /messages?address=<addr>&network=eth` reads the on-chain messages already stored for an address: transactions whose `input` decodes to readable UTF-8 text (e.g. Euler's negotiation with its attacker), where the address is `from` or `to` (case-insensitive). Read-only, ordered by time. Missing `address` answers 400; an unknown address or one with no messages answers an empty list. `network` defaults to `eth` (only chain supported so far).
+
 The internal test routes (`/recreatedb`, `/internal-test-1`, `/internal-test-2`) answer 404 unless you opt in with `TRACKENN_DEV_ROUTES=1`:
 
 ``` shell

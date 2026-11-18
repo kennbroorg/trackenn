@@ -34,6 +34,7 @@ from core import misc
 from core import api_client
 from core import eth
 from core import bsc
+from core import onchain_messages
 
 DEFAULT_FRONT_ORIGINS = ["http://127.0.0.1:4200"]
 
@@ -233,6 +234,16 @@ def get_data_info(request: Request):
         return event_stream(bsc.event_stream_bsc(params))
     else:
         return event_stream(eth.event_stream_ether(params))
+
+
+@app.get('/messages')
+def get_messages(request: Request):
+    params = query_params(request)
+    require_params(params, ('address',))
+    network = params.get('network', 'eth')
+    config = get_config(request)
+    messages = onchain_messages.get_messages(config['dbname'], params['address'], network)
+    return JSONResponse(messages)
 
 
 @app.get('/download_db')
