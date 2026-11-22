@@ -93,6 +93,7 @@ def test_not_unsolicited_when_central_called_the_contract():
 
 
 def test_classify_tokens_combines_both_criteria_without_mixing_tags():
+    # INFO: S2 - HACKER_INU is only-received with no strong signal, so it gets no tag
     transfers = [
         transfer(USDREWARD, FRIEND, CENTRAL, "# usdreward.org", "Visit https://usdreward.org to claim rewards", 1),
         transfer(HACKER_INU, FRIEND, CENTRAL, "Euler Hacker Inu", "EULERHACKERINU", 2),
@@ -104,8 +105,75 @@ def test_classify_tokens_combines_both_criteria_without_mixing_tags():
 
     assert result == {
         USDREWARD: {token_classifier.TAG_PHISHING, token_classifier.TAG_UNSOLICITED},
-        HACKER_INU: {token_classifier.TAG_UNSOLICITED},
     }
+
+
+# ---- S2: unsolicited never tags alone, only confirms a strong signal ----
+
+def test_only_received_legit_looking_token_gets_no_tag():
+    transfers = [transfer(HACKER_INU, FRIEND, CENTRAL, "Euler Hacker Inu", "EULERHACKERINU", 1)]
+
+    assert token_classifier.classify_tokens(transfers, [], CENTRAL) == {}
+
+
+def test_only_received_phishing_token_gets_phishing_and_unsolicited():
+    transfers = [transfer(USDREWARD, FRIEND, CENTRAL, "# usdreward.org",
+                           "Visit https://usdreward.org to claim rewards", 1)]
+
+    result = token_classifier.classify_tokens(transfers, [], CENTRAL)
+
+    assert result == {USDREWARD: {token_classifier.TAG_PHISHING, token_classifier.TAG_UNSOLICITED}}
+
+
+def test_only_received_spoofed_sender_token_gets_spoofed_and_unsolicited():
+    transfers = [transfer(HACKER_INU, USDC, CENTRAL, "Euler Hacker Inu", "EULERHACKERINU", 1)]
+
+    result = token_classifier.classify_tokens(transfers, [], CENTRAL)
+
+    assert result == {HACKER_INU: {token_classifier.TAG_SPOOFED_SENDER, token_classifier.TAG_UNSOLICITED}}
+
+
+# ---- S3: native coin impersonation ----
+
+FAKE_ETH = "0x739352337c902c3874b95f14e81ebbcf1b7b262e"
+STETH = "0xae7ab96520de3a18e5e111b5eaab095312d7fe84"
+ENS = "0xfac7bea255a6990f749363002136af6556b31e04"
+
+
+def test_fake_erc20_named_ether_eth_is_native_impersonation():
+    transfers = [transfer(FAKE_ETH, FRIEND, CENTRAL, "Ether", "ETH", 1)]
+
+    assert token_classifier.find_native_impersonation_contracts(transfers) == {FAKE_ETH}
+
+
+def test_fake_erc20_named_ether_eth_classified_with_unsolicited_when_only_received():
+    transfers = [transfer(FAKE_ETH, FRIEND, CENTRAL, "Ether", "ETH", 1)]
+
+    result = token_classifier.classify_tokens(transfers, [], CENTRAL)
+
+    assert result == {FAKE_ETH: {token_classifier.TAG_NATIVE_IMPERSONATION, token_classifier.TAG_UNSOLICITED}}
+
+
+@pytest.mark.parametrize("name, symbol", [
+    ("Wrapped Ether", "WETH"),
+    ("Lido Staked Ether", "stETH"),
+    ("Ethereum Name Service", "ENS"),
+])
+def test_legit_tokens_do_not_match_native_impersonation(name, symbol):
+    transfers = [transfer(STETH, FRIEND, CENTRAL, name, symbol, 1)]
+
+    assert token_classifier.find_native_impersonation_contracts(transfers) == set()
+
+
+@pytest.mark.parametrize("name, symbol", [
+    ("ether", "eth"),
+    ("  Ether  ", "  ETH  "),
+    ("ETHEREUM", "Eth"),
+])
+def test_native_impersonation_is_case_insensitive_and_trimmed(name, symbol):
+    transfers = [transfer(FAKE_ETH, FRIEND, CENTRAL, name, symbol, 1)]
+
+    assert token_classifier.find_native_impersonation_contracts(transfers) == {FAKE_ETH}
 
 
 # ---- Spoofed sender (S6) ----
@@ -211,7 +279,8 @@ def test_phishing_token_contract_is_tagged_and_transfers_are_kept(db):
     assert stored_transfers(db) == [("0xt1", USDREWARD), ("0xt2", USDREWARD)]
 
 
-def test_unsolicited_token_contract_is_tagged(db):
+def test_unsolicited_alone_is_no_longer_tagged(db):
+    # INFO: S2 - only-received with no strong signal (phishing/spoofed-sender/native-impersonation) gets no tag
     t = transfer(HACKER_INU, FRIEND, CENTRAL, "Euler Hacker Inu", "EULERHACKERINU", 1)
     insert_transfer(db, t)
 
@@ -219,7 +288,7 @@ def test_unsolicited_token_contract_is_tagged(db):
         eth.db_store_tagging_opt(conn, CENTRAL, [], [t], [], [], [])
         conn.commit()
 
-    assert stored_tags(db, HACKER_INU) == [("contract",), ("spam-unsolicited",)]
+    assert stored_tags(db, HACKER_INU) == [("contract",)]
 
 
 def test_nodes_links_filter_can_exclude_spam_tagged_tokens(db):
@@ -278,7 +347,8 @@ def test_cached_path_classifies_stored_transfers_and_is_idempotent(db):
         (token_classifier.TAG_SPOOFED_SENDER,),
         (token_classifier.TAG_UNSOLICITED,),
     ])
-    assert stored_tags(db, HACKER_INU) == [(token_classifier.TAG_UNSOLICITED,)]
+    # INFO: S2 - HACKER_INU is only-received with no strong signal, no tag
+    assert stored_tags(db, HACKER_INU) == []
     assert stored_tags(db, DAI) == []
 
     with closing(sqlite3.connect(db)) as conn:
@@ -312,7 +382,8 @@ def test_cached_path_merges_tags_into_existing_node_rows_without_duplicates(db):
         assert set(usdreward_tags) == {"contract", "path", token_classifier.TAG_PHISHING,
                                        token_classifier.TAG_SPOOFED_SENDER, token_classifier.TAG_UNSOLICITED}
         assert "contract" in usdreward_tags and "path" in usdreward_tags  # INFO: existing tags never removed
-        assert set(hacker_inu_tags) == {"contract", token_classifier.TAG_UNSOLICITED}
+        # INFO: S2 - HACKER_INU is only-received with no strong signal, no tag added
+        assert set(hacker_inu_tags) == {"contract"}
 
         # INFO: run again, idempotent, no duplicate entries in the JSON list
         eth.classify_cached_tokens(conn, ("eth", CENTRAL, "central"))

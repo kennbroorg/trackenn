@@ -9,6 +9,16 @@ import re
 TAG_PHISHING = "spam-phishing"
 TAG_UNSOLICITED = "spam-unsolicited"
 TAG_SPOOFED_SENDER = "spam-spoofed-sender"
+TAG_NATIVE_IMPERSONATION = "spam-native-impersonation"
+
+# INFO: The native coin of a chain is never itself an ERC-20 token, so any token
+#       contract whose symbol/name equals it is impersonating it (S3). Per chain,
+#       defaulting to eth when a transfer carries no blockChain (same default the
+#       rest of core/eth.py assumes for single-chain data).
+DEFAULT_CHAIN = "eth"
+NATIVE_COINS = {
+    "eth": {"symbol": "eth", "names": {"ether", "ethereum"}},
+}
 
 # INFO: Official Ethereum mainnet token contracts. A token contract never sends
 #       units of a different token, so a transfer of token X "from" one of these
@@ -108,13 +118,43 @@ def find_spoofed_sender_contracts(transfers):
     return contracts
 
 
+def find_native_impersonation_contracts(transfers):
+    """Contract addresses whose token name/symbol match the chain's native coin (S3).
+
+    The native coin is never an ERC-20 token, so any contract advertising its
+    symbol/name (case-insensitive, trimmed) is forged, regardless of sender.
+    """
+    contracts = set()
+    for transfer in transfers:
+        contract = transfer.get("contractAddress")
+        if not contract:
+            continue
+        chain = (transfer.get("blockChain") or DEFAULT_CHAIN).lower()
+        native = NATIVE_COINS.get(chain)
+        if not native:
+            continue
+        symbol = (transfer.get("tokenSymbol") or "").strip().lower()
+        name = (transfer.get("tokenName") or "").strip().lower()
+        if symbol == native["symbol"] or name in native["names"]:
+            contracts.add(contract)
+    return contracts
+
+
 def classify_tokens(transfers, trxs, central_address):
     """Return {contractAddress: set(tags)} for contracts worth flagging as spam."""
     tags_by_contract = {}
     for contract in find_phishing_contracts(transfers):
         tags_by_contract.setdefault(contract, set()).add(TAG_PHISHING)
-    for contract in find_unsolicited_contracts(transfers, trxs, central_address):
-        tags_by_contract.setdefault(contract, set()).add(TAG_UNSOLICITED)
     for contract in find_spoofed_sender_contracts(transfers):
         tags_by_contract.setdefault(contract, set()).add(TAG_SPOOFED_SENDER)
+    for contract in find_native_impersonation_contracts(transfers):
+        tags_by_contract.setdefault(contract, set()).add(TAG_NATIVE_IMPERSONATION)
+
+    # INFO: S2 - "only received" alone is not a signal; it only confirms an existing
+    # strong signal for the same contract (TAG_PHISHING/TAG_SPOOFED_SENDER/TAG_NATIVE_IMPERSONATION).
+    unsolicited = find_unsolicited_contracts(transfers, trxs, central_address)
+    for contract in unsolicited:
+        if tags_by_contract.get(contract):
+            tags_by_contract[contract].add(TAG_UNSOLICITED)
+
     return tags_by_contract
