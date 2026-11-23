@@ -257,8 +257,14 @@ def get_created_contracts(request: Request):
     chainid = api_client.BSC_CHAIN_ID if network == 'bsc' else api_client.ETH_CHAIN_ID
     key = config['bscscan'] if network == 'bsc' else config['ethscan']
     refresh = params.get('refresh', 'false').lower() == 'true'
+    max_calls = created_contracts.DEFAULT_MAX_CALLS
+    if params.get('max_calls'):
+        try:
+            max_calls = int(params['max_calls'])
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid 'max_calls' value")
     result = created_contracts.get_created_contracts(
-        config['dbname'], params['address'], network, chainid, key, refresh=refresh)
+        config['dbname'], params['address'], network, chainid, key, refresh=refresh, max_calls=max_calls)
     decisions.persist(config['dbname'], '/created-contracts', params['address'], network, result['decisions'])
     return JSONResponse({'address': params['address'], **result})
 

@@ -29,6 +29,12 @@ MAX_DEPTH = 3
 # (documents/VALIDACION.md, S3 control for R11 cost).
 MAX_CONTRACTS = 50
 
+# INFO: per-query API call budget (R16 S3): a query with a popular address can no longer
+# spend an unbounded number of explorer calls; the caller picks a lower number for a
+# cheaper query, or a higher one (up to the ceiling) for a more thorough one.
+DEFAULT_MAX_CALLS = 50
+MAX_CALLS_CEILING = 200
+
 CREATE_TYPES = ("create", "create2")
 
 
@@ -64,6 +70,27 @@ class UpstreamError(Exception):
     """An explorer call failed; the walk stops calling and reports what is pending (S2)."""
 
 
+class BudgetExhausted(Exception):
+    """The per-query call budget ran out (R16 S3); the walk stops expanding, keeping
+    everything found so far, instead of treating it as an upstream failure."""
+
+
+class CallBudget:
+    """Counts explorer downloads made in one query, clamped to [1, 200] (R16 S3). Cache
+    hits never call spend(): only Source._download and level1_from_api's own txlist call
+    count against it."""
+
+    def __init__(self, max_calls):
+        self.max_calls = max(1, min(200, max_calls))
+        self.calls = 0
+
+    def available(self):
+        return self.calls < self.max_calls
+
+    def spend(self):
+        self.calls += 1
+
+
 class Source:
     """Where each contract's own creations come from (S1): the per-address cache in
     t_created_contracts_cache when it has them, the explorer API otherwise. Successful
@@ -71,9 +98,10 @@ class Source:
     the investigation DB and never creates it: without a usable DB the walk still runs,
     uncached, and says so (cache_unavailable)."""
 
-    def __init__(self, dbname, blockchain, chainid, key, fetch_all_pages, refresh=False):
+    def __init__(self, dbname, blockchain, chainid, key, fetch_all_pages, refresh=False, budget=None):
         self.dbname, self.blockchain, self.chainid, self.key = dbname, blockchain, chainid, key
         self.fetch_all_pages, self.refresh = fetch_all_pages, refresh
+        self.budget = budget or CallBudget(DEFAULT_MAX_CALLS)
         self.cache_error = None
         self.served = []
         self.incomplete_histories = []
@@ -121,7 +149,8 @@ class Source:
         """Internal create/create2 rows made BY contract_address, the next level's creations.
         txlistinternal(contract_address) returns every internal row touching it, including
         the one that created it (`to` = contract_address); only `from` = contract_address
-        rows are its own creations. Raises UpstreamError when the API fails."""
+        rows are its own creations. Raises UpstreamError when the API fails, BudgetExhausted
+        when the per-query call budget ran out (R16 S3); a cache hit costs nothing."""
         address = contract_address.lower()
         cached = self._read(address)
         if cached and not self.refresh:
@@ -136,6 +165,9 @@ class Source:
                 self.cache_error = self.cache_error or f"corrupt cache entry for {address}: {error}"
                 cached = None
 
+        if not self.budget.available():
+            raise BudgetExhausted(contract_address)
+
         merged = []
         if cached and self.refresh:
             try:
@@ -144,6 +176,7 @@ class Source:
                 cached = None
         startblock = cached[0] if cached else 0
         raw, complete = self._download(contract_address, startblock)
+        self.budget.spend()
         own = [
             {"hash": row["hash"], "timeStamp": row["timeStamp"], "contractAddress": row["contractAddress"],
              "type": row["type"], "blockNumber": row.get("blockNumber")}
@@ -161,6 +194,23 @@ class Source:
         blocks = [int(row["blockNumber"]) for row in raw if row.get("blockNumber")]
         self._write(address, max(blocks + [startblock]), complete, own)
         return own
+
+    def cached_only(self, contract_address):
+        """The depth cap (R16 S3) never calls the API: this reads the cache if it already
+        holds contract_address's creations, without spending the call budget, and returns
+        None when nothing is cached (the caller then knows the cut is unverified)."""
+        address = contract_address.lower()
+        cached = self._read(address)
+        if not cached:
+            return None
+        last_block, complete, fetched_at, rows = cached
+        self.served.append({"address": address, "fetched_at": fetched_at})
+        if not complete:
+            self.incomplete_histories.append(address)
+        try:
+            return json.loads(rows)
+        except ValueError:
+            return None
 
     def decisions(self):
         found = []
@@ -181,7 +231,7 @@ class Source:
 
 def _new_result():
     return {"contracts": [], "truncated": False, "limit": None, "incomplete": False,
-            "pending": [], "decisions": []}
+            "pending": [], "decisions": [], "calls": 0}
 
 
 def find_created_contracts(address, level1_rows, chainid, key, fetch_all_pages=None, source=None):
@@ -197,7 +247,11 @@ def find_created_contracts(address, level1_rows, chainid, key, fetch_all_pages=N
     The contracts limit is enforced the moment a new contract would exceed it: no API call
     is made for it, and the ones already queued ahead of it in the same level are still
     expanded (the cap is on contracts kept, not on work done within an already-started
-    level). The depth limit is enforced by never expanding a level-MAX_DEPTH contract."""
+    level). The depth limit is enforced by never expanding a level-MAX_DEPTH contract: its
+    creations are read from the cache only (R16 S3), never downloaded; an edge contract not
+    already cached is reported unverified instead of spending a call to check it. Running
+    out of the per-query call budget (source.budget) stops expansion the same way an
+    upstream error does, keeping everything found and reporting call_cap_reached."""
     fetch_all_pages = fetch_all_pages or api_client.fetch_all_pages
     source = source or Source(None, None, chainid, key, fetch_all_pages)
     result = _new_result()
@@ -225,15 +279,20 @@ def find_created_contracts(address, level1_rows, chainid, key, fetch_all_pages=N
     # the queue as exactly what the walk could not see
     queue = deque(key for key in contracts if contracts[key]["level"] == 1)
     depth_cut_by = None
+    unverified = []
 
     while queue and not dropped:
         contract_key = queue[0]
         entry = contracts[contract_key]
         try:
             if entry["level"] >= MAX_DEPTH:
-                # INFO: one more expansion per edge contract, discarded, only to tell a chain
-                # that legitimately ends here from one the depth cap actually cut short
-                if depth_cut_by is None and source.creations(entry["address"]):
+                # INFO: the depth cap never spends a call: a cached edge tells a chain that
+                # legitimately ends here from one the cap actually cut short; an uncached
+                # edge is reported unverified instead of being downloaded just to check it
+                cached_rows = source.cached_only(entry["address"])
+                if cached_rows is None:
+                    unverified.append(entry["address"])
+                elif cached_rows and depth_cut_by is None:
                     depth_cut_by = entry["address"]
             elif len(contracts) >= MAX_CONTRACTS:
                 dropped.append(None)
@@ -251,6 +310,16 @@ def find_created_contracts(address, level1_rows, chainid, key, fetch_all_pages=N
             result["decisions"].append(decisions.make(
                 "upstream_error", pending[0], "stop on first explorer error", str(error), {"pending": pending}))
             break
+        except BudgetExhausted:
+            pending = [contracts[k]["address"] for k in queue if contracts[k]["level"] < MAX_DEPTH]
+            pending = pending or [entry["address"]]
+            result["incomplete"] = True
+            result["pending"] = pending
+            result["decisions"].append(decisions.make(
+                "call_cap_reached", address, f"max_calls={source.budget.max_calls}",
+                "The per-query API call budget ran out; some addresses were not expanded",
+                {"pending": pending, "calls": source.budget.calls}))
+            break
         queue.popleft()
 
     if dropped:
@@ -265,7 +334,14 @@ def find_created_contracts(address, level1_rows, chainid, key, fetch_all_pages=N
             "depth_cap_reached", depth_cut_by, f"MAX_DEPTH={MAX_DEPTH}",
             "Depth limit reached; this contract created more contracts that were not listed"))
 
+    if unverified:
+        result["decisions"].append(decisions.make(
+            "depth_cut_unverified", address, f"MAX_DEPTH={MAX_DEPTH}",
+            "Depth limit reached; deeper creations were not checked",
+            {"addresses": unverified}))
+
     result["contracts"] = list(contracts.values())
+    result["calls"] = source.budget.calls
     result["decisions"] = source.decisions() + result["decisions"]
     return result
 
@@ -282,32 +358,41 @@ def _is_collected(dbname, address, blockchain):
     return row is not None
 
 
-def level1_from_api(address, chainid, key, fetch_all_pages):
+def level1_from_api(address, chainid, key, fetch_all_pages, budget=None):
     """Direct creations of an address never collected (S1): its own txlist rows with empty
-    `to` and a contractAddress, plus its own internal create/create2 rows."""
+    `to` and a contractAddress, plus its own internal create/create2 rows. Both downloads
+    count against budget (R16 S3); once it runs out, whichever of the two was not made yet
+    is skipped and whatever was already found is kept."""
+    budget = budget or CallBudget(DEFAULT_MAX_CALLS)
     rows = []
-    trxs, _ = fetch_all_pages(chainid, "txlist", address, key)
-    for trx in trxs:
-        if not trx.get("to") and trx.get("contractAddress"):
-            rows.append({"hash": trx["hash"], "timeStamp": trx["timeStamp"],
-                         "contractAddress": trx["contractAddress"], "type": "create"})
-    rows.extend(Source(None, None, chainid, key, fetch_all_pages).creations(address))
+    if budget.available():
+        trxs, _ = fetch_all_pages(chainid, "txlist", address, key)
+        budget.spend()
+        for trx in trxs:
+            if not trx.get("to") and trx.get("contractAddress"):
+                rows.append({"hash": trx["hash"], "timeStamp": trx["timeStamp"],
+                             "contractAddress": trx["contractAddress"], "type": "create"})
+    if budget.available():
+        rows.extend(Source(None, None, chainid, key, fetch_all_pages, budget=budget).creations(address))
     return rows
 
 
-def get_created_contracts(dbname, address, blockchain, chainid, key, fetch_all_pages=None, refresh=False):
+def get_created_contracts(dbname, address, blockchain, chainid, key, fetch_all_pages=None, refresh=False,
+                          max_calls=DEFAULT_MAX_CALLS):
     """Entry point (S4): level 1 from stored data when the address was collected (no API
-    call), from the API otherwise; deeper levels from the cache or the API."""
+    call), from the API otherwise; deeper levels from the cache or the API. max_calls caps
+    every download made answering this query (R16 S3), clamped to [1, MAX_CALLS_CEILING]."""
     fetch_all_pages = fetch_all_pages or api_client.fetch_all_pages
+    budget = CallBudget(max_calls)
     if _is_collected(dbname, address, blockchain):
         level1_rows = level1_from_db(dbname, address, blockchain)
     else:
         try:
-            level1_rows = level1_from_api(address, chainid, key, fetch_all_pages)
+            level1_rows = level1_from_api(address, chainid, key, fetch_all_pages, budget=budget)
         except Exception as error:
             result = _new_result()
-            result.update(incomplete=True, pending=[address], decisions=[decisions.make(
+            result.update(incomplete=True, pending=[address], calls=budget.calls, decisions=[decisions.make(
                 "upstream_error", address, "stop on first explorer error", str(error), {"pending": [address]})])
             return result
-    source = Source(dbname, blockchain, chainid, key, fetch_all_pages, refresh=refresh)
+    source = Source(dbname, blockchain, chainid, key, fetch_all_pages, refresh=refresh, budget=budget)
     return find_created_contracts(address, level1_rows, chainid, key, fetch_all_pages, source=source)

@@ -38,8 +38,9 @@ class FakeFetch:
         return self.table.get(address.lower(), []), True
 
 
-def walk(db, level1, fetch, refresh=False):
-    source = created_contracts.Source(str(db), "eth", CHAIN_ID, KEY, fetch, refresh=refresh)
+def walk(db, level1, fetch, refresh=False, max_calls=None):
+    budget = created_contracts.CallBudget(max_calls) if max_calls is not None else None
+    source = created_contracts.Source(str(db), "eth", CHAIN_ID, KEY, fetch, refresh=refresh, budget=budget)
     return created_contracts.find_created_contracts(CENTRAL, level1, CHAIN_ID, KEY, fetch, source=source)
 
 
@@ -152,6 +153,52 @@ def test_clean_uncached_walk_has_no_decisions(db):
     assert result["incomplete"] is False
 
 
+# ---- S3: per-query call budget (R16) ----
+
+def test_budget_exhausted_mid_walk_stops_at_exact_call_count(db):
+    level1, table = wide_tree(24)  # 24 level-1, each needing one call to expand
+    fetch = FakeFetch(table)
+
+    result = walk(db, level1, fetch, max_calls=10)
+
+    assert result["calls"] == 10
+    assert len(fetch.calls) == 10
+    assert result["incomplete"] is True
+    assert result["pending"], "addresses left unexpanded must be listed"
+    cap = next(d for d in result["decisions"] if d["code"] == "call_cap_reached")
+    assert cap["rule"] == "max_calls=10"
+    assert cap["details"]["calls"] == 10
+    assert set(cap["details"]["pending"]) == set(result["pending"])
+
+
+def test_cache_hits_do_not_consume_budget(db):
+    level1, table = wide_tree(5)
+    walk(db, level1, FakeFetch(table))  # populate the cache for every level-1 address
+
+    fetch = FakeFetch(table)
+    result = walk(db, level1, fetch, max_calls=1)
+
+    assert fetch.calls == []
+    assert result["calls"] == 0
+    assert result["incomplete"] is False
+    assert len(result["contracts"]) == 10
+
+
+def test_max_calls_zero_clamps_to_one(db):
+    level1, table = wide_tree(2)
+    fetch = FakeFetch(table)
+
+    result = walk(db, level1, fetch, max_calls=0)
+
+    assert result["calls"] == 1
+
+
+def test_max_calls_above_ceiling_clamps_to_two_hundred(db):
+    budget = created_contracts.CallBudget(500)
+
+    assert budget.max_calls == 200
+
+
 CONFIG = {"ethscan": "K1", "bscscan": "K2", "level": "INFO"}
 
 
@@ -160,6 +207,22 @@ def client(db):
     app_module.app.state.config = {**CONFIG, "dbname": str(db)}
     with TestClient(app_module.app) as test_client:
         yield test_client
+
+
+def test_endpoint_invalid_max_calls_is_400_and_does_not_touch_decisions(client, db):
+    with closing(sqlite3.connect(db)) as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS t_decisions (created_at integer, endpoint text, "
+            "query_address text, blockChain text, code text, scope text, rule text, "
+            "reason text, details text)")
+        conn.commit()
+
+    response = client.get("/created-contracts", params={"address": CENTRAL, "max_calls": "abc"})
+
+    assert response.status_code == 400
+    with closing(sqlite3.connect(db)) as conn:
+        stored = conn.execute("SELECT * FROM t_decisions").fetchall()
+    assert stored == []
 
 
 def test_endpoint_returns_and_persists_decisions(client, db, monkeypatch):
@@ -175,3 +238,50 @@ def test_endpoint_returns_and_persists_decisions(client, db, monkeypatch):
     with closing(sqlite3.connect(db)) as conn:
         stored = conn.execute("SELECT endpoint, query_address, code, scope FROM t_decisions").fetchall()
     assert stored == [("/created-contracts", CENTRAL, "upstream_error", CENTRAL)]
+
+
+# ---- S3: depth cap makes no verification call ----
+
+def chain_to_depth(extra_levels):
+    """level1 -> level2 -> level3 (== MAX_DEPTH, the edge) -> extra_levels more, never expanded."""
+    level1 = [{"hash": "0xc0", "timeStamp": "0", "contractAddress": "0xlevel1", "type": "create"}]
+    table = {}
+    for level in range(1, created_contracts.MAX_DEPTH + extra_levels):
+        addr = f"0xlevel{level}"
+        child = f"0xlevel{level + 1}"
+        table[addr] = [create_row(level, addr, child)]
+    return level1, table
+
+
+def test_depth_cut_makes_zero_calls_and_reports_unverified(db):
+    level1, table = chain_to_depth(extra_levels=2)
+    edge = f"0xlevel{created_contracts.MAX_DEPTH}"
+    fetch = FakeFetch(table)
+
+    result = walk(db, level1, fetch)
+
+    assert edge not in {address for _, address, _ in fetch.calls}
+    assert result["truncated"] is False
+    cut = next(d for d in result["decisions"] if d["code"] == "depth_cut_unverified")
+    assert cut["details"]["addresses"] == [edge]
+
+
+def test_depth_cut_with_cached_non_empty_edge_reports_depth_cap_reached(db):
+    level1, table = chain_to_depth(extra_levels=2)
+    edge = f"0xlevel{created_contracts.MAX_DEPTH}"
+
+    # First query caches the edge contract's (non-empty) creations as a normal level-2
+    # expansion, by giving it one extra level of depth budget.
+    extended_level1, extended_table = chain_to_depth(extra_levels=3)
+    first_source = created_contracts.Source(str(db), "eth", CHAIN_ID, KEY, FakeFetch(extended_table))
+    first_source.creations(edge)
+
+    fetch = FakeFetch(table)
+    result = walk(db, level1, fetch)
+
+    assert edge not in {address for _, address, _ in fetch.calls}
+    assert result["truncated"] is True
+    assert result["limit"] == "depth"
+    cap = next(d for d in result["decisions"] if d["code"] == "depth_cap_reached")
+    assert cap["scope"] == edge
+    assert "depth_cut_unverified" not in codes(result)

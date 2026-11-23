@@ -158,7 +158,9 @@ def test_contract_seen_twice_is_expanded_once():
 
 # ---- S2: limits ----
 
-def test_depth_limit_cuts_and_reports_truncated():
+def test_depth_limit_cuts_without_verification_call():
+    # R16 S3: the depth cap never calls the explorer; an edge contract with no cached
+    # creations is reported unverified instead, and the walk stops one level short of it.
     chain = {}
     for level in range(1, created_contracts.MAX_DEPTH + 3):
         addr = f"0xlevel{level}"
@@ -166,14 +168,18 @@ def test_depth_limit_cuts_and_reports_truncated():
         chain[addr] = [internal_row(level, addr, "", child)]
     level1 = [{"hash": "0xc0", "timeStamp": "0", "contractAddress": "0xlevel1", "type": "create"}]
     fetch, calls = fetch_from(chain)
+    edge = f"0xlevel{created_contracts.MAX_DEPTH}"
 
     result = created_contracts.find_created_contracts(CENTRAL, level1, CHAIN_ID, KEY, fetch)
     contracts, truncated, limit = result['contracts'], result['truncated'], result['limit']
 
-    assert truncated is True
-    assert limit == "depth"
+    assert truncated is False
+    assert limit is None
     levels_found = {c["level"] for c in contracts}
     assert max(levels_found) == created_contracts.MAX_DEPTH
+    assert edge not in [address for _, address in calls]  # no call made for the depth-cap contract
+    cut = next(d for d in result["decisions"] if d["code"] == "depth_cut_unverified")
+    assert cut["details"]["addresses"] == [edge]
 
 
 def test_total_contracts_limit_cuts_and_makes_no_further_fetch_calls():
