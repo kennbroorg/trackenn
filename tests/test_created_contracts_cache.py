@@ -266,6 +266,71 @@ def test_depth_cut_makes_zero_calls_and_reports_unverified(db):
     assert cut["details"]["addresses"] == [edge]
 
 
+# ---- S6/S5 correction: level 1 of an uncollected address is cached and verified ----
+
+class FakeFetchLevel1:
+    """txlist/txlistinternal for one uncollected address, each call tracked separately so a
+    cached second query can be asserted to make none at all."""
+
+    def __init__(self, txlist_rows=None, txlistinternal_rows=None, txlist_complete=True,
+                 txlistinternal_complete=True):
+        self.txlist_rows = txlist_rows or []
+        self.txlistinternal_rows = txlistinternal_rows or []
+        self.txlist_complete = txlist_complete
+        self.txlistinternal_complete = txlistinternal_complete
+        self.calls = []
+
+    def __call__(self, chainid, action, address, key, **kwargs):
+        self.calls.append((action, address.lower(), kwargs.get("startblock", 0)))
+        if action == "txlist":
+            return self.txlist_rows, self.txlist_complete
+        return self.txlistinternal_rows, self.txlistinternal_complete
+
+
+def test_uncollected_address_queried_twice_second_query_makes_no_calls(db):
+    level1_txlist = [create_row(0, CENTRAL, "0xp000")]
+    level1_internal = [create_row(1, CENTRAL, "0xp001")]
+    first = FakeFetchLevel1(level1_txlist, level1_internal)
+
+    result_one = created_contracts.get_created_contracts(
+        str(db), CENTRAL, "eth", CHAIN_ID, KEY, fetch_all_pages=first)
+
+    assert first.calls  # the first query did call the API
+
+    second = FakeFetchLevel1(level1_txlist, level1_internal)
+    result_two = created_contracts.get_created_contracts(
+        str(db), CENTRAL, "eth", CHAIN_ID, KEY, fetch_all_pages=second)
+
+    assert second.calls == []
+    assert result_two["calls"] == 0
+    assert result_two["contracts"] == result_one["contracts"]
+
+
+def test_level1_txlist_incomplete_reports_history_incomplete_decision(db):
+    fetch = FakeFetchLevel1([create_row(0, CENTRAL, "0xp000")], txlist_complete=False)
+
+    result = created_contracts.get_created_contracts(
+        str(db), CENTRAL, "eth", CHAIN_ID, KEY, fetch_all_pages=fetch)
+
+    decision = next(d for d in result["decisions"] if d["code"] == "history_incomplete"
+                    and d["details"]["action"] == "txlist")
+    assert decision["scope"] == CENTRAL
+    assert decision["rule"] == f"MAX_ROWS_PER_LIST={api_client.MAX_ROWS_PER_LIST}"
+
+
+def test_level1_txlistinternal_incomplete_reports_history_incomplete_decision(db):
+    fetch = FakeFetchLevel1(txlistinternal_rows=[create_row(0, CENTRAL, "0xp000")],
+                            txlistinternal_complete=False)
+
+    result = created_contracts.get_created_contracts(
+        str(db), CENTRAL, "eth", CHAIN_ID, KEY, fetch_all_pages=fetch)
+
+    decision = next(d for d in result["decisions"] if d["code"] == "history_incomplete"
+                    and d["details"]["action"] == "txlistinternal")
+    assert decision["scope"] == CENTRAL
+    assert decision["rule"] == f"MAX_ROWS_PER_LIST={api_client.MAX_ROWS_PER_LIST}"
+
+
 def test_depth_cut_with_cached_non_empty_edge_reports_depth_cap_reached(db):
     level1, table = chain_to_depth(extra_levels=2)
     edge = f"0xlevel{created_contracts.MAX_DEPTH}"

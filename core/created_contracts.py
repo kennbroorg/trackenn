@@ -110,6 +110,8 @@ class Source:
         self.budget = budget or CallBudget(DEFAULT_MAX_CALLS)
         self.cache_error = None
         self.served = []
+        # INFO: each item is (address, action) where action is "txlist" or "txlistinternal",
+        # so a history_incomplete decision can say which of the two account lists was cut
         self.incomplete_histories = []
 
     def _connect(self):
@@ -144,10 +146,10 @@ class Source:
         except sqlite3.Error as error:
             self.cache_error = str(error)
 
-    def _download(self, address, startblock):
+    def _download(self, action, address, startblock):
         kwargs = {"startblock": startblock} if startblock else {}
         try:
-            return self.fetch_all_pages(self.chainid, "txlistinternal", address, self.key, **kwargs)
+            return self.fetch_all_pages(self.chainid, action, address, self.key, **kwargs)
         except Exception as error:
             raise UpstreamError(str(error)) from None
 
@@ -163,7 +165,7 @@ class Source:
             last_block, complete, fetched_at, rows = cached
             self.served.append({"address": address, "fetched_at": fetched_at})
             if not complete:
-                self.incomplete_histories.append(address)
+                self.incomplete_histories.append((address, "txlistinternal"))
             try:
                 return json.loads(rows)
             except ValueError as error:
@@ -181,7 +183,7 @@ class Source:
             except ValueError:
                 cached = None
         startblock = cached[0] if cached else 0
-        raw, complete = self._download(contract_address, startblock)
+        raw, complete = self._download("txlistinternal", contract_address, startblock)
         self.budget.spend()
         own = [
             {"hash": row["hash"], "timeStamp": row["timeStamp"], "contractAddress": row["contractAddress"],
@@ -196,9 +198,57 @@ class Source:
             seen = {(r["hash"], r["contractAddress"].lower()) for r in merged}
             own = merged + [r for r in own if (r["hash"], r["contractAddress"].lower()) not in seen]
         if not complete:
-            self.incomplete_histories.append(address)
+            self.incomplete_histories.append((address, "txlistinternal"))
         blocks = [int(row["blockNumber"]) for row in raw if row.get("blockNumber")]
         self._write(address, max(blocks + [startblock]), complete, own)
+        return own
+
+    def own_creations_from_txlist(self, address):
+        """Direct creations of `address` itself from its own `txlist` (S1, level 1 of an
+        address never collected): transactions with an empty `to` and a contractAddress.
+        Same cache/refresh/budget machinery as creations(), under a distinct cache key
+        (`txlist:<address>`, not a new column) so these rows never collide with the same
+        address's txlistinternal creations cached under its plain address key. A repeated
+        query for this address costs nothing (S6)."""
+        address = address.lower()
+        cache_key = f"txlist:{address}"
+        cached = self._read(cache_key)
+        if cached and not self.refresh:
+            last_block, complete, fetched_at, rows = cached
+            self.served.append({"address": address, "fetched_at": fetched_at})
+            if not complete:
+                self.incomplete_histories.append((address, "txlist"))
+            try:
+                return json.loads(rows)
+            except ValueError as error:
+                self.cache_error = self.cache_error or f"corrupt cache entry for {cache_key}: {error}"
+                cached = None
+
+        if not self.budget.available():
+            raise BudgetExhausted(address)
+
+        merged = []
+        if cached and self.refresh:
+            try:
+                merged = json.loads(cached[3])
+            except ValueError:
+                cached = None
+        startblock = cached[0] if cached else 0
+        raw, complete = self._download("txlist", address, startblock)
+        self.budget.spend()
+        own = [
+            {"hash": trx["hash"], "timeStamp": trx["timeStamp"], "contractAddress": trx["contractAddress"],
+             "type": "create", "blockNumber": trx.get("blockNumber")}
+            for trx in raw
+            if not trx.get("to") and trx.get("contractAddress")
+        ]
+        if merged:
+            seen = {(r["hash"], r["contractAddress"].lower()) for r in merged}
+            own = merged + [r for r in own if (r["hash"], r["contractAddress"].lower()) not in seen]
+        if not complete:
+            self.incomplete_histories.append((address, "txlist"))
+        blocks = [int(trx["blockNumber"]) for trx in raw if trx.get("blockNumber")]
+        self._write(cache_key, max(blocks + [startblock]), complete, own)
         return own
 
     def cached_only(self, contract_address):
@@ -212,7 +262,7 @@ class Source:
         last_block, complete, fetched_at, rows = cached
         self.served.append({"address": address, "fetched_at": fetched_at})
         if not complete:
-            self.incomplete_histories.append(address)
+            self.incomplete_histories.append((address, "txlistinternal"))
         try:
             return json.loads(rows)
         except ValueError:
@@ -228,10 +278,11 @@ class Source:
                 "served_from_cache", None, "refresh=false",
                 f"{len(self.served)} addresses answered from the cache; use refresh=true to fetch new creations",
                 {"addresses": self.served}))
-        for address in dict.fromkeys(self.incomplete_histories):
+        for address, action in dict.fromkeys(self.incomplete_histories):
             found.append(decisions.make(
                 "history_incomplete", address, f"MAX_ROWS_PER_LIST={api_client.MAX_ROWS_PER_LIST}",
-                "txlistinternal hit its row cap; later creations of this address are missing"))
+                f"{action} hit its row cap; later creations of this address are missing",
+                {"action": action}))
         return found
 
 
@@ -368,22 +419,20 @@ def _is_collected(dbname, address, blockchain):
     return row is not None
 
 
-def level1_from_api(address, chainid, key, fetch_all_pages, budget=None):
+def level1_from_api(address, source):
     """Direct creations of an address never collected (S1): its own txlist rows with empty
-    `to` and a contractAddress, plus its own internal create/create2 rows. Both downloads
-    count against budget (R16 S3); once it runs out, whichever of the two was not made yet
-    is skipped and whatever was already found is kept."""
-    budget = budget or CallBudget(DEFAULT_MAX_CALLS)
+    `to` and a contractAddress, plus its own internal create/create2 rows. Both go through
+    `source`, the same DB-backed Source used for deeper levels, so a repeated query for this
+    address is served from t_created_contracts_cache instead of downloading again (S6); an
+    incomplete account list is recorded by source and turned into a history_incomplete
+    decision like any other cached entry. Both downloads count against source.budget (R16
+    S3); once it runs out, whichever of the two was not made yet is skipped and whatever was
+    already found is kept."""
     rows = []
-    if budget.available():
-        trxs, _ = fetch_all_pages(chainid, "txlist", address, key)
-        budget.spend()
-        for trx in trxs:
-            if not trx.get("to") and trx.get("contractAddress"):
-                rows.append({"hash": trx["hash"], "timeStamp": trx["timeStamp"],
-                             "contractAddress": trx["contractAddress"], "type": "create"})
-    if budget.available():
-        rows.extend(Source(None, None, chainid, key, fetch_all_pages, budget=budget).creations(address))
+    if source.budget.available():
+        rows.extend(source.own_creations_from_txlist(address))
+    if source.budget.available():
+        rows.extend(source.creations(address))
     return rows
 
 
@@ -394,6 +443,7 @@ def get_created_contracts(dbname, address, blockchain, chainid, key, fetch_all_p
     every download made answering this query (R16 S3), clamped to [1, MAX_CALLS_CEILING]."""
     fetch_all_pages = fetch_all_pages or api_client.fetch_all_pages
     budget = CallBudget(max_calls)
+    source = Source(dbname, blockchain, chainid, key, fetch_all_pages, refresh=refresh, budget=budget)
     try:
         collected = _is_collected(dbname, address, blockchain)
         level1_rows = level1_from_db(dbname, address, blockchain) if collected else None
@@ -404,11 +454,10 @@ def get_created_contracts(dbname, address, blockchain, chainid, key, fetch_all_p
         return result
     if not collected:
         try:
-            level1_rows = level1_from_api(address, chainid, key, fetch_all_pages, budget=budget)
+            level1_rows = level1_from_api(address, source)
         except Exception as error:
             result = _new_result()
             result.update(incomplete=True, pending=[address], calls=budget.calls, decisions=[decisions.make(
                 "upstream_error", address, "stop on first explorer error", str(error), {"pending": [address]})])
             return result
-    source = Source(dbname, blockchain, chainid, key, fetch_all_pages, refresh=refresh, budget=budget)
     return find_created_contracts(address, level1_rows, chainid, key, fetch_all_pages, source=source)
