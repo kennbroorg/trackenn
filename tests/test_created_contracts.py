@@ -88,7 +88,8 @@ def test_eoa_with_no_creations_returns_empty_list(db):
                        **{"from": CENTRAL, "to": "0xsomeone"}, contractAddress="")
     mark_collected(db, CENTRAL)
 
-    contracts, truncated, limit = created_contracts.get_created_contracts(str(db), CENTRAL, "eth", CHAIN_ID, KEY)
+    result = created_contracts.get_created_contracts(str(db), CENTRAL, "eth", CHAIN_ID, KEY)
+    contracts, truncated, limit = result['contracts'], result['truncated'], result['limit']
 
     assert contracts == []
     assert truncated is False
@@ -104,7 +105,8 @@ def test_internal_creates_at_levels_2_and_3():
         VIOLATOR.lower(): [internal_row(2, VIOLATOR, "", LIQUIDATOR)],
     })
 
-    contracts, truncated, limit = created_contracts.find_created_contracts(CENTRAL, level1, CHAIN_ID, KEY, fetch)
+    result = created_contracts.find_created_contracts(CENTRAL, level1, CHAIN_ID, KEY, fetch)
+    contracts, truncated, limit = result['contracts'], result['truncated'], result['limit']
 
     by_address = {c["address"]: c for c in contracts}
     assert by_address[ORCHESTRATOR]["level"] == 1
@@ -124,7 +126,8 @@ def test_retried_create_at_same_address_yields_one_contract_two_creations():
         ],
     })
 
-    contracts, truncated, limit = created_contracts.find_created_contracts(CENTRAL, level1, CHAIN_ID, KEY, fetch)
+    result = created_contracts.find_created_contracts(CENTRAL, level1, CHAIN_ID, KEY, fetch)
+    contracts = result['contracts']
 
     by_address = {c["address"]: c for c in contracts}
     assert len(contracts) == 2  # orchestrator + violator, not duplicated
@@ -144,7 +147,8 @@ def test_contract_seen_twice_is_expanded_once():
         "0xccc": [internal_row(3, "0xccc", "", "0xddd")],
     })
 
-    contracts, truncated, limit = created_contracts.find_created_contracts(CENTRAL, level1, CHAIN_ID, KEY, fetch)
+    result = created_contracts.find_created_contracts(CENTRAL, level1, CHAIN_ID, KEY, fetch)
+    contracts = result['contracts']
 
     expansions_of_ccc = [action for action, address in calls if address.lower() == "0xccc"]
     assert len(expansions_of_ccc) == 1
@@ -163,7 +167,8 @@ def test_depth_limit_cuts_and_reports_truncated():
     level1 = [{"hash": "0xc0", "timeStamp": "0", "contractAddress": "0xlevel1", "type": "create"}]
     fetch, calls = fetch_from(chain)
 
-    contracts, truncated, limit = created_contracts.find_created_contracts(CENTRAL, level1, CHAIN_ID, KEY, fetch)
+    result = created_contracts.find_created_contracts(CENTRAL, level1, CHAIN_ID, KEY, fetch)
+    contracts, truncated, limit = result['contracts'], result['truncated'], result['limit']
 
     assert truncated is True
     assert limit == "depth"
@@ -181,7 +186,8 @@ def test_total_contracts_limit_cuts_and_makes_no_further_fetch_calls():
              for i in range(created_contracts.MAX_CONTRACTS + 5)}
     fetch, calls = fetch_from(chain)
 
-    contracts, truncated, limit = created_contracts.find_created_contracts(CENTRAL, level1, CHAIN_ID, KEY, fetch)
+    result = created_contracts.find_created_contracts(CENTRAL, level1, CHAIN_ID, KEY, fetch)
+    contracts, truncated, limit = result['contracts'], result['truncated'], result['limit']
 
     assert truncated is True
     assert limit == "contracts"
@@ -257,8 +263,9 @@ def test_uncollected_address_gets_level1_from_the_api(db):
             return [internal_row(2, CENTRAL, "", VIOLATOR)], True
         return [], True
 
-    contracts, truncated, limit = created_contracts.get_created_contracts(
+    result = created_contracts.get_created_contracts(
         str(db), CENTRAL, "eth", CHAIN_ID, KEY, fetch_all_pages=fetch)
+    contracts, truncated, limit = result['contracts'], result['truncated'], result['limit']
 
     assert sorted(c["address"] for c in contracts) == sorted([ORCHESTRATOR, VIOLATOR])
     assert all(c["level"] == 1 and c["creator"] == CENTRAL for c in contracts)
