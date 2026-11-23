@@ -72,6 +72,8 @@ TRACKENN_FRONT_ORIGINS="http://127.0.0.1:4200,http://localhost:4200" python3 app
 
 `GET /messages?address=<addr>&network=eth` reads the on-chain messages already stored for an address: transactions whose `input` decodes to readable UTF-8 text (e.g. Euler's negotiation with its attacker), where the address is `from` or `to` (case-insensitive). Read-only, ordered by time. Missing `address` answers 400; an unknown address or one with no messages answers an empty list. `network` defaults to `eth` (only chain supported so far).
 
+`GET /created-contracts?address=<addr>&network=eth` lists the contracts an address created, directly and through the contracts it created in turn, recursively: `{address, contracts: [{address, creator, level, creations: [{hash, timeStamp, type}]}], truncated, limit}`. Level 1 comes from data already stored when the address was collected (no API call), or from its own `txlist`/`txlistinternal` when it was not; deeper levels call Etherscan's `txlistinternal` for each contract found at the previous level, one call per contract. Deduplicates by contract address, not by transaction hash: a `CREATE` that reverted and was retried keeps both creation transactions under the same contract (`creations` has 2 entries). Stops at depth 3 or 50 contracts total, whichever comes first, and reports it (`truncated: true`, `limit: "depth"` or `"contracts"`) instead of calling the API further. Read-mostly: may call Etherscan, never writes to the DB. Missing `address` answers 400; `network` defaults to `eth`.
+
 The internal test routes (`/recreatedb`, `/internal-test-1`, `/internal-test-2`) answer 404 unless you opt in with `TRACKENN_DEV_ROUTES=1`:
 
 ``` shell

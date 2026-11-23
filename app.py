@@ -35,6 +35,7 @@ from core import api_client
 from core import eth
 from core import bsc
 from core import onchain_messages
+from core import created_contracts
 
 DEFAULT_FRONT_ORIGINS = ["http://127.0.0.1:4200"]
 
@@ -244,6 +245,21 @@ def get_messages(request: Request):
     config = get_config(request)
     messages = onchain_messages.get_messages(config['dbname'], params['address'], network)
     return JSONResponse(messages)
+
+
+@app.get('/created-contracts')
+def get_created_contracts(request: Request):
+    params = query_params(request)
+    require_params(params, ('address',))
+    network = params.get('network', 'eth')
+    config = get_config(request)
+    chainid = api_client.BSC_CHAIN_ID if network == 'bsc' else api_client.ETH_CHAIN_ID
+    key = config['bscscan'] if network == 'bsc' else config['ethscan']
+    contracts, truncated, limit = created_contracts.get_created_contracts(
+        config['dbname'], params['address'], network, chainid, key)
+    return JSONResponse({
+        'address': params['address'], 'contracts': contracts, 'truncated': truncated, 'limit': limit,
+    })
 
 
 @app.get('/download_db')
