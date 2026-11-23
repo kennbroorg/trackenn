@@ -427,13 +427,32 @@ def level1_from_api(address, source):
     incomplete account list is recorded by source and turned into a history_incomplete
     decision like any other cached entry. Both downloads count against source.budget (R16
     S3); once it runs out, whichever of the two was not made yet is skipped and whatever was
-    already found is kept."""
+    already found is kept. Returns (rows, cut): cut is True when a download was skipped, so
+    the caller reports the address as pending instead of answering a complete result."""
     rows = []
-    if source.budget.available():
+    try:
         rows.extend(source.own_creations_from_txlist(address))
-    if source.budget.available():
         rows.extend(source.creations(address))
-    return rows
+    except BudgetExhausted:
+        return rows, True
+    return rows, False
+
+
+def _report_level1_cut(result, address, budget):
+    """Level 1 of address was cut by the call budget (review R3-001): the address itself is
+    pending and the call_cap_reached decision names it, merged with the walk's own one."""
+    result["incomplete"] = True
+    if address not in result["pending"]:
+        result["pending"].insert(0, address)
+    cap = next((d for d in result["decisions"] if d["code"] == "call_cap_reached"), None)
+    if cap is None:
+        result["decisions"].append(decisions.make(
+            "call_cap_reached", address, f"max_calls={budget.max_calls}",
+            "The per-query API call budget ran out; some addresses were not expanded",
+            {"pending": list(result["pending"]), "calls": budget.calls}))
+    else:
+        cap["details"]["pending"] = list(result["pending"])
+    return result
 
 
 def get_created_contracts(dbname, address, blockchain, chainid, key, fetch_all_pages=None, refresh=False,
@@ -454,10 +473,13 @@ def get_created_contracts(dbname, address, blockchain, chainid, key, fetch_all_p
         return result
     if not collected:
         try:
-            level1_rows = level1_from_api(address, source)
+            level1_rows, level1_cut = level1_from_api(address, source)
         except Exception as error:
             result = _new_result()
             result.update(incomplete=True, pending=[address], calls=budget.calls, decisions=[decisions.make(
                 "upstream_error", address, "stop on first explorer error", str(error), {"pending": [address]})])
             return result
-    return find_created_contracts(address, level1_rows, chainid, key, fetch_all_pages, source=source)
+    else:
+        level1_cut = False
+    result = find_created_contracts(address, level1_rows, chainid, key, fetch_all_pages, source=source)
+    return _report_level1_cut(result, address, budget) if level1_cut else result

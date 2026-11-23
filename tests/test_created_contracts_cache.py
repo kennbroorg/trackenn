@@ -350,3 +350,43 @@ def test_depth_cut_with_cached_non_empty_edge_reports_depth_cap_reached(db):
     cap = next(d for d in result["decisions"] if d["code"] == "depth_cap_reached")
     assert cap["scope"] == edge
     assert "depth_cut_unverified" not in codes(result)
+
+
+# ---- review R3-001: budget running out inside level 1 of an uncollected address ----
+
+def test_budget_exhausted_between_level1_downloads_is_reported(db):
+    """max_calls=1 on an uncollected address: txlist is fetched, txlistinternal is not. The
+    skipped half of level 1 must be reported, never answered as a complete empty result."""
+    calls = []
+
+    def fetch(chainid, action, address, key, **kwargs):
+        calls.append(action)
+        return [], True
+
+    result = created_contracts.get_created_contracts(
+        str(db), CENTRAL, "eth", CHAIN_ID, KEY, fetch_all_pages=fetch, max_calls=1)
+
+    assert calls == ["txlist"]
+    assert result["calls"] == 1
+    assert result["incomplete"] is True
+    assert result["pending"] == [CENTRAL]
+    cap = next(d for d in result["decisions"] if d["code"] == "call_cap_reached")
+    assert cap["scope"] == CENTRAL
+    assert cap["rule"] == "max_calls=1"
+    assert cap["details"] == {"pending": [CENTRAL], "calls": 1}
+
+
+def test_level1_kept_when_budget_runs_out_after_txlist(db):
+    created = "0xc0000000000000000000000000000000000000cc"
+
+    def fetch(chainid, action, address, key, **kwargs):
+        if action == "txlist":
+            return [{"hash": "0xt1", "timeStamp": "1", "from": CENTRAL, "to": "", "contractAddress": created}], True
+        return [], True
+
+    result = created_contracts.get_created_contracts(
+        str(db), CENTRAL, "eth", CHAIN_ID, KEY, fetch_all_pages=fetch, max_calls=1)
+
+    assert [c["address"] for c in result["contracts"]] == [created]
+    assert result["incomplete"] is True
+    assert CENTRAL in result["pending"]
