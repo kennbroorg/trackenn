@@ -46,6 +46,9 @@ data-db/
 # ODD task tracking (local only)
 odd/
 
+# Investigation notes, cases and roadmap (local only, never committed)
+documents/
+
 # Backups (config.yaml.bkp holds real API keys)
 *.bkp
 
