@@ -244,7 +244,10 @@ def get_messages(request: Request):
     require_params(params, ('address',))
     network = params.get('network', 'eth')
     config = get_config(request)
-    messages = onchain_messages.get_messages(config['dbname'], params['address'], network)
+    try:
+        messages = onchain_messages.get_messages(config['dbname'], params['address'], network)
+    except decisions.DatabaseUnreadable as error:
+        raise HTTPException(status_code=503, detail=f"Investigation database could not be read: {error}") from None
     return JSONResponse(messages)
 
 

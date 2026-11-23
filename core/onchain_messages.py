@@ -6,8 +6,13 @@
 A message is readable UTF-8 text, not an ABI-encoded contract call. Pure decoding,
 no I/O: the DB query lives in get_messages below."""
 
+import logging
 import sqlite3
 from contextlib import closing
+
+from core.decisions import DatabaseUnreadable, not_created_yet
+
+logger = logging.getLogger(__name__)
 
 MIN_MESSAGE_LENGTH = 4
 MIN_PRINTABLE_RATIO = 0.9
@@ -48,7 +53,8 @@ def decode_message(input_hex):
 def get_messages(dbname, address, blockchain="eth"):
     """Read-only: messages of stored normal transactions where `address` is `from`
     or `to` (case-insensitive), ordered by timeStamp. Returns a list of dicts
-    (hash, blockNumber, timeStamp, from, to, text)."""
+    (hash, blockNumber, timeStamp, from, to, text). A DB not created yet has no messages;
+    one that exists but cannot be read raises DatabaseUnreadable."""
     address = address.lower()
     # INFO: read-only URI never creates the file; a DB not initialised yet has no messages
     try:
@@ -62,8 +68,12 @@ def get_messages(dbname, address, blockchain="eth"):
                 (blockchain, address, address),
             )
             rows = cursor.fetchall()
-    except sqlite3.OperationalError:
-        return []
+    except sqlite3.Error as error:
+        if not_created_yet(error):
+            return []
+        # INFO: a locked or broken DB must not look like "no messages" (R17)
+        logger.error("Could not read messages of %s from %s: %s", address, dbname, error)
+        raise DatabaseUnreadable(str(error)) from None
 
     messages = []
     for trx_hash, block_number, timestamp, from_addr, to_addr, input_hex in rows:

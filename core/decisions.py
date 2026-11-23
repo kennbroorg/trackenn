@@ -32,6 +32,17 @@ CODES = {
 }
 
 
+class DatabaseUnreadable(Exception):
+    """The investigation DB exists but could not be read (locked by a write in progress,
+    corrupt, I/O error). Distinct from a DB not created yet, which is just no data (R17)."""
+
+
+def not_created_yet(error):
+    """True when a read-only open failed only because the DB or its table does not exist yet."""
+    message = str(error)
+    return message.startswith("no such table") or message == "unable to open database file"
+
+
 def make(code, scope, rule, reason, details=None):
     if code not in CODES:
         raise ValueError(f"Unknown decision code: {code}")

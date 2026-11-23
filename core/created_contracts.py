@@ -11,12 +11,15 @@ of each level-N contract, one `txlistinternal` per contract (cost grows with the
 each level, not with the whole history)."""
 
 import json
+import logging
 import sqlite3
 import time
 from collections import deque
 from contextlib import closing
 
 from core import api_client, decisions
+
+logger = logging.getLogger(__name__)
 
 # INFO: 3 hops reaches a liquidator from the attacker in the Euler case (address ->
 # orchestrator -> violator -> liquidator, see documents/EULER-RESEARCH.md). Generalizing
@@ -61,8 +64,11 @@ def level1_from_db(dbname, address, blockchain="eth"):
             )
             for trx_hash, timestamp, contract_address, create_type in cursor.fetchall():
                 rows.append({"hash": trx_hash, "timeStamp": timestamp, "contractAddress": contract_address, "type": create_type})
-    except sqlite3.OperationalError:
-        return []
+    except sqlite3.Error as error:
+        if decisions.not_created_yet(error):
+            return []
+        logger.error("Could not read stored creations of %s from %s: %s", address, dbname, error)
+        raise decisions.DatabaseUnreadable(str(error)) from None
     return rows
 
 
@@ -353,8 +359,12 @@ def _is_collected(dbname, address, blockchain):
                 "SELECT 1 FROM t_blocks WHERE blockChain = ? AND lower(address) = ?",
                 (blockchain, address.lower()),
             ).fetchone()
-    except sqlite3.OperationalError:
-        return False
+    except sqlite3.Error as error:
+        if decisions.not_created_yet(error):
+            return False
+        # INFO: a locked DB is not "never collected": re-downloading would hide the error (R17)
+        logger.error("Could not check whether %s was collected in %s: %s", address, dbname, error)
+        raise decisions.DatabaseUnreadable(str(error)) from None
     return row is not None
 
 
@@ -384,9 +394,15 @@ def get_created_contracts(dbname, address, blockchain, chainid, key, fetch_all_p
     every download made answering this query (R16 S3), clamped to [1, MAX_CALLS_CEILING]."""
     fetch_all_pages = fetch_all_pages or api_client.fetch_all_pages
     budget = CallBudget(max_calls)
-    if _is_collected(dbname, address, blockchain):
-        level1_rows = level1_from_db(dbname, address, blockchain)
-    else:
+    try:
+        collected = _is_collected(dbname, address, blockchain)
+        level1_rows = level1_from_db(dbname, address, blockchain) if collected else None
+    except decisions.DatabaseUnreadable as error:
+        result = _new_result()
+        result.update(incomplete=True, pending=[address], calls=0, decisions=[decisions.make(
+            "db_error", address, "stop on unreadable investigation DB", str(error), {"pending": [address]})])
+        return result
+    if not collected:
         try:
             level1_rows = level1_from_api(address, chainid, key, fetch_all_pages, budget=budget)
         except Exception as error:
