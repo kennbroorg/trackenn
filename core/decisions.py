@@ -32,6 +32,7 @@ CODES = {
     "depth_cut_unverified": "The depth limit was reached; deeper creations were not checked",
     "size_cap_reached": "The total contracts cap was reached; further contracts were dropped",
     "db_error": "The investigation database could not be read",
+    "token_flagged": "The internal spam/phishing classifier tagged a token contract",
 }
 
 
@@ -79,4 +80,30 @@ def persist(dbname, endpoint, query_address, blockchain, decisions):
     except sqlite3.Error as error:
         logger.error("Could not persist %d decisions for %s: %s", len(decisions), query_address, error)
         return False
+    return True
+
+
+def persist_new(connection, endpoint, query_address, blockchain, decisions):
+    """Append decisions to t_decisions on an already-open connection, skipping any whose
+    (scope, rule, query_address) is already recorded (dedup across re-collection/re-tagging
+    of the same address, decision-evidence-retrofit T1/T2). Commits on success."""
+    if not decisions:
+        return True
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS t_decisions (created_at integer, endpoint text, "
+        "query_address text, blockChain text, code text, scope text, rule text, "
+        "reason text, details text)")
+    existing = {
+        (scope, rule) for scope, rule in connection.execute(
+            "SELECT scope, rule FROM t_decisions WHERE query_address = ?", (query_address,))
+    }
+    new_decisions = [d for d in decisions if (d["scope"], d["rule"]) not in existing]
+    if not new_decisions:
+        return True
+    now = int(time.time())
+    connection.executemany(
+        "INSERT INTO t_decisions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [(now, endpoint, query_address, blockchain, d["code"], d["scope"], d["rule"],
+          d["reason"], json.dumps(d["details"])) for d in new_decisions])
+    connection.commit()
     return True

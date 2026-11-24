@@ -30,6 +30,7 @@ import coloredlogs  # pyright: ignore
 
 from core import misc
 from core import api_client
+from core import decisions
 from core import token_classifier
 from core.timestamps import epoch_ms
 
@@ -720,6 +721,7 @@ def event_stream_ether(params):
                         yield f"data:{data}\n\n"
 
                     if not txlist_complete:
+                        persist_history_incomplete(connection, address, blockchain, "txlist")
                         message = f"TRANSACTIONS - INCOMPLETE, history too large ({api_client.MAX_ROWS_PER_LIST} rows cap reached)"
                         logger.warning(message)
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
@@ -765,6 +767,7 @@ def event_stream_ether(params):
                         yield f"data:{data}\n\n"
 
                     if not txlistinternal_complete:
+                        persist_history_incomplete(connection, address, blockchain, "txlistinternal")
                         message = f"INTERNALS - INCOMPLETE, history too large ({api_client.MAX_ROWS_PER_LIST} rows cap reached)"
                         logger.warning(message)
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
@@ -810,6 +813,7 @@ def event_stream_ether(params):
                         yield f"data:{data}\n\n"
 
                     if not tokentx_complete:
+                        persist_history_incomplete(connection, address, blockchain, "tokentx")
                         message = f"TRANSFERS - INCOMPLETE, history too large ({api_client.MAX_ROWS_PER_LIST} rows cap reached)"
                         logger.warning(message)
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
@@ -855,6 +859,7 @@ def event_stream_ether(params):
                         yield f"data:{data}\n\n"
 
                     if not tokennfttx_complete:
+                        persist_history_incomplete(connection, address, blockchain, "tokennfttx")
                         message = f"NFTs - INCOMPLETE, history too large ({api_client.MAX_ROWS_PER_LIST} rows cap reached)"
                         logger.warning(message)
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
@@ -900,6 +905,7 @@ def event_stream_ether(params):
                         yield f"data:{data}\n\n"
 
                     if not token1155tx_complete:
+                        persist_history_incomplete(connection, address, blockchain, "token1155tx")
                         message = f"MULTITOKENS - INCOMPLETE, history too large ({api_client.MAX_ROWS_PER_LIST} rows cap reached)"
                         logger.warning(message)
                         data = json.dumps({"msg": message, "end": False, "error": False, "content": {}})
@@ -1407,6 +1413,15 @@ def test_function_2(params):
     return data
 
 
+def persist_history_incomplete(connection, address, blockchain, action):
+    """Persist a `history_incomplete` decision for an account list that hit its row cap
+    (decision-evidence-retrofit T2, S3/S5/S6). Deduped per (address, action, query_address)."""
+    decision = decisions.make(
+        "history_incomplete", address, f"MAX_ROWS_PER_LIST={api_client.MAX_ROWS_PER_LIST}",
+        f"{action} hit its row cap; later rows for this address are missing", {"action": action})
+    decisions.persist_new(connection, "/stream-data-info", address, blockchain, [decision])
+
+
 def apply_classifier_tags(connection, address, transfers, trxs):
     """Run the internal spam/phishing classifier (core/token_classifier.py) over the given
     transfers/trxs for `address` and persist the resulting tags.
@@ -1415,8 +1430,12 @@ def apply_classifier_tags(connection, address, transfers, trxs):
     (classify_cached_tokens) so there is a single implementation that writes classifier
     tags. Idempotent: t_tags has UNIQUE(blockChain, address, tag), and the
     t_nodes_classification tag JSON list is only extended with tags not already present.
+
+    Also persists one `token_flagged` decision per tagged contract (decision-evidence-
+    retrofit T1, S1/S2/S5/S6): never changes which contracts/tags are written, and never
+    duplicates a decision already recorded for the same (contract, rule, address).
     """
-    spam_tags = token_classifier.classify_tokens(transfers, trxs, address)
+    spam_tags, evidence = token_classifier.classify_tokens_with_evidence(transfers, trxs, address)
     if not spam_tags:
         return spam_tags
 
@@ -1443,6 +1462,15 @@ def apply_classifier_tags(connection, address, transfers, trxs):
                 (json.dumps(existing + missing), contract),
             )
     connection.commit()
+
+    flag_decisions = [
+        decisions.make(
+            "token_flagged", contract, info["rule"],
+            f"The internal classifier tagged this contract as {info['rule']}",
+            {"tags": sorted(spam_tags[contract]), "trigger": info["trigger"], "central": address})
+        for contract, info in evidence.items()
+    ]
+    decisions.persist_new(connection, "/stream-data-info", address, "eth", flag_decisions)
 
     return spam_tags
 
@@ -1517,6 +1545,8 @@ def complete_cached_lists(connection, address, blockchain, key):
         rows, complete = api_client.fetch_all_pages(api_client.ETH_CHAIN_ID, action, address, key, startblock=int(last_block))
         overall_complete = overall_complete and complete
         checked = True
+        if not complete:
+            persist_history_incomplete(connection, address, blockchain, action)
         if rows:
             fetched.append((table, label, rows))
 

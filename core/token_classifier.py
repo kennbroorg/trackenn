@@ -158,3 +158,96 @@ def classify_tokens(transfers, trxs, central_address):
             tags_by_contract[contract].add(TAG_UNSOLICITED)
 
     return tags_by_contract
+
+
+def _text_matching(name, symbol, matches):
+    """Whichever of name/symbol (original value, not normalized) satisfies `matches` first."""
+    if name and matches(name):
+        return name
+    if symbol and matches(symbol):
+        return symbol
+    return None
+
+
+def find_phishing_triggers(transfers):
+    """Contract -> the token name/symbol text that matched the phishing criterion (A)."""
+    triggers = {}
+    for transfer in transfers:
+        contract = transfer.get("contractAddress")
+        if not contract or contract in triggers:
+            continue
+        trigger = _text_matching(
+            transfer.get("tokenName"), transfer.get("tokenSymbol"),
+            lambda text: bool(_URL_RE.search(text) or _LURE_WORDS_RE.search(text)))
+        if trigger:
+            triggers[contract] = trigger
+    return triggers
+
+
+def _matches_native(text, native):
+    normalized = text.strip().lower()
+    return normalized in native["names"] or normalized == native["symbol"]
+
+
+def find_native_impersonation_triggers(transfers):
+    """Contract -> the token name/symbol text that matched the chain's native coin (S3)."""
+    triggers = {}
+    for transfer in transfers:
+        contract = transfer.get("contractAddress")
+        if not contract or contract in triggers:
+            continue
+        chain = (transfer.get("blockChain") or DEFAULT_CHAIN).lower()
+        native = NATIVE_COINS.get(chain)
+        if not native:
+            continue
+        name, symbol = transfer.get("tokenName"), transfer.get("tokenSymbol")
+        if name and _matches_native(name, native):
+            triggers[contract] = name
+        elif symbol and _matches_native(symbol, native):
+            triggers[contract] = symbol
+    return triggers
+
+
+def find_spoofed_sender_triggers(transfers):
+    """Contract -> the spoofed `from` address that forged its transfer (S6)."""
+    triggers = {}
+    for transfer in transfers:
+        contract = transfer.get("contractAddress")
+        frm = transfer.get("from")
+        if not contract or not frm or contract in triggers:
+            continue
+        contract_lower, frm_lower = contract.lower(), frm.lower()
+        forged_by_token = frm_lower in KNOWN_TOKEN_CONTRACTS and frm_lower != contract_lower
+        forged_by_wallet = frm_lower in KNOWN_IMPERSONATED_WALLETS and contract_lower not in KNOWN_TOKEN_CONTRACTS
+        if forged_by_token or forged_by_wallet:
+            triggers[contract] = frm
+    return triggers
+
+
+# INFO: Priority order when a contract carries more than one strong signal; matches the
+# order classify_tokens applies them, so the rule reported is the first one that fired.
+_TRIGGER_RULES = (
+    (TAG_PHISHING, find_phishing_triggers),
+    (TAG_SPOOFED_SENDER, find_spoofed_sender_triggers),
+    (TAG_NATIVE_IMPERSONATION, find_native_impersonation_triggers),
+)
+
+
+def classify_tokens_with_evidence(transfers, trxs, central_address):
+    """classify_tokens plus, per flagged contract, the rule and value that fired it
+    (decision-evidence-retrofit T1): {contract: {"rule": tag, "trigger": value}}.
+
+    Never changes which contracts/tags classify_tokens returns (S5); it only reports
+    evidence for the tags it already produced.
+    """
+    tags_by_contract = classify_tokens(transfers, trxs, central_address)
+    triggers_by_rule = {tag: find_triggers(transfers) for tag, find_triggers in _TRIGGER_RULES}
+
+    evidence = {}
+    for contract, tags in tags_by_contract.items():
+        for rule, _ in _TRIGGER_RULES:
+            trigger = triggers_by_rule[rule].get(contract)
+            if rule in tags and trigger is not None:
+                evidence[contract] = {"rule": rule, "trigger": trigger}
+                break
+    return tags_by_contract, evidence
