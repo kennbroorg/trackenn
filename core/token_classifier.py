@@ -251,4 +251,8 @@ def classify_tokens_with_evidence(transfers, trxs, central_address):
             if rule in tags and trigger is not None:
                 evidence[contract] = {"rule": rule, "trigger": trigger}
                 break
+        else:
+            # INFO: a tag whose trigger could not be recovered (e.g. spam-unsolicited, which
+            # only rides on a strong signal) still gets evidence: rule known, trigger None
+            evidence[contract] = {"rule": sorted(tags)[0], "trigger": None}
     return tags_by_contract, evidence

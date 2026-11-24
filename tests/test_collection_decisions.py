@@ -7,6 +7,7 @@ contracts/tags t_tags ends up with (S5) and without duplicating decisions on re-
 T2: an account list download that returns complete=False persists one `history_incomplete`
 decision for that address/list, same dedup rule.
 """
+import json
 import sqlite3
 from contextlib import closing
 
@@ -172,3 +173,30 @@ def test_all_complete_account_lists_persist_no_history_incomplete(db, monkeypatc
 
     rows = read_decisions(db)
     assert [r for r in rows if r[2] == "history_incomplete"] == []
+
+
+# ---- review: one history_incomplete per list, and evidence for every tagged contract ----
+
+def test_two_incomplete_lists_for_one_address_keep_two_decisions(db):
+    import sqlite3
+    from contextlib import closing
+    from core import eth
+    address = "0xa0000000000000000000000000000000000000aa"
+    with closing(sqlite3.connect(db)) as conn:
+        eth.persist_history_incomplete(conn, address, "eth", "txlist")
+        eth.persist_history_incomplete(conn, address, "eth", "tokentx")
+        eth.persist_history_incomplete(conn, address, "eth", "tokentx")  # re-collection
+        rows = conn.execute("SELECT code, details FROM t_decisions ORDER BY rowid").fetchall()
+    assert [(code, json.loads(details)["action"]) for code, details in rows] == [
+        ("history_incomplete", "txlist"), ("history_incomplete", "tokentx")]
+
+
+def test_every_tagged_contract_gets_evidence_even_without_a_trigger(monkeypatch):
+    from core import token_classifier as tc
+    monkeypatch.setattr(tc, "classify_tokens", lambda *a: {"0xabc": {tc.TAG_PHISHING}})
+    monkeypatch.setattr(tc, "_TRIGGER_RULES", ((tc.TAG_PHISHING, lambda transfers: {}),))
+
+    tags, evidence = tc.classify_tokens_with_evidence([], [], "0xcentral")
+
+    assert set(evidence) == set(tags)
+    assert evidence["0xabc"] == {"rule": tc.TAG_PHISHING, "trigger": None}
