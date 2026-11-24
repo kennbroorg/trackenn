@@ -13,9 +13,12 @@ rule that took it, so it can be audited and changed."""
 
 import json
 import logging
+import os
 import sqlite3
 import time
 from contextlib import closing
+
+from core.api_client import redact
 
 logger = logging.getLogger(__name__)
 
@@ -37,16 +40,23 @@ class DatabaseUnreadable(Exception):
     corrupt, I/O error). Distinct from a DB not created yet, which is just no data (R17)."""
 
 
-def not_created_yet(error):
-    """True when a read-only open failed only because the DB or its table does not exist yet."""
+def not_created_yet(error, dbname=None):
+    """True when a read-only open failed only because the DB or its table does not exist yet.
+    sqlite answers "unable to open database file" both for a missing file and for an existing
+    one it cannot open (permissions, read-only mount); only the missing file is "no data"."""
     message = str(error)
-    return message.startswith("no such table") or message == "unable to open database file"
+    if message.startswith("no such table"):
+        return True
+    if message == "unable to open database file":
+        return dbname is None or not os.path.exists(dbname)
+    return False
 
 
 def make(code, scope, rule, reason, details=None):
     if code not in CODES:
         raise ValueError(f"Unknown decision code: {code}")
-    return {"code": code, "scope": scope, "rule": rule, "reason": reason, "details": details or {}}
+    # INFO: reasons often come from str(error); an explorer error may embed the request url
+    return {"code": code, "scope": scope, "rule": rule, "reason": redact(reason), "details": details or {}}
 
 
 def persist(dbname, endpoint, query_address, blockchain, decisions):

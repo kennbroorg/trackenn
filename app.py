@@ -81,7 +81,8 @@ def API_Server(ip='127.0.0.1', port=5000, config=None, env="prod"):
     app.state.config = config
     logger.info(f"API ready...{env}")
     if (env == "prod"):
-        uvicorn.run(app, host=ip, port=port, log_level=str(config['level']).lower())
+        level = (config or {}).get('level', 'info')
+        uvicorn.run(app, host=ip, port=port, log_level=str(level).lower())
     else:
         uvicorn.run(app, host=ip, port=port, log_level="debug")
 
@@ -246,8 +247,9 @@ def get_messages(request: Request):
     config = get_config(request)
     try:
         messages = onchain_messages.get_messages(config['dbname'], params['address'], network)
-    except decisions.DatabaseUnreadable as error:
-        raise HTTPException(status_code=503, detail=f"Investigation database could not be read: {error}") from None
+    except decisions.DatabaseUnreadable:
+        # INFO: the sqlite text is internal detail; get_messages already logged it
+        raise HTTPException(status_code=503, detail="Investigation database could not be read") from None
     return JSONResponse(messages)
 
 
