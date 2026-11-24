@@ -36,6 +36,7 @@ from core import eth
 from core import bsc
 from core import onchain_messages
 from core import created_contracts
+from core import decisions
 
 DEFAULT_FRONT_ORIGINS = ["http://127.0.0.1:4200"]
 
@@ -243,7 +244,10 @@ def get_messages(request: Request):
     require_params(params, ('address',))
     network = params.get('network', 'eth')
     config = get_config(request)
-    messages = onchain_messages.get_messages(config['dbname'], params['address'], network)
+    try:
+        messages = onchain_messages.get_messages(config['dbname'], params['address'], network)
+    except decisions.DatabaseUnreadable as error:
+        raise HTTPException(status_code=503, detail=f"Investigation database could not be read: {error}") from None
     return JSONResponse(messages)
 
 
@@ -255,11 +259,17 @@ def get_created_contracts(request: Request):
     config = get_config(request)
     chainid = api_client.BSC_CHAIN_ID if network == 'bsc' else api_client.ETH_CHAIN_ID
     key = config['bscscan'] if network == 'bsc' else config['ethscan']
-    contracts, truncated, limit = created_contracts.get_created_contracts(
-        config['dbname'], params['address'], network, chainid, key)
-    return JSONResponse({
-        'address': params['address'], 'contracts': contracts, 'truncated': truncated, 'limit': limit,
-    })
+    refresh = params.get('refresh', 'false').lower() == 'true'
+    max_calls = created_contracts.DEFAULT_MAX_CALLS
+    if params.get('max_calls'):
+        try:
+            max_calls = int(params['max_calls'])
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid 'max_calls' value")
+    result = created_contracts.get_created_contracts(
+        config['dbname'], params['address'], network, chainid, key, refresh=refresh, max_calls=max_calls)
+    decisions.persist(config['dbname'], '/created-contracts', params['address'], network, result['decisions'])
+    return JSONResponse({'address': params['address'], **result})
 
 
 @app.get('/download_db')
