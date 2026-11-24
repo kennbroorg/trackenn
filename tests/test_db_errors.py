@@ -46,7 +46,7 @@ def test_messages_locked_db_is_503_and_logged(client, locked, no_wait, caplog):
         response = client.get("/messages", params={"address": CENTRAL})
 
     assert response.status_code == 503
-    assert response.json()["detail"] == "Investigation database could not be read: database is locked"
+    assert response.json()["detail"] == "Investigation database could not be read"
     assert any("database is locked" in record.getMessage() for record in caplog.records)
 
 

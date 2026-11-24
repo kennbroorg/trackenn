@@ -69,7 +69,7 @@ def get_messages(dbname, address, blockchain="eth"):
             )
             rows = cursor.fetchall()
     except sqlite3.Error as error:
-        if not_created_yet(error):
+        if not_created_yet(error, dbname):
             return []
         # INFO: a locked or broken DB must not look like "no messages" (R17)
         logger.error("Could not read messages of %s from %s: %s", address, dbname, error)

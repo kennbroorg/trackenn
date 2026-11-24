@@ -65,7 +65,7 @@ def level1_from_db(dbname, address, blockchain="eth"):
             for trx_hash, timestamp, contract_address, create_type in cursor.fetchall():
                 rows.append({"hash": trx_hash, "timeStamp": timestamp, "contractAddress": contract_address, "type": create_type})
     except sqlite3.Error as error:
-        if decisions.not_created_yet(error):
+        if decisions.not_created_yet(error, dbname):
             return []
         logger.error("Could not read stored creations of %s from %s: %s", address, dbname, error)
         raise decisions.DatabaseUnreadable(str(error)) from None
@@ -411,7 +411,7 @@ def _is_collected(dbname, address, blockchain):
                 (blockchain, address.lower()),
             ).fetchone()
     except sqlite3.Error as error:
-        if decisions.not_created_yet(error):
+        if decisions.not_created_yet(error, dbname):
             return False
         # INFO: a locked DB is not "never collected": re-downloading would hide the error (R17)
         logger.error("Could not check whether %s was collected in %s: %s", address, dbname, error)
