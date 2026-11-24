@@ -32,6 +32,8 @@ CODES = {
     "depth_cut_unverified": "The depth limit was reached; deeper creations were not checked",
     "size_cap_reached": "The total contracts cap was reached; further contracts were dropped",
     "db_error": "The investigation database could not be read",
+    "token_flagged": "The internal spam/phishing classifier tagged a token contract",
+    "non_message_skipped": "Some transactions were not shown because their input is not readable text",
 }
 
 
@@ -79,4 +81,35 @@ def persist(dbname, endpoint, query_address, blockchain, decisions):
     except sqlite3.Error as error:
         logger.error("Could not persist %d decisions for %s: %s", len(decisions), query_address, error)
         return False
+    return True
+
+
+def persist_new(connection, endpoint, query_address, blockchain, decisions):
+    """Append decisions to t_decisions on an already-open connection, skipping any whose
+    (code, scope, rule, details) is already recorded for query_address (dedup across
+    re-collection/re-tagging of the same address, decision-evidence-retrofit T1/T2).
+    details is part of the key: two history_incomplete decisions for the same address and
+    cap but different lists are different evidence. Commits on success."""
+    if not decisions:
+        return True
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS t_decisions (created_at integer, endpoint text, "
+        "query_address text, blockChain text, code text, scope text, rule text, "
+        "reason text, details text)")
+    existing = set(connection.execute(
+        "SELECT code, scope, rule, details FROM t_decisions WHERE query_address = ?", (query_address,)))
+    new_decisions = []
+    for decision in decisions:
+        key = (decision["code"], decision["scope"], decision["rule"], json.dumps(decision["details"]))
+        if key not in existing:
+            existing.add(key)
+            new_decisions.append(decision)
+    if not new_decisions:
+        return True
+    now = int(time.time())
+    connection.executemany(
+        "INSERT INTO t_decisions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [(now, endpoint, query_address, blockchain, d["code"], d["scope"], d["rule"],
+          d["reason"], json.dumps(d["details"])) for d in new_decisions])
+    connection.commit()
     return True

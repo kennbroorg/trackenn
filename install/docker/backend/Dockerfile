@@ -29,7 +29,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # INFO: Explicit copies, the image never gets config.yaml, databases or local scratch files
 COPY app.py .
-COPY core/__init__.py core/api_client.py core/bsc.py core/created_contracts.py core/decisions.py core/eth.py core/misc.py core/onchain_messages.py core/timestamps.py core/token_classifier.py ./core/
+COPY core/__init__.py core/api_client.py core/bsc.py core/created_contracts.py core/decision_log.py core/decisions.py core/eth.py core/misc.py core/onchain_messages.py core/timestamps.py core/token_classifier.py ./core/
 COPY data ./data
 
 RUN groupadd --gid "${GID}" trackenn && \

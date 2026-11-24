@@ -37,6 +37,7 @@ from core import bsc
 from core import onchain_messages
 from core import created_contracts
 from core import decisions
+from core import decision_log
 
 DEFAULT_FRONT_ORIGINS = ["http://127.0.0.1:4200"]
 
@@ -246,11 +247,33 @@ def get_messages(request: Request):
     network = params.get('network', 'eth')
     config = get_config(request)
     try:
-        messages = onchain_messages.get_messages(config['dbname'], params['address'], network)
+        messages, skipped = onchain_messages.get_messages_and_skipped(config['dbname'], params['address'], network)
     except decisions.DatabaseUnreadable:
         # INFO: the sqlite text is internal detail; get_messages already logged it
         raise HTTPException(status_code=503, detail="Investigation database could not be read") from None
+    if skipped:
+        decision = decisions.make(
+            "non_message_skipped", params['address'],
+            f"MIN_MESSAGE_LENGTH={onchain_messages.MIN_MESSAGE_LENGTH}, "
+            f"MIN_PRINTABLE_RATIO={onchain_messages.MIN_PRINTABLE_RATIO}",
+            f"{skipped} transactions were not shown because their input is not readable text",
+            {"skipped": skipped, "shown": len(messages)})
+        decisions.persist(config['dbname'], '/messages', params['address'], network, [decision])
     return JSONResponse(messages)
+
+
+@app.get('/decisions')
+def get_decisions(request: Request):
+    params = query_params(request)
+    require_params(params, ('address',))
+    network = params.get('network', 'eth')
+    config = get_config(request)
+    try:
+        result = decision_log.get_decisions(
+            config['dbname'], params['address'], network, endpoint=params.get('endpoint'))
+    except decisions.DatabaseUnreadable:
+        raise HTTPException(status_code=503, detail="Investigation database could not be read") from None
+    return JSONResponse(result)
 
 
 @app.get('/created-contracts')
