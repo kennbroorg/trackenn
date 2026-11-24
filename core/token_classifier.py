@@ -235,7 +235,8 @@ _TRIGGER_RULES = (
 
 def classify_tokens_with_evidence(transfers, trxs, central_address):
     """classify_tokens plus, per flagged contract, the rule and value that fired it
-    (decision-evidence-retrofit T1): {contract: {"rule": tag, "trigger": value}}.
+    (decision-evidence-retrofit T1). Returns (tags_by_contract, evidence): the exact
+    classify_tokens result and {contract: {"rule": tag, "trigger": value}}.
 
     Never changes which contracts/tags classify_tokens returns (S5); it only reports
     evidence for the tags it already produced.
