@@ -240,12 +240,41 @@ def get_data_info(request: Request):
         return event_stream(eth.event_stream_ether(params))
 
 
+MAX_MESSAGES_LIMIT = 1000
+
+
+def _parse_positive_int(raw, name, *, minimum):
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"Invalid '{name}' value") from None
+    if value < minimum:
+        raise HTTPException(status_code=400, detail=f"Invalid '{name}' value")
+    return value
+
+
+def parse_messages_pagination(params):
+    # INFO: limit/offset only build the {total, limit, offset, items} envelope when at least
+    #       one of them is given, so /messages keeps answering the plain list otherwise (C5)
+    raw_limit = params.get('limit')
+    raw_offset = params.get('offset')
+    if raw_limit is None and raw_offset is None:
+        return None, None, False
+    limit = None if raw_limit is None else _parse_positive_int(raw_limit, 'limit', minimum=1)
+    if limit is not None and limit > MAX_MESSAGES_LIMIT:
+        raise HTTPException(status_code=400, detail=f"Invalid 'limit' value: must be <= {MAX_MESSAGES_LIMIT}")
+    offset = 0 if raw_offset is None else _parse_positive_int(raw_offset, 'offset', minimum=0)
+    return limit, offset, True
+
+
 @app.get('/messages')
 def get_messages(request: Request):
     params = query_params(request)
     require_params(params, ('address',))
     network = params.get('network', 'eth')
     config = get_config(request)
+    group = params.get('group', 'false').lower() == 'true'
+    limit, offset, paginate = parse_messages_pagination(params)
     try:
         messages, skipped = onchain_messages.get_messages_and_skipped(config['dbname'], params['address'], network)
     except decisions.DatabaseUnreadable:
@@ -259,7 +288,15 @@ def get_messages(request: Request):
             f"{skipped} transactions were not shown because their input is not readable text",
             {"skipped": skipped, "shown": len(messages)})
         decisions.persist(config['dbname'], '/messages', params['address'], network, [decision])
-    return JSONResponse(messages)
+
+    items = onchain_messages.group_messages(messages) if group else messages
+    if not paginate:
+        return JSONResponse(items)
+
+    total = len(items)
+    start = offset or 0
+    page = items[start:start + limit] if limit is not None else items[start:]
+    return JSONResponse({"total": total, "limit": limit, "offset": offset, "items": page})
 
 
 @app.get('/decisions')

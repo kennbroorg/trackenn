@@ -228,6 +228,7 @@ def event_stream_ether(params):
 
         connection = sqlite3.connect(dbname)
         cursor = connection.cursor()
+        misc.ensure_message_indexes(connection)
 
         # INFO: Get blockchain param
         if (params.get("network", "") == "") or (params.get("network", "") == "undefined"):

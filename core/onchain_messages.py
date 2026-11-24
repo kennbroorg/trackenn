@@ -61,18 +61,26 @@ def get_messages(dbname, address, blockchain="eth"):
 
 def get_messages_and_skipped(dbname, address, blockchain="eth"):
     """Same as get_messages, plus how many of the address's transactions were skipped
-    because their input did not decode to a message (S4). Returns (messages, skipped)."""
+    because their input did not decode to a message (S4). Returns (messages, skipped).
+
+    skipped always counts every non-message transaction of the address, independent of
+    any later grouping/pagination (R21, decision counts refer to all messages, not a page)."""
     address = address.lower()
     # INFO: read-only URI never creates the file; a DB not initialised yet has no messages
     try:
         with closing(sqlite3.connect(f"file:{dbname}?mode=ro", uri=True)) as connection:
             cursor = connection.cursor()
+            # INFO: two indexed lookups (idx_transactions_from_lower / idx_transactions_to_lower,
+            #       core/misc.py ensure_message_indexes) combined with UNION, so SQLite does not
+            #       fall back to a full-table scan computing lower() on every row (R21, C4)
             cursor.execute(
                 "SELECT hash, blockNumber, timeStamp, `from`, `to`, input "
-                "FROM t_transactions "
-                "WHERE blockChain = ? AND (lower(`from`) = ? OR lower(`to`) = ?) "
+                "FROM t_transactions WHERE blockChain = ? AND lower(`from`) = ? "
+                "UNION "
+                "SELECT hash, blockNumber, timeStamp, `from`, `to`, input "
+                "FROM t_transactions WHERE blockChain = ? AND lower(`to`) = ? "
                 "ORDER BY timeStamp ASC",
-                (blockchain, address, address),
+                (blockchain, address, blockchain, address),
             )
             rows = cursor.fetchall()
     except sqlite3.Error as error:
@@ -98,3 +106,31 @@ def get_messages_and_skipped(dbname, address, blockchain="eth"):
             "text": text,
         })
     return messages, skipped
+
+
+def group_messages(messages):
+    """Group messages by (lower(from), lower(to), text) (R21, C1). Returns a list of
+    {from, to, text, count, first_timeStamp, last_timeStamp, hashes} ordered by
+    first_timeStamp; `messages` must already be ordered by timeStamp (every hash is kept,
+    in that same time order, so no detail is lost behind the count)."""
+    groups_by_key = {}
+    order = []
+    for message in messages:
+        key = (message["from"].lower(), message["to"].lower(), message["text"])
+        group = groups_by_key.get(key)
+        if group is None:
+            group = {
+                "from": message["from"],
+                "to": message["to"],
+                "text": message["text"],
+                "count": 0,
+                "first_timeStamp": message["timeStamp"],
+                "last_timeStamp": message["timeStamp"],
+                "hashes": [],
+            }
+            groups_by_key[key] = group
+            order.append(key)
+        group["count"] += 1
+        group["last_timeStamp"] = message["timeStamp"]
+        group["hashes"].append(message["hash"])
+    return [groups_by_key[key] for key in order]
