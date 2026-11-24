@@ -80,6 +80,10 @@ Each contract's creations are cached in `t_created_contracts_cache`, so a repeat
 
 The collection flow (`/stream-data-info`) leaves the same kind of evidence in `t_decisions`. Every token contract the internal spam/phishing classifier tags (core/token_classifier.py) gets a `token_flagged` decision scoped to the contract address, naming the tag that fired as `rule` and, in `details`, the value that triggered it (a token name/symbol, a spoofed sender address) plus the central address being investigated. Whenever a `txlist`/`txlistinternal`/`tokentx`/`tokennfttx`/`token1155tx` download hits its row cap (`api_client.MAX_ROWS_PER_LIST`), a `history_incomplete` decision is recorded for that address and list, in the initial collection and in the cached-path catch-up alike. Both are deduplicated per `(scope, rule, query_address)`, so re-collecting or re-tagging an already-investigated address never produces duplicate decisions.
 
+`GET /messages` only returns transactions whose `input` decodes as readable text. When at least one transaction is skipped (contract calls, binary data), it records one summary decision per query, `non_message_skipped`, with the number of transactions skipped and shown. The `/messages` response body itself is unchanged.
+
+`GET /decisions?address=<addr>&network=eth[&endpoint=/messages]` returns the automatic decisions recorded for a query address, newest first: `[{created_at, endpoint, code, scope, rule, reason, details}]` with `details` parsed. `endpoint` filters to one endpoint's decisions. Read-only. Missing `address` answers 400; an address with no decisions or a database not created yet answers `[]`; an unreadable database answers 503 with `Investigation database could not be read`.
+
 The internal test routes (`/recreatedb`, `/internal-test-1`, `/internal-test-2`) answer 404 unless you opt in with `TRACKENN_DEV_ROUTES=1`:
 
 ``` shell

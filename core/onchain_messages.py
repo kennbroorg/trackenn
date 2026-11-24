@@ -55,6 +55,13 @@ def get_messages(dbname, address, blockchain="eth"):
     or `to` (case-insensitive), ordered by timeStamp. Returns a list of dicts
     (hash, blockNumber, timeStamp, from, to, text). A DB not created yet has no messages;
     one that exists but cannot be read raises DatabaseUnreadable."""
+    messages, _ = get_messages_and_skipped(dbname, address, blockchain)
+    return messages
+
+
+def get_messages_and_skipped(dbname, address, blockchain="eth"):
+    """Same as get_messages, plus how many of the address's transactions were skipped
+    because their input did not decode to a message (S4). Returns (messages, skipped)."""
     address = address.lower()
     # INFO: read-only URI never creates the file; a DB not initialised yet has no messages
     try:
@@ -70,15 +77,17 @@ def get_messages(dbname, address, blockchain="eth"):
             rows = cursor.fetchall()
     except sqlite3.Error as error:
         if not_created_yet(error, dbname):
-            return []
+            return [], 0
         # INFO: a locked or broken DB must not look like "no messages" (R17)
         logger.error("Could not read messages of %s from %s: %s", address, dbname, error)
         raise DatabaseUnreadable(str(error)) from None
 
     messages = []
+    skipped = 0
     for trx_hash, block_number, timestamp, from_addr, to_addr, input_hex in rows:
         text = decode_message(input_hex)
         if text is None:
+            skipped += 1
             continue
         messages.append({
             "hash": trx_hash,
@@ -88,4 +97,4 @@ def get_messages(dbname, address, blockchain="eth"):
             "to": to_addr,
             "text": text,
         })
-    return messages
+    return messages, skipped
