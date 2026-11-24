@@ -1,0 +1,28 @@
+{
+  "baselineTokenContracts": {
+    "addresses": {
+      "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599": "WBTC",
+      "0x6b175474e89094c44da98b954eedeac495271d0f": "DAI",
+      "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": "USDC",
+      "0xae7ab96520de3a18e5e111b5eaab095312d7fe84": "stETH",
+      "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": "WETH",
+      "0xdac17f958d2ee523a2206206994597c13d831ec7": "USDT"
+    },
+    "source": "hand-curated: official Ethereum mainnet token contracts for the most-impersonated tokens; always applies, regardless of data/tokenLists.json (R18, odd/tasks/backend-backlog-c.md T3/S3)"
+  },
+  "knownImpersonatedWallets": {
+    "addresses": {
+      "0xde0b295669a9fd93d5f28d9ec85e40f4cb697bae": "Ethereum Foundation"
+    },
+    "source": "hand-curated: well-known wallets spoofed as sender of forged tokens (R18, odd/tasks/backend-backlog-c.md T3/S3)"
+  },
+  "lureWords": {
+    "source": "hand-curated: lure verbs seen in flagged token names/symbols (user decision L7: keep the current TLDs/lure words, no new ones)",
+    "words": [
+      "claim",
+      "reward",
+      "rewards",
+      "visit"
+    ]
+  }
+}
