@@ -1451,6 +1451,7 @@ def apply_classifier_tags(connection, address, transfers, trxs):
     decisions.persist_new(connection, "/stream-data-info", address, "eth", problem_decisions)
 
     if not spam_tags:
+        remove_stale_unsolicited_tags(connection, address, transfers)
         return spam_tags
 
     cursor = connection.cursor()
@@ -1486,7 +1487,92 @@ def apply_classifier_tags(connection, address, transfers, trxs):
     ]
     decisions.persist_new(connection, "/stream-data-info", address, "eth", flag_decisions)
 
+    remove_stale_unsolicited_tags(connection, address, transfers)
     return spam_tags
+
+
+STRONG_SIGNAL_TAGS = (
+    token_classifier.TAG_PHISHING,
+    token_classifier.TAG_SPOOFED_SENDER,
+    token_classifier.TAG_NATIVE_IMPERSONATION,
+)
+
+
+def remove_stale_unsolicited_tags(connection, address, transfers):
+    """Run the R19 cleanup without ever aborting the collection: a database error rolls the
+    cleanup back, is logged, and leaves a db_error decision instead of propagating."""
+    try:
+        return _remove_stale_unsolicited_tags(connection, address, transfers)
+    except sqlite3.Error as error:
+        connection.rollback()
+        logger.warning("Stale tag cleanup skipped for %s: %s", address, error)
+        try:
+            decisions.persist_new(connection, "/stream-data-info", address, "eth", [decisions.make(
+                "db_error", address, "stale tag cleanup skipped on database error", str(error))])
+        except sqlite3.Error:
+            logger.warning("Could not record the db_error decision for %s", address)
+        return []
+
+
+def _remove_stale_unsolicited_tags(connection, address, transfers):
+    """R19: drop spam-unsolicited tags an older classifier rule wrote without a strong signal.
+
+    The current rule only adds spam-unsolicited next to a strong signal, so a contract in this
+    address's transfers holding spam-unsolicited and no strong-signal tag in t_tags (from any
+    investigation: tags are per contract) carries a stale tag. Only that tag is removed, from
+    t_tags and from the frozen t_nodes_classification JSON list, and each removal leaves a
+    tag_removed decision. Running it again finds nothing to remove (idempotent).
+    """
+    contracts = sorted({t["contractAddress"].lower() for t in transfers if t.get("contractAddress")})
+    if not contracts:
+        return []
+    cursor = connection.cursor()
+    placeholders = ",".join("?" * len(STRONG_SIGNAL_TAGS))
+    stale = []
+    for contract in contracts:
+        cursor.execute(
+            "SELECT 1 FROM t_tags WHERE blockChain = 'eth' AND lower(address) = ? AND tag = ?",
+            (contract, token_classifier.TAG_UNSOLICITED))
+        if not cursor.fetchone():
+            continue
+        cursor.execute(
+            f"SELECT 1 FROM t_tags WHERE blockChain = 'eth' AND lower(address) = ? AND tag IN ({placeholders})",
+            (contract, *STRONG_SIGNAL_TAGS))
+        if cursor.fetchone():
+            continue
+        stale.append(contract)
+
+    if not stale:
+        return []
+    removed = [
+        decisions.make(
+            "tag_removed", contract, "unsolicited-without-strong-signal",
+            "spam-unsolicited alone is no longer a signal: "
+            "no spam-phishing, spam-spoofed-sender or spam-native-impersonation tag",
+            {"previous_tag": token_classifier.TAG_UNSOLICITED, "central": address})
+        for contract in stale
+    ]
+    # INFO: one transaction for the removals and their evidence: persist_new commits both, and
+    #       any failure rolls the removals back, so a tag is never gone without its decision
+    try:
+        for contract in stale:
+            cursor.execute(
+                "DELETE FROM t_tags WHERE blockChain = 'eth' AND lower(address) = ? AND tag = ?",
+                (contract, token_classifier.TAG_UNSOLICITED))
+            cursor.execute(
+                "SELECT id, tag FROM t_nodes_classification WHERE lower(address) = ?", (contract,))
+            for node_id, tags_json in cursor.fetchall():
+                tags = json.loads(tags_json)
+                if token_classifier.TAG_UNSOLICITED in tags:
+                    kept = [tag for tag in tags if tag != token_classifier.TAG_UNSOLICITED]
+                    cursor.execute(
+                        "UPDATE t_nodes_classification SET tag = ? WHERE id = ?",
+                        (json.dumps(kept), node_id))
+        decisions.persist_new(connection, "/stream-data-info", address, "eth", removed)
+    except Exception:
+        connection.rollback()
+        raise
+    return stale
 
 
 def classify_cached_tokens(connection, address_central):

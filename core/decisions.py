@@ -33,6 +33,7 @@ CODES = {
     "size_cap_reached": "The total contracts cap was reached; further contracts were dropped",
     "db_error": "The investigation database could not be read",
     "token_flagged": "The internal spam/phishing classifier tagged a token contract",
+    "tag_removed": "A classifier tag the current rule would no longer set was removed",
     "non_message_skipped": "Some transactions were not shown because their input is not readable text",
 }
 
