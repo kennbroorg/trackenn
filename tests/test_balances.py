@@ -215,3 +215,24 @@ def test_existing_explorer_url_is_unchanged():
     assert api_client.explorer_url(1, module="account", action="balance") == \
         "https://api.etherscan.io/v2/api?chainid=1&module=account&action=balance"
     assert balances.DEFAULT_MAX_CALLS >= 1
+
+
+def test_max_calls_above_ceiling_is_clamped_and_reported(client, db, monkeypatch):
+    for i in range(3):
+        token(db, f"0x{i:040x}", FRIEND, CENTRAL, 1, f"T{i}")
+    calls = []
+    monkeypatch.setattr(balances, "MAX_CALLS_CEILING", 2)
+    monkeypatch.setattr(api_client, "api_get", fake_chain({None: 0, **{f"0x{i:040x}": 1 for i in range(3)}}, calls))
+    body = client.get("/balances", params={"address": CENTRAL, "onchain": "true", "max_calls": "100000"}).json()
+    assert len(calls) == 2 and body["onchain"]["max_calls"] == 2
+    cap = [d for d in body["decisions"] if d["code"] == "call_cap_reached"]
+    assert cap[0]["details"]["max_calls"] == 2
+
+
+def test_max_calls_within_ceiling_is_applied_as_given(client, db, monkeypatch):
+    token(db, USDC, FRIEND, CENTRAL, 5_000_000, "USDC", 6)
+    calls = []
+    monkeypatch.setattr(api_client, "api_get", fake_chain({None: 0, USDC: 5_000_000}, calls))
+    body = client.get("/balances", params={"address": CENTRAL, "onchain": "true", "max_calls": "5"}).json()
+    assert len(calls) == 2 and body["onchain"]["max_calls"] == 5
+    assert balances.MAX_CALLS_CEILING == 200

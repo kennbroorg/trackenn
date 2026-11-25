@@ -17,6 +17,7 @@ from core import api_client, decisions
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_CALLS = 20
+MAX_CALLS_CEILING = 200  # INFO: same ceiling as /created-contracts; protects the explorer key
 ETH_DECIMALS = 18
 SPAM_PREFIX = "spam-"
 
@@ -35,6 +36,9 @@ def _units(raw, decimals):
 
 
 TABLES = ("t_transactions", "t_internals", "t_transfers", "t_nfts", "t_multitoken")
+_WHERE = "blockChain = ? AND (lower(`from`) = ? OR lower(`to`) = ?)"
+# INFO: built once from the fixed allowlist above; no caller value ever reaches the SQL text
+QUERIES = {table: "SELECT * FROM " + table + " WHERE " + _WHERE for table in TABLES}
 
 
 def _rows(conn, query, args):
@@ -46,12 +50,8 @@ def _rows(conn, query, args):
 def _read(dbname, address, blockchain):
     try:
         with closing(sqlite3.connect(dbname)) as conn:
-            where = "blockChain = ? AND (lower(`from`) = ? OR lower(`to`) = ?)"
             args = (blockchain, address, address)
-            data = {
-                table: _rows(conn, f"SELECT * FROM {table} WHERE {where}", args)
-                for table in TABLES  # INFO: fixed allowlist, never user input
-            }
+            data = {table: _rows(conn, query, args) for table, query in QUERIES.items()}
             data["tags"] = conn.execute(
                 "SELECT lower(address), tag FROM t_tags WHERE blockChain = ? AND tag LIKE 'spam-%'",
                 (blockchain,)).fetchall()
@@ -152,7 +152,7 @@ def _chain_value(chainid, key, address, contract):
 
 def _compare(address, computed_eth, real_tokens, chainid, key, max_calls):
     """Compare ETH first, then each real ERC-20 in contract order, within max_calls."""
-    onchain = {"eth": None, "tokens": {}}
+    onchain = {"eth": None, "tokens": {}, "max_calls": max_calls}
     found = []
     targets = [(None, computed_eth, ETH_DECIMALS)] + [
         (entry["contract"], entry["net"], entry["decimals"]) for entry in real_tokens]
@@ -222,7 +222,8 @@ def get_balances(dbname, address, blockchain="eth", onchain=False, chainid=None,
         "nfts": _nfts(data, address),
     }
     if onchain:
-        result["onchain"], compared = _compare(address, eth["net"], real, chainid, key, max_calls)
+        applied = min(max_calls, MAX_CALLS_CEILING)
+        result["onchain"], compared = _compare(address, eth["net"], real, chainid, key, applied)
         found.extend(compared)
     result["decisions"] = found
     return result
