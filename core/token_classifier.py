@@ -16,6 +16,29 @@ TAG_PHISHING = "spam-phishing"
 TAG_UNSOLICITED = "spam-unsolicited"
 TAG_SPOOFED_SENDER = "spam-spoofed-sender"
 TAG_NATIVE_IMPERSONATION = "spam-native-impersonation"
+TAG_HOMOGLYPH = "spam-homoglyph"
+
+# INFO: S6 (odd/tasks/backend-backlog-c.md T7) - a small pinned table of Cyrillic/Greek
+# letters visually confusable with Latin ones, used to compute a token name/symbol's
+# "skeleton" (no dependency, no network). Only characters that are actually used to spoof
+# Latin look-alikes are listed; most Cyrillic/Greek letters do not resemble a Latin letter
+# closely enough to be included here, which is what keeps a genuinely non-Latin name (that
+# imitates nothing) from collapsing into a Latin skeleton.
+_CONFUSABLES = {
+    # Cyrillic uppercase
+    "\u0410": "A", "\u0412": "B", "\u0415": "E", "\u041a": "K", "\u041c": "M",
+    "\u041d": "H", "\u041e": "O", "\u0420": "P", "\u0421": "C", "\u0422": "T",
+    "\u0423": "Y", "\u0425": "X",
+    # Cyrillic lowercase
+    "\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "p", "\u0441": "c",
+    "\u0443": "y", "\u0445": "x", "\u0456": "i",
+    # Greek uppercase
+    "\u0391": "A", "\u0392": "B", "\u0395": "E", "\u0396": "Z", "\u0397": "H",
+    "\u0399": "I", "\u039a": "K", "\u039c": "M", "\u039d": "N", "\u039f": "O",
+    "\u03a1": "P", "\u03a4": "T", "\u03a5": "Y", "\u03a7": "X",
+    # Greek lowercase
+    "\u03bf": "o", "\u03b9": "i", "\u03ba": "k", "\u03bd": "v",
+}
 
 # INFO: The native coin of a chain is never itself an ERC-20 token, so any token
 #       contract whose symbol/name equals it is impersonating it (S3). Per chain,
@@ -137,6 +160,71 @@ def _known_token_contracts():
     """Official token contracts for the spoofed-sender rule (S6): the baseline contracts
     always apply, the pinned token list (data/tokenLists.json) extends them (item 3)."""
     return _baseline_token_contracts() | _token_list_addresses()
+
+
+def _token_list_by_symbol_and_name():
+    """{lowercased symbol/name: official contract address} from the pinned token list
+    (data/tokenLists.json), used by the homoglyph rule (S6) to find which official token a
+    skeleton imitates. Missing/broken file -> empty dict, so the rule simply finds no match."""
+    data = _load_json(TOKEN_LISTS_PATH) or {}
+    by_text = {}
+    for token in data.get("tokens") or ():
+        address = token.get("address")
+        if not address:
+            continue
+        for text in (token.get("symbol"), token.get("name")):
+            if text:
+                by_text.setdefault(text.strip().lower(), address.lower())
+    return by_text
+
+
+def skeleton(text):
+    """`text` with every pinned Cyrillic/Greek confusable replaced by the Latin letter it
+    imitates (S6); other characters are unchanged."""
+    return "".join(_CONFUSABLES[ch] if ch in _CONFUSABLES else ch for ch in text)
+
+
+def _replaced_chars(text):
+    """["<char> U+<CODEPOINT> -> <latin>", ...] for every confusable character actually
+    present in `text`, in reading order, for token_flagged evidence (S6)."""
+    return [
+        f"{ch} U+{ord(ch):04X} -> {_CONFUSABLES[ch]}"
+        for ch in text if ch in _CONFUSABLES
+    ]
+
+
+def _homoglyph_match(text, contract):
+    """The official contract `text` imitates, or None: `text` must be non-ASCII and differ
+    from its skeleton, and the skeleton (trimmed, case-insensitive) must equal a symbol/name
+    in the pinned Uniswap list or the chain's native coin, with `contract` not being that
+    token's own official address (native coins are never an ERC-20, so always flagged)."""
+    if not text or text.isascii():
+        return None
+    normalized_skeleton = skeleton(text).strip().lower()
+    if normalized_skeleton == text.strip().lower():
+        return None
+    native = NATIVE_COINS.get(DEFAULT_CHAIN)
+    if native and (normalized_skeleton == native["symbol"] or normalized_skeleton in native["names"]):
+        return "native"
+    official = _token_list_by_symbol_and_name().get(normalized_skeleton)
+    if official and official != (contract or "").lower():
+        return official
+    return None
+
+
+def find_homoglyph_contracts(transfers):
+    """Contract addresses whose token name/symbol imitates an official token or the native
+    coin via confusable Cyrillic/Greek letters (S6)."""
+    contracts = set()
+    for transfer in transfers:
+        contract = transfer.get("contractAddress")
+        if not contract or contract in contracts:
+            continue
+        for text in (transfer.get("tokenSymbol"), transfer.get("tokenName")):
+            if _homoglyph_match(text, contract) is not None:
+                contracts.add(contract)
+                break
+    return contracts
 
 
 def _lure_words_re():
@@ -296,9 +384,13 @@ def classify_tokens(transfers, trxs, central_address):
         tags_by_contract.setdefault(contract, set()).add(TAG_SPOOFED_SENDER)
     for contract in find_native_impersonation_contracts(transfers):
         tags_by_contract.setdefault(contract, set()).add(TAG_NATIVE_IMPERSONATION)
+    for contract in find_homoglyph_contracts(transfers):
+        tags_by_contract.setdefault(contract, set()).add(TAG_HOMOGLYPH)
 
     # INFO: S2 - "only received" alone is not a signal; it only confirms an existing
-    # strong signal for the same contract (TAG_PHISHING/TAG_SPOOFED_SENDER/TAG_NATIVE_IMPERSONATION).
+    # strong signal for the same contract (TAG_PHISHING/TAG_SPOOFED_SENDER/TAG_NATIVE_IMPERSONATION/
+    # TAG_HOMOGLYPH, all strong signals; R19's STRONG_SIGNAL_TAGS cleanup is not merged on this
+    # branch yet, so TAG_HOMOGLYPH is simply added here next to the other strong signals above).
     unsolicited = find_unsolicited_contracts(transfers, trxs, central_address)
     for contract in unsolicited:
         if tags_by_contract.get(contract):
@@ -350,6 +442,42 @@ def find_native_impersonation_triggers(transfers):
     return triggers
 
 
+def _official_symbol(official_contract):
+    """The symbol to report as `imitated_symbol` in homoglyph evidence (S6): the native
+    coin's symbol for "native", otherwise the pinned token list's symbol for that contract."""
+    if official_contract == "native":
+        native = NATIVE_COINS.get(DEFAULT_CHAIN) or {}
+        return (native.get("symbol") or "").upper()
+    data = _load_json(TOKEN_LISTS_PATH) or {}
+    for token in data.get("tokens") or ():
+        if (token.get("address") or "").lower() == official_contract:
+            return token.get("symbol")
+    return None
+
+
+def find_homoglyph_triggers(transfers):
+    """Contract -> homoglyph evidence dict (S6): original text, its skeleton, the symbol of
+    the token it imitates, the official contract it imitates ("native" for the chain's
+    native coin), and the confusable characters replaced to compute the skeleton."""
+    triggers = {}
+    for transfer in transfers:
+        contract = transfer.get("contractAddress")
+        if not contract or contract in triggers:
+            continue
+        for text in (transfer.get("tokenSymbol"), transfer.get("tokenName")):
+            official_contract = _homoglyph_match(text, contract)
+            if official_contract is not None:
+                triggers[contract] = {
+                    "text": text,
+                    "skeleton": skeleton(text).strip(),
+                    "imitated_symbol": _official_symbol(official_contract),
+                    "official_contract": official_contract,
+                    "replaced_chars": _replaced_chars(text),
+                }
+                break
+    return triggers
+
+
 def find_spoofed_sender_triggers(transfers):
     """Contract -> the spoofed `from` address that forged its transfer (S6)."""
     triggers = {}
@@ -373,6 +501,7 @@ _TRIGGER_RULES = (
     (TAG_PHISHING, find_phishing_triggers),
     (TAG_SPOOFED_SENDER, find_spoofed_sender_triggers),
     (TAG_NATIVE_IMPERSONATION, find_native_impersonation_triggers),
+    (TAG_HOMOGLYPH, find_homoglyph_triggers),
 )
 
 

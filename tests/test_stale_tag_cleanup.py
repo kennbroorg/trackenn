@@ -84,7 +84,7 @@ def test_every_removal_leaves_a_tag_removed_decision(db):
         assert query_address == CENTRAL
         assert rule == "unsolicited-without-strong-signal"
         assert reason == ("spam-unsolicited alone is no longer a signal: "
-                          "no spam-phishing, spam-spoofed-sender or spam-native-impersonation tag")
+                          "no spam-phishing, spam-spoofed-sender, spam-native-impersonation or spam-homoglyph tag")
         assert json.loads(details) == {"previous_tag": "spam-unsolicited", "central": CENTRAL}
 
 
@@ -143,3 +143,14 @@ def test_db_failure_during_cleanup_is_recorded_not_raised(db):
     with closing(sqlite3.connect(db)) as conn:
         rows = conn.execute("SELECT code, scope, rule FROM t_decisions WHERE code IN ('db_error', 'tag_removed')").fetchall()
     assert rows == [("db_error", CENTRAL, "stale tag cleanup skipped on database error")]
+
+
+def test_unsolicited_kept_when_homoglyph_is_the_strong_signal(db):
+    seed_old_db(db)
+    insert(db, "t_tags", blockChain="eth", address=STALE_B, tag="spam-homoglyph")
+
+    recollect(db)
+
+    tags = all_tags(db)
+    assert (STALE_B, "spam-unsolicited") in tags
+    assert (STALE_A, "spam-unsolicited") not in tags

@@ -1495,6 +1495,7 @@ STRONG_SIGNAL_TAGS = (
     token_classifier.TAG_PHISHING,
     token_classifier.TAG_SPOOFED_SENDER,
     token_classifier.TAG_NATIVE_IMPERSONATION,
+    token_classifier.TAG_HOMOGLYPH,
 )
 
 
@@ -1548,7 +1549,7 @@ def _remove_stale_unsolicited_tags(connection, address, transfers):
         decisions.make(
             "tag_removed", contract, "unsolicited-without-strong-signal",
             "spam-unsolicited alone is no longer a signal: "
-            "no spam-phishing, spam-spoofed-sender or spam-native-impersonation tag",
+            "no spam-phishing, spam-spoofed-sender, spam-native-impersonation or spam-homoglyph tag",
             {"previous_tag": token_classifier.TAG_UNSOLICITED, "central": address})
         for contract in stale
     ]
