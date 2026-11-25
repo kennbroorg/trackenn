@@ -1,10 +1,16 @@
 """Internal spam/phishing classifier for ERC-20 token contracts.
 
-Pure functions: no I/O, no DB access. Inputs are plain lists of dicts in the
-same shape as the explorer API responses already used across core/eth.py
-(transfers: from/to/contractAddress/tokenName/tokenSymbol; trxs: from/to).
+Pure functions: no I/O, no DB access, other than the one-time lazy load of the data/
+snapshot files below (R18, odd/tasks/backend-backlog-c.md T3, S3). Inputs are plain
+lists of dicts in the same shape as the explorer API responses already used across
+core/eth.py (transfers: from/to/contractAddress/tokenName/tokenSymbol; trxs: from/to).
 """
+import json
+import logging
+import os
 import re
+
+logger = logging.getLogger(__name__)
 
 TAG_PHISHING = "spam-phishing"
 TAG_UNSOLICITED = "spam-unsolicited"
@@ -20,10 +26,22 @@ NATIVE_COINS = {
     "eth": {"symbol": "eth", "names": {"ether", "ethereum"}},
 }
 
-# INFO: Official Ethereum mainnet token contracts. A token contract never sends
-#       units of a different token, so a transfer of token X "from" one of these
-#       is an event forged by X's contract to look legitimate.
-KNOWN_TOKEN_CONTRACTS = {
+_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+CLASSIFIER_LISTS_PATH = os.path.join(_DATA_DIR, "classifierLists.json")
+PHISHING_DOMAINS_PATH = os.path.join(_DATA_DIR, "phishingDomains.json")
+TOKEN_LISTS_PATH = os.path.join(_DATA_DIR, "tokenLists.json")
+# INFO: the same local Etherscan labels the app already ships; a contract with a label there is
+#       a known project token, so a public-blacklist hit on its name is not enough to tag it
+#       (live check: the real Tornado Cash vTORN token, "Tornado.Cash Voucher", in Vitalik's wallet)
+KNOWN_LABELS_PATH = os.path.join(_DATA_DIR, "etherscanCombinedAllLabels.json")
+# INFO: labels/names that mark a contract as bad, never as a known project
+_RISKY_LABELS = frozenset({"blocked", "spam-token"})
+_RISKY_LABEL_RE = re.compile(r"phish|scam|fake|hack|exploit|heist|drainer|spam", re.IGNORECASE)
+
+# INFO: R18-5 fallback when data/classifierLists.json is missing or invalid: the same 6
+#       official Ethereum mainnet token contracts and the Ethereum Foundation wallet this
+#       module hardcoded before the data file existed.
+_FALLBACK_BASELINE_TOKEN_CONTRACTS = {
     "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",  # USDC
     "0xdac17f958d2ee523a2206206994597c13d831ec7",  # USDT
     "0x6b175474e89094c44da98b954eedeac495271d0f",  # DAI
@@ -31,10 +49,7 @@ KNOWN_TOKEN_CONTRACTS = {
     "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",  # WBTC
     "0xae7ab96520de3a18e5e111b5eaab095312d7fe84",  # stETH
 }
-
-# INFO: Well-known wallets that spoofers impersonate as sender. They may send
-#       the official tokens above, any other token "from" them is treated as forged.
-KNOWN_IMPERSONATED_WALLETS = {
+_FALLBACK_KNOWN_IMPERSONATED_WALLETS = {
     "0xde0b295669a9fd93d5f28d9ec85e40f4cb697bae",  # Ethereum Foundation
 }
 
@@ -44,15 +59,146 @@ _URL_RE = re.compile(
     r"|\b[a-z0-9-]+\.(?:com|org|net|io|xyz|info|click|top|trade|app|site|online|club|biz|vip|live|fun)\b",
     re.IGNORECASE,
 )
-_LURE_WORDS_RE = re.compile(r"\b(?:claim|reward|rewards|visit)\b", re.IGNORECASE)
+
+# INFO: R18-5 fallback when data/classifierLists.json is missing or invalid: the same lure
+#       words this module hardcoded before the data file existed (user decision L7: no new
+#       lure words added).
+_FALLBACK_LURE_WORDS = ("claim", "reward", "rewards", "visit")
+
+# INFO: Only used to find a domain to look up in the public blacklist (data/phishingDomains.json);
+#       unlike _URL_RE it accepts any TLD, since the blacklist (not the TLD) is the signal (L7).
+_CANDIDATE_DOMAIN_RE = re.compile(
+    r"\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,24}\b", re.IGNORECASE)
+
+_cache = {}
+_load_problems = {}
 
 
-def is_phishing_text(token_name, token_symbol):
-    """True when a token name or symbol embeds a URL/domain or lure words."""
+def _load_json(path):
+    """Read and parse `path` once per process (R18-4: no network/disk access at runtime
+    beyond this one-time load). A missing/unreadable/invalid file is recorded in
+    list_load_problems() and treated as absent (R18-5), so callers fall back to the
+    hardcoded baseline instead of raising."""
+    if path in _cache:
+        return _cache[path]
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (OSError, ValueError) as error:
+        reason = str(error)
+        logger.warning("Could not load classifier data file %s: %s", path, reason)
+        _load_problems[path] = reason
+        data = None
+    _cache[path] = data
+    return data
+
+
+def list_load_problems():
+    """[{"file", "reason"}] for every data/ snapshot that failed to load (R18-5), so the
+    caller can turn each into evidence instead of silently classifying with less data."""
+    return [{"file": os.path.basename(path), "reason": reason} for path, reason in _load_problems.items()]
+
+
+def _classifier_lists():
+    return _load_json(CLASSIFIER_LISTS_PATH)
+
+
+def _baseline_token_contracts():
+    data = _classifier_lists() or {}
+    addresses = data.get("baselineTokenContracts", {}).get("addresses")
+    if not addresses:
+        return frozenset(_FALLBACK_BASELINE_TOKEN_CONTRACTS)
+    return frozenset(address.lower() for address in addresses)
+
+
+def _known_impersonated_wallets():
+    data = _classifier_lists() or {}
+    addresses = data.get("knownImpersonatedWallets", {}).get("addresses")
+    if not addresses:
+        return frozenset(_FALLBACK_KNOWN_IMPERSONATED_WALLETS)
+    return frozenset(address.lower() for address in addresses)
+
+
+def _phishing_domains():
+    """The public blacklist (data/phishingDomains.json). Missing/broken file -> empty set,
+    i.e. only the unchanged _URL_RE/lure-word signal applies (R18-5 baseline behaviour)."""
+    data = _load_json(PHISHING_DOMAINS_PATH) or {}
+    return frozenset(data.get("domains") or ())
+
+
+def _token_list_addresses():
+    """Contract addresses from the pinned token list (data/tokenLists.json). Missing/broken
+    file -> empty set, i.e. only the baseline contracts apply (R18-5 baseline behaviour)."""
+    data = _load_json(TOKEN_LISTS_PATH) or {}
+    return frozenset(token["address"].lower() for token in data.get("tokens") or () if token.get("address"))
+
+
+def _known_token_contracts():
+    """Official token contracts for the spoofed-sender rule (S6): the baseline contracts
+    always apply, the pinned token list (data/tokenLists.json) extends them (item 3)."""
+    return _baseline_token_contracts() | _token_list_addresses()
+
+
+def _lure_words_re():
+    data = _classifier_lists() or {}
+    words = data.get("lureWords", {}).get("words") or _FALLBACK_LURE_WORDS
+    pattern = r"\b(?:" + "|".join(re.escape(word) for word in words) + r")\b"
+    return re.compile(pattern, re.IGNORECASE)
+
+
+def _candidate_domains(text):
+    return {match.group(0).lower() for match in _CANDIDATE_DOMAIN_RE.finditer(text)}
+
+
+def _blacklisted_domain(text, blacklist):
+    """The domain embedded in `text` that is blacklisted, exact match or subdomain of a
+    blacklisted domain, or None."""
+    if not blacklist:
+        return None
+    for domain in _candidate_domains(text):
+        parts = domain.split(".")
+        if any(".".join(parts[i:]) in blacklist for i in range(len(parts) - 1)):
+            return domain
+    return None
+
+
+def _known_labelled(contract):
+    """True when `contract` has a non-risky entry in the local Etherscan labels. Loaded only
+    on a blacklist hit; a missing file means nobody is known (blacklist keeps applying) and
+    is reported by list_load_problems()."""
+    if not contract:
+        return False
+    entry = (_load_json(KNOWN_LABELS_PATH) or {}).get(contract.lower())
+    if not entry:
+        return False
+    labels = entry.get("labels") or []
+    if _RISKY_LABELS.intersection(labels):
+        return False
+    texts = [entry.get("name") or ""] + list(labels)
+    return not any(_RISKY_LABEL_RE.search(text) for text in texts)
+
+
+def _phishing_match(text, contract=None):
+    """The value that makes `text` phishing text: the full text when it carries a URL or a
+    lure word (unchanged since before the blacklist existed, and never shielded by a label),
+    otherwise the embedded domain that matches the public blacklist (data/phishingDomains.json)
+    unless `contract` is a known labelled project token, or None."""
+    if _URL_RE.search(text) or _lure_words_re().search(text):
+        return text
+    domain = _blacklisted_domain(text, _phishing_domains())
+    if domain is not None and _known_labelled(contract):
+        return None
+    return domain
+
+
+def is_phishing_text(token_name, token_symbol, contract=None):
+    """True when a token name or symbol embeds a URL/domain, lure words, or a domain listed
+    in the public blacklist (data/phishingDomains.json, R18 item 2). A blacklist-only hit
+    does not count for a known labelled `contract`."""
     for text in (token_name, token_symbol):
         if not text:
             continue
-        if _URL_RE.search(text) or _LURE_WORDS_RE.search(text):
+        if _phishing_match(text, contract) is not None:
             return True
     return False
 
@@ -62,9 +208,9 @@ def find_phishing_contracts(transfers):
     contracts = set()
     for transfer in transfers:
         contract = transfer.get("contractAddress")
-        if not contract:
+        if not contract or contract in contracts:
             continue
-        if is_phishing_text(transfer.get("tokenName"), transfer.get("tokenSymbol")):
+        if is_phishing_text(transfer.get("tokenName"), transfer.get("tokenSymbol"), contract):
             contracts.add(contract)
     return contracts
 
@@ -111,8 +257,9 @@ def find_spoofed_sender_contracts(transfers):
         frm = (transfer.get("from") or "").lower()
         if not contract or not frm:
             continue
-        forged_by_token = frm in KNOWN_TOKEN_CONTRACTS and frm != contract
-        forged_by_wallet = frm in KNOWN_IMPERSONATED_WALLETS and contract not in KNOWN_TOKEN_CONTRACTS
+        known_contracts = _known_token_contracts()
+        forged_by_token = frm in known_contracts and frm != contract
+        forged_by_wallet = frm in _known_impersonated_wallets() and contract not in known_contracts
         if forged_by_token or forged_by_wallet:
             contracts.add(transfer["contractAddress"])
     return contracts
@@ -160,27 +307,22 @@ def classify_tokens(transfers, trxs, central_address):
     return tags_by_contract
 
 
-def _text_matching(name, symbol, matches):
-    """Whichever of name/symbol (original value, not normalized) satisfies `matches` first."""
-    if name and matches(name):
-        return name
-    if symbol and matches(symbol):
-        return symbol
-    return None
-
-
 def find_phishing_triggers(transfers):
-    """Contract -> the token name/symbol text that matched the phishing criterion (A)."""
+    """Contract -> the value that matched the phishing criterion (A): the token name/symbol
+    text for a URL/lure-word match, or the matched domain for a public-blacklist match
+    (R18 item 2)."""
     triggers = {}
     for transfer in transfers:
         contract = transfer.get("contractAddress")
         if not contract or contract in triggers:
             continue
-        trigger = _text_matching(
-            transfer.get("tokenName"), transfer.get("tokenSymbol"),
-            lambda text: bool(_URL_RE.search(text) or _LURE_WORDS_RE.search(text)))
-        if trigger:
-            triggers[contract] = trigger
+        for text in (transfer.get("tokenName"), transfer.get("tokenSymbol")):
+            if not text:
+                continue
+            match = _phishing_match(text, contract)
+            if match is not None:
+                triggers[contract] = match
+                break
     return triggers
 
 
@@ -217,8 +359,9 @@ def find_spoofed_sender_triggers(transfers):
         if not contract or not frm or contract in triggers:
             continue
         contract_lower, frm_lower = contract.lower(), frm.lower()
-        forged_by_token = frm_lower in KNOWN_TOKEN_CONTRACTS and frm_lower != contract_lower
-        forged_by_wallet = frm_lower in KNOWN_IMPERSONATED_WALLETS and contract_lower not in KNOWN_TOKEN_CONTRACTS
+        known_contracts = _known_token_contracts()
+        forged_by_token = frm_lower in known_contracts and frm_lower != contract_lower
+        forged_by_wallet = frm_lower in _known_impersonated_wallets() and contract_lower not in known_contracts
         if forged_by_token or forged_by_wallet:
             triggers[contract] = frm
     return triggers

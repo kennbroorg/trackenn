@@ -1435,8 +1435,21 @@ def apply_classifier_tags(connection, address, transfers, trxs):
     Also persists one `token_flagged` decision per tagged contract (decision-evidence-
     retrofit T1, S1/S2/S5/S6): never changes which contracts/tags are written, and never
     duplicates a decision already recorded for the same (contract, rule, address).
+
+    R18-5 (odd/tasks/backend-backlog-c.md T3, S3): when a classifier data file (data/
+    phishingDomains.json, data/tokenLists.json, data/classifierLists.json) is missing or
+    invalid, token_classifier falls back to its hardcoded baseline instead of raising; this
+    persists one `cache_unavailable` decision per such problem, naming the file as `rule`,
+    so the gap is visible as evidence even though tagging continues unaffected otherwise.
     """
     spam_tags, evidence = token_classifier.classify_tokens_with_evidence(transfers, trxs, address)
+
+    problem_decisions = [
+        decisions.make("cache_unavailable", address, problem["file"], problem["reason"])
+        for problem in token_classifier.list_load_problems()
+    ]
+    decisions.persist_new(connection, "/stream-data-info", address, "eth", problem_decisions)
+
     if not spam_tags:
         return spam_tags
 
