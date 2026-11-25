@@ -53,6 +53,21 @@ def front_dir():
     return os.path.join(_code_dir(), 'front')
 
 
+def ensure_message_indexes(connection):
+    """Create the lower(`from`)/lower(`to`) expression indexes t_transactions' /messages
+    lookup needs (R21, C4), idempotently, so databases created before this change get
+    them too. The query in core/onchain_messages.py relies on these exact names."""
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_transactions_from_lower "
+        "ON t_transactions(blockChain, lower(`from`))"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_transactions_to_lower "
+        "ON t_transactions(blockChain, lower(`to`))"
+    )
+    connection.commit()
+
+
 def apply_ofac_labels(connection):
     """Merge data/ofacSdnCryptoAddresses.json into t_labels.
 
@@ -209,6 +224,7 @@ def event_stream_checking(config):
                                                UNIQUE(blockChain, blockNumber, timeStamp, hash, `from`, `to`, value)
                                                );"""
             connection.execute(sql_create_transactions_table)
+            ensure_message_indexes(connection)
 
             message = f"Creating table t_transfers"
             logger.info(f"{message}")
