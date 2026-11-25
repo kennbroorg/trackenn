@@ -34,6 +34,9 @@ CODES = {
     "db_error": "The investigation database could not be read",
     "token_flagged": "The internal spam/phishing classifier tagged a token contract",
     "tag_removed": "A classifier tag the current rule would no longer set was removed",
+    "balance_partial": "Collected history was cut; computed balances are bounds, not exact values",
+    "balance_negative": "More left than entered; history is missing or the token behaves unusually",
+    "balance_mismatch": "The computed balance differs from the live chain balance",
     "non_message_skipped": "Some transactions were not shown because their input is not readable text",
 }
 

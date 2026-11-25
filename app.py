@@ -39,6 +39,7 @@ from core import onchain_messages
 from core import created_contracts
 from core import decisions
 from core import decision_log
+from core import balances
 
 DEFAULT_FRONT_ORIGINS = ["http://127.0.0.1:4200"]
 
@@ -333,6 +334,26 @@ def get_created_contracts(request: Request):
         config['dbname'], params['address'], network, chainid, key, refresh=refresh, max_calls=max_calls)
     decisions.persist(config['dbname'], '/created-contracts', params['address'], network, result['decisions'])
     return JSONResponse({'address': params['address'], **result})
+
+
+@app.get('/balances')
+def get_balances(request: Request):
+    params = query_params(request)
+    require_params(params, ('address',))
+    network = params.get('network', 'eth')
+    config = get_config(request)
+    onchain = params.get('onchain', 'false').lower() == 'true'
+    max_calls = balances.DEFAULT_MAX_CALLS
+    if params.get('max_calls'):
+        max_calls = _parse_positive_int(params['max_calls'], 'max_calls', minimum=1)
+    chainid = api_client.BSC_CHAIN_ID if network == 'bsc' else api_client.ETH_CHAIN_ID
+    key = config['bscscan'] if network == 'bsc' else config['ethscan']
+    try:
+        result = balances.get_balances(config['dbname'], params['address'], network, onchain=onchain,
+                                       chainid=chainid, key=key, max_calls=max_calls)
+    except decisions.DatabaseUnreadable:
+        raise HTTPException(status_code=503, detail="Investigation database could not be read") from None
+    return JSONResponse(result)
 
 
 @app.get('/download_db')
