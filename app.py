@@ -11,6 +11,7 @@ __email__ = "kennbro <at> protonmail <dot> com"
 __status__ = "Development"
 
 import os
+import errno
 import sys
 import yaml
 import json
@@ -374,12 +375,35 @@ async def set_explorer_keys(request: Request):
         raise HTTPException(status_code=400, detail=f"Key(s) must not be blank: {', '.join(blank)}")
 
     config_path = request.app.state.config_path
-    with open(config_path) as file:
-        config = yaml.safe_load(file)
+    try:
+        with open(config_path) as file:
+            config = yaml.safe_load(file)
+    except (OSError, yaml.YAMLError) as error:
+        logger.error("Could not read %s: %s", config_path, error)
+        raise HTTPException(status_code=500, detail="config.yaml could not be read") from None
+    if not isinstance(config, dict):
+        logger.error("Could not read %s: not a mapping", config_path)
+        raise HTTPException(status_code=500, detail="config.yaml could not be read")
     config.update(updates)
-    with open(config_path, 'w') as file:
-        yaml.safe_dump(config, file)
 
+    # INFO: render before opening for write, so a dump error never truncates the file. The
+    #       write stays in place (no temp file + rename): docker-compose bind-mounts this single
+    #       file, and a rename onto a bind-mounted file fails
+    content = yaml.safe_dump(config)
+    try:
+        with open(config_path, 'w') as file:
+            file.write(content)
+    except OSError as error:
+        # INFO: a :ro bind mount raises EROFS (plain OSError), chmod raises EACCES/EPERM
+        if isinstance(error, PermissionError) or error.errno == errno.EROFS:
+            logger.error("Could not write %s: not writable", config_path)
+            raise HTTPException(status_code=409, detail=(
+                "config.yaml is not writable (read-only mount?); "
+                "set the explorer keys in config.yaml on the host and restart")) from None
+        logger.error("Could not write %s: %s", config_path, error)
+        raise HTTPException(status_code=500, detail="config.yaml could not be written") from None
+
+    # INFO: only after the file holds the new keys, so memory and disk never disagree
     request.app.state.config.update(updates)
     return JSONResponse({
         "ethscan": bool(request.app.state.config.get('ethscan')),

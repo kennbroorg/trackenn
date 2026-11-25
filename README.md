@@ -124,6 +124,8 @@ dbname: default.db
 
 A relative `dbname` is created in the working directory. Set `TRACKENN_DB_DIR` to keep the databases in another folder (Docker uses `/app/db`).
 
+The front can also set the explorer keys through `POST /config/keys` (`{"ethscan": "...", "bscscan": "..."}`), which writes them to `config.yaml`; `GET /config/keys` only reports whether each key is set, never its value. Under Docker `config.yaml` is mounted read-only, so `POST /config/keys` answers 409 and changes nothing: edit `config.yaml` on the host and restart. A missing or malformed `config.yaml` answers 500 and is never overwritten.
+
 Upgrading an existing clone: `config.yaml` is no longer tracked, but git still silently overwrites an *ignored* file when it is tracked on the branch you are moving to (old history, stashes). This can happen on `git pull` **and** on `git switch`/`git checkout <branch>`. Always back it up first and restore it afterwards:
 
 ``` shell
