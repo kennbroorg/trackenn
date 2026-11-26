@@ -25,8 +25,33 @@ SPAM_PREFIX = "spam-"
 def _int(value):
     try:
         return int(Decimal(str(value or 0)))
-    except (InvalidOperation, ValueError):
+    except (InvalidOperation, ValueError, OverflowError):  # INFO: Infinity overflows int()
         return 0
+
+
+def _is_unreadable(value):
+    """A non-empty value that is not a number; NULL/empty is common/benign stored data
+    (e.g. 0-value transactions) and stays silent, counted as 0 like today."""
+    if value is None:
+        return False
+    text = str(value)
+    if text == "":
+        return False
+    try:
+        return not Decimal(text).is_finite()  # INFO: NaN/Infinity parse but _int counts them as 0
+    except InvalidOperation:
+        return True
+
+
+def _track_unreadable(tracker, scope, row, fields):
+    hit = [field for field in fields if _is_unreadable(row.get(field))]
+    if not hit:
+        return
+    entry = tracker.setdefault(scope, {"count": 0, "fields": set(), "hashes": []})
+    entry["count"] += 1
+    entry["fields"].update(hit)
+    if len(entry["hashes"]) < 5:
+        entry["hashes"].append(str(row.get("hash")))
 
 
 def _units(raw, decimals):
@@ -74,9 +99,10 @@ def _action(details):
         return ""
 
 
-def _eth(data, address):
+def _eth(data, address, unreadable):
     inflow = outflow = fees = 0
     for row in data["t_transactions"]:
+        _track_unreadable(unreadable, address, row, ("value", "gasUsed", "gasPrice"))
         sender = str(row["from"]).lower() == address
         if sender:
             fees += _int(row["gasUsed"]) * _int(row["gasPrice"])
@@ -87,6 +113,7 @@ def _eth(data, address):
         if str(row["to"]).lower() == address:
             inflow += _int(row["value"])
     for row in data["t_internals"]:
+        _track_unreadable(unreadable, address, row, ("value",))
         if str(row["isError"]) == "1":
             continue
         if str(row["from"]).lower() == address:
@@ -97,10 +124,11 @@ def _eth(data, address):
     return {"inflow": inflow, "outflow": outflow, "fees": fees, "net": net}
 
 
-def _tokens(data, address):
+def _tokens(data, address, unreadable):
     totals = {}
     for row in data["t_transfers"]:
         contract = str(row["contractAddress"]).lower()
+        _track_unreadable(unreadable, contract, row, ("value", "tokenDecimal"))
         entry = totals.setdefault(contract, {
             "contract": contract, "symbol": row["tokenSymbol"], "decimals": _int(row["tokenDecimal"]),
             "inflow": 0, "outflow": 0, "transfers_in": 0, "transfers_out": 0})
@@ -115,11 +143,13 @@ def _tokens(data, address):
     return totals
 
 
-def _nfts(data, address):
+def _nfts(data, address, unreadable):
     counts = {}
     sources = (("t_nfts", "erc721", lambda row: 1), ("t_multitoken", "erc1155", lambda row: _int(row["tokenValue"])))
     for table, standard, units in sources:
         for row in data[table]:
+            if table == "t_multitoken":
+                _track_unreadable(unreadable, str(row["contractAddress"]).lower(), row, ("tokenValue",))
             key = (str(row["contractAddress"]).lower(), str(row["tokenID"]))
             entry = counts.setdefault(key, {"contract": key[0], "token_id": key[1], "symbol": row["tokenSymbol"],
                                             "standard": standard, "units_in": 0, "units_out": 0})
@@ -194,8 +224,9 @@ def get_balances(dbname, address, blockchain="eth", onchain=False, chainid=None,
     for contract, tag in data["tags"]:
         spam_tags.setdefault(contract, set()).add(tag)
 
-    eth = _eth(data, address)
-    tokens = _tokens(data, address)
+    unreadable = {}
+    eth = _eth(data, address, unreadable)
+    tokens = _tokens(data, address, unreadable)
     real = [tokens[c] for c in sorted(tokens) if c not in spam_tags]
     spam = [tokens[c] for c in sorted(tokens) if c in spam_tags]
 
@@ -214,12 +245,21 @@ def get_balances(dbname, address, blockchain="eth", onchain=False, chainid=None,
             "More left than entered: history is missing or the token behaves unusually",
             {"net": _units(net, decimals)}))
 
+    nfts = _nfts(data, address, unreadable)
+    for scope in sorted(unreadable):
+        entry = unreadable[scope]
+        details = {"count": entry["count"], "fields": sorted(entry["fields"]), "hashes": entry["hashes"]}
+        logger.warning("Balances: unreadable stored value for %s: %s", scope, details)
+        found.append(decisions.make(
+            "value_unreadable", scope, "non-numeric stored value counted as 0",
+            "A stored numeric field was not a number and was counted as 0", details))
+
     result = {
         "address": address,
         "eth": {name: _units(value, ETH_DECIMALS) for name, value in eth.items()},
         "tokens": [_public_token(entry, []) for entry in real],
         "spam": [_public_token(entry, sorted(spam_tags[entry["contract"]])) for entry in spam],
-        "nfts": _nfts(data, address),
+        "nfts": nfts,
     }
     if onchain:
         applied = min(max_calls, MAX_CALLS_CEILING)

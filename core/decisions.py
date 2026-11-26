@@ -38,6 +38,7 @@ CODES = {
     "balance_negative": "More left than entered; history is missing or the token behaves unusually",
     "balance_mismatch": "The computed balance differs from the live chain balance",
     "non_message_skipped": "Some transactions were not shown because their input is not readable text",
+    "value_unreadable": "A stored numeric field was not a number and was counted as 0",
 }
 
 

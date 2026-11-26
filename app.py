@@ -341,6 +341,8 @@ def get_balances(request: Request):
     params = query_params(request)
     require_params(params, ('address',))
     network = params.get('network', 'eth')
+    if network not in ('eth', 'bsc'):
+        raise HTTPException(status_code=400, detail="Invalid 'network' value: use eth or bsc")
     config = get_config(request)
     onchain = params.get('onchain', 'false').lower() == 'true'
     max_calls = balances.DEFAULT_MAX_CALLS
