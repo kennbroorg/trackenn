@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+import unicodedata
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,10 @@ _CANDIDATE_DOMAIN_RE = re.compile(
 
 _cache = {}
 _load_problems = {}
+# INFO: S8 (odd/tasks/backend-backlog-c.md T8, G5) - number of times the symbol/name ->
+# official contract index below was actually (re)built, so a test can assert it is built
+# once per process; not reset by _cache.clear() alone, only read for that assertion.
+_token_index_builds = 0
 
 
 def _load_json(path):
@@ -165,7 +170,14 @@ def _known_token_contracts():
 def _token_list_by_symbol_and_name():
     """{lowercased symbol/name: official contract address} from the pinned token list
     (data/tokenLists.json), used by the homoglyph rule (S6) to find which official token a
-    skeleton imitates. Missing/broken file -> empty dict, so the rule simply finds no match."""
+    skeleton imitates. Missing/broken file -> empty dict, so the rule simply finds no match.
+
+    Built once per process (S8, G5): cached in the shared `_cache` dict, keyed off the data
+    file path like the other classifier lists, so clearing `_cache` (as the existing tests
+    already do when they swap the data file) also invalidates this index."""
+    cache_key = ("token_index", TOKEN_LISTS_PATH)
+    if cache_key in _cache:
+        return _cache[cache_key]
     data = _load_json(TOKEN_LISTS_PATH) or {}
     by_text = {}
     for token in data.get("tokens") or ():
@@ -175,22 +187,43 @@ def _token_list_by_symbol_and_name():
         for text in (token.get("symbol"), token.get("name")):
             if text:
                 by_text.setdefault(text.strip().lower(), address.lower())
+    _cache[cache_key] = by_text
+    global _token_index_builds
+    _token_index_builds += 1
     return by_text
 
 
+# INFO: S8 (T8, G1) - order: strip Unicode format characters (category Cf: zero-width,
+# direction marks) -> NFKC (stdlib unicodedata; collapses full-width ＷＢＴＣ and mathematical
+# alphanumeric 𝐖𝐁𝐓𝐂 to plain Latin) -> the pinned Cyrillic/Greek confusables table. Applied
+# one original character at a time (instead of normalizing the whole string at once) so the
+# evidence below can report exactly which original character changed, in reading order.
+def _skeleton_char(ch):
+    """(kept_text, replaced_entry_or_None) for one original character of the pipeline above:
+    "" for a stripped format character, otherwise its NFKC form with the confusables table
+    applied to each resulting character."""
+    if unicodedata.category(ch) == "Cf":
+        return "", f"U+{ord(ch):04X} -> (removed)"
+    nfkc = unicodedata.normalize("NFKC", ch)
+    final = "".join(_CONFUSABLES.get(c, c) for c in nfkc)
+    if final != ch:
+        return final, f"{ch} U+{ord(ch):04X} -> {final}"
+    return final, None
+
+
 def skeleton(text):
-    """`text` with every pinned Cyrillic/Greek confusable replaced by the Latin letter it
-    imitates (S6); other characters are unchanged."""
-    return "".join(_CONFUSABLES[ch] if ch in _CONFUSABLES else ch for ch in text)
+    """`text` with Unicode format characters removed, NFKC-normalized, and every pinned
+    Cyrillic/Greek confusable replaced by the Latin letter it imitates (S6, S8); other
+    characters are unchanged."""
+    return "".join(_skeleton_char(ch)[0] for ch in text)
 
 
 def _replaced_chars(text):
-    """["<char> U+<CODEPOINT> -> <latin>", ...] for every confusable character actually
-    present in `text`, in reading order, for token_flagged evidence (S6)."""
-    return [
-        f"{ch} U+{ord(ch):04X} -> {_CONFUSABLES[ch]}"
-        for ch in text if ch in _CONFUSABLES
-    ]
+    """["<char> U+<CODEPOINT> -> <latin>", ...] for every character of `text` actually
+    changed by the skeleton pipeline (stripped invisible, NFKC-normalized, or a pinned
+    confusable), in reading order, for token_flagged evidence (S6, S8). A removed invisible
+    reports as "U+<CODEPOINT> -> (removed)", with no original character shown."""
+    return [entry for ch in text for entry in [_skeleton_char(ch)[1]] if entry is not None]
 
 
 def _homoglyph_match(text, contract):
@@ -456,9 +489,11 @@ def _official_symbol(official_contract):
 
 
 def find_homoglyph_triggers(transfers):
-    """Contract -> homoglyph evidence dict (S6): original text, its skeleton, the symbol of
-    the token it imitates, the official contract it imitates ("native" for the chain's
-    native coin), and the confusable characters replaced to compute the skeleton."""
+    """Contract -> homoglyph evidence dict (S6, S8): original text, its skeleton, the symbol
+    of the token it imitates, the official contract it imitates ("native" for the chain's
+    native coin), the characters changed to compute the skeleton (invisible removals and NFKC
+    changes included), and the normalization applied ("normalization": "NFKC", always present
+    since NFKC is always part of the skeleton pipeline, whether or not it changed anything)."""
     triggers = {}
     for transfer in transfers:
         contract = transfer.get("contractAddress")
@@ -473,6 +508,7 @@ def find_homoglyph_triggers(transfers):
                     "imitated_symbol": _official_symbol(official_contract),
                     "official_contract": official_contract,
                     "replaced_chars": _replaced_chars(text),
+                    "normalization": "NFKC",
                 }
                 break
     return triggers
