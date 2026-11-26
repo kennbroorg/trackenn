@@ -236,3 +236,82 @@ def test_max_calls_within_ceiling_is_applied_as_given(client, db, monkeypatch):
     body = client.get("/balances", params={"address": CENTRAL, "onchain": "true", "max_calls": "5"}).json()
     assert len(calls) == 2 and body["onchain"]["max_calls"] == 5
     assert balances.MAX_CALLS_CEILING == 200
+
+
+# S9 (R7 review advisories, /balances hardening): network validation + value_unreadable evidence.
+
+def test_invalid_network_is_rejected_with_the_exact_message(client):
+    # B1
+    response = client.get("/balances", params={"address": CENTRAL, "network": "etth"})
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid 'network' value: use eth or bsc"
+
+
+def test_eth_and_bsc_networks_still_work(client, db):
+    # B1
+    for network in ("eth", "bsc"):
+        response = client.get("/balances", params={"address": CENTRAL, "network": network})
+        assert response.status_code == 200
+
+
+def test_unreadable_transfer_value_counts_zero_and_leaves_a_scoped_decision(client, db):
+    # B2
+    token(db, USDC, FRIEND, CENTRAL, 5_000_000, "USDC", 6)
+    insert(db, "t_transfers", contractAddress=USDC, **{"from": FRIEND, "to": CENTRAL}, value="abc",
+           tokenSymbol="USDC", tokenName="USDC", tokenDecimal="6", hash="0xbadvalue")
+    body = client.get("/balances", params={"address": CENTRAL}).json()
+    usdc = by_contract(body["tokens"])[USDC]
+    assert (usdc["inflow"], usdc["outflow"], usdc["net"]) == ("5", "0", "5")
+    unreadable = [d for d in body["decisions"] if d["code"] == "value_unreadable"]
+    assert len(unreadable) == 1
+    assert unreadable[0]["scope"] == USDC
+    assert unreadable[0]["details"] == {"count": 1, "fields": ["value"], "hashes": ["0xbadvalue"]}
+
+
+def test_unreadable_eth_gas_fields_leave_a_decision_scoped_to_the_address(client, db):
+    # B3
+    insert(db, "t_transactions", **{"from": CENTRAL, "to": FRIEND}, value=str(3 * 10**18), gasUsed="abc",
+           gasPrice="abc", isError="0", hash="0xbadgas")
+    body = client.get("/balances", params={"address": CENTRAL}).json()
+    assert body["eth"]["fees"] == "0"
+    unreadable = [d for d in body["decisions"] if d["code"] == "value_unreadable"]
+    assert len(unreadable) == 1
+    assert unreadable[0]["scope"] == CENTRAL
+    assert unreadable[0]["details"]["count"] == 1
+    assert unreadable[0]["details"]["fields"] == ["gasPrice", "gasUsed"]
+    assert len(unreadable[0]["details"]["hashes"]) == 1
+
+
+def test_all_valid_numbers_leave_no_value_unreadable_decision(client, db):
+    # B4
+    token(db, USDC, FRIEND, CENTRAL, 5_000_000, "USDC", 6)
+    tx(db, FRIEND, CENTRAL, 10 * 10**18)
+    response = client.get("/balances", params={"address": CENTRAL})
+    body = response.json()
+    assert "value_unreadable" not in codes(body)
+    assert body == {
+        "address": CENTRAL,
+        "eth": {"inflow": "10", "outflow": "0", "fees": "0", "net": "10"},
+        "tokens": [{"contract": USDC, "symbol": "USDC", "decimals": 6, "inflow": "5", "outflow": "0",
+                    "net": "5", "transfers_in": 1, "transfers_out": 0, "flagged_tags": []}],
+        "spam": [],
+        "nfts": [],
+        "decisions": [],
+    }
+
+
+def test_null_or_empty_value_stays_silent_and_still_counts_zero(client, db):
+    # t_transfers.value is a NOT NULL column; an empty string is the realistic "missing" case
+    insert(db, "t_transfers", contractAddress=USDC, **{"from": FRIEND, "to": CENTRAL}, value="",
+           tokenSymbol="USDC", tokenName="USDC", tokenDecimal="6", hash="0xemptyvalue")
+    body = client.get("/balances", params={"address": CENTRAL}).json()
+    usdc = by_contract(body["tokens"])[USDC]
+    assert usdc["inflow"] == "0"
+    assert "value_unreadable" not in codes(body)
+
+
+@pytest.mark.parametrize("bad", ["NaN", "Infinity"])
+def test_non_finite_value_is_unreadable(client, db, bad):
+    token(db, USDC, FRIEND, CENTRAL, bad, "USDC", 6)
+    body = client.get("/balances", params={"address": CENTRAL}).json()
+    assert [d["code"] for d in body["decisions"]].count("value_unreadable") == 1
