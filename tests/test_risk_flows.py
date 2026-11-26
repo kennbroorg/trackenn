@@ -162,3 +162,34 @@ def test_invalid_network_is_rejected_and_bsc_uses_binance_labels(client, db):
 
 def test_missing_address_is_rejected(client):
     assert client.get("/risk-flows").status_code == 400
+
+
+def test_label_rows_of_one_address_are_merged(client, db):
+    # INFO: t_labels may hold an etherscan row and an ofac_sdn row for the same address
+    label(db, POOL, "Tornado.Cash: 100 ETH", ["tornado-cash"])
+    insert(db, "t_labels", blockChain="ethereum", source="ofac_sdn", address=POOL,
+           name="OFAC SDN: 0xa16...291", labels=json.dumps(["ofac-sdn"]))
+    tx(db, CENTRAL, POOL, 10**18, "0xmerged")
+    entry = by_key(client.get("/risk-flows", params={"address": CENTRAL}).json())[(POOL, "out")]
+    assert entry["kinds"] == ["mixer", "sanctioned"]
+    assert entry["labels"] == ["ofac-sdn", "tornado-cash"]
+    assert entry["name"] == "Tornado.Cash: 100 ETH"
+
+
+def test_unreadable_value_in_a_risky_flow_leaves_value_unreadable(client, db):
+    labels_fixture(db)
+    tx(db, CENTRAL, POOL, "abc", "0xbad")
+    tx(db, CENTRAL, POOL, 10**18, "0xgood")
+    body = client.get("/risk-flows", params={"address": CENTRAL}).json()
+    entry = by_key(body)[(POOL, "out")]
+    assert entry["per_token"] == [{"contract": "eth", "symbol": "ETH", "amount": "1", "count": 2}]
+    bad = [d for d in body["decisions"] if d["code"] == "value_unreadable"]
+    assert len(bad) == 1 and bad[0]["scope"] == CENTRAL
+    assert bad[0]["details"] == {"count": 1, "fields": ["value"], "hashes": ["0xbad"]}
+
+
+def test_unreadable_database_answers_503(client, db):
+    db.write_bytes(b"not a sqlite database at all" * 100)
+    response = client.get("/risk-flows", params={"address": CENTRAL})
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Investigation database could not be read"
