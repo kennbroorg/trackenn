@@ -46,6 +46,28 @@ def tx(path, h, frm, to, input_hex, method_id="", function_name="", blockchain="
            methodId=method_id, functionName=function_name, blockChain=blockchain, timeStamp=str(timestamp))
 
 
+def tx_with_null_input(path, h, frm, to, blockchain="eth", timestamp=1):
+    """R3-004: a stored row can have NULL input (schema allows it in practice, even though
+    t_transactions declares `input text NOT NULL`: relax the constraint to reproduce it)."""
+    with closing(sqlite3.connect(path)) as conn:
+        conn.execute("PRAGMA writable_schema=1")
+        conn.execute("UPDATE sqlite_master SET sql = REPLACE(sql, 'input text NOT NULL', 'input text') "
+                     "WHERE name='t_transactions'")
+        conn.commit()
+        conn.execute("PRAGMA writable_schema=0")
+    with closing(sqlite3.connect(path)) as conn:
+        columns = [row[0] for row in conn.execute("SELECT name FROM pragma_table_info('t_transactions')")]
+        values: dict = {column: 0 for column in columns}
+        values["hash"], values["from"], values["to"] = h, frm, to
+        values["blockChain"], values["timeStamp"] = blockchain, str(timestamp)
+        values["methodId"], values["functionName"], values["input"] = "", "", None
+        colnames = ", ".join(f"`{c}`" for c in columns)
+        placeholders = ", ".join("?" for _ in columns)
+        conn.execute(f"INSERT INTO t_transactions ({colnames}) VALUES ({placeholders})",
+                     [values[c] for c in columns])
+        conn.commit()
+
+
 @pytest.fixture
 def client(db):
     app_module.app.state.config = {**CONFIG, "dbname": str(db)}
@@ -93,6 +115,48 @@ def test_k1_stored_function_name_used_as_source_etherscan(client, db):
     assert all(c["source"] == "etherscan" for c in by_hash.values())
 
 
+# ---- R3-001 (review-cddac27874c93070): Etherscan's functionName carries parameter names ----
+
+def test_r3_001_named_param_function_name_decodes_by_stripped_types(client, db):
+    tx(db, "0x1", CENTRAL, USDC, TRANSFER_CALLDATA,
+       function_name="transfer(address _to, uint256 _value)")
+
+    body = client.get("/calls", params={"address": CENTRAL}).json()
+
+    call = body["calls"][0]
+    assert call["source"] == "etherscan"
+    assert call["function"] == "transfer(address _to, uint256 _value)"
+    assert call["params"][0] == {"type": "address", "value": USDC}
+    assert call["params"][1] == {"type": "uint256", "value": 1000}
+
+
+# 0x42842e0e has a single unambiguous pinned signature, unlike 0xa9059cbb (see R2-specificity below)
+SAFE_TRANSFER_FROM_CALLDATA = calldata("42842e0e", word(CENTRAL), word(USDC), word(1))
+
+
+def test_r3_001_malformed_function_name_falls_back_instead_of_500(client, db):
+    tx(db, "0x1", CENTRAL, UNKNOWN_CONTRACT, SAFE_TRANSFER_FROM_CALLDATA, function_name="not a signature")
+
+    response = client.get("/calls", params={"address": CENTRAL})
+
+    assert response.status_code == 200
+    call = response.json()["calls"][0]
+    assert call["source"] == "signatures"
+    assert call["function"] == "safeTransferFrom(address,address,uint256)"
+
+
+def test_r3_001_function_name_missing_closing_paren_falls_back(client, db):
+    tx(db, "0x1", CENTRAL, UNKNOWN_CONTRACT, SAFE_TRANSFER_FROM_CALLDATA,
+       function_name="safeTransferFrom(address,address,uint256")
+
+    response = client.get("/calls", params={"address": CENTRAL})
+
+    assert response.status_code == 200
+    call = response.json()["calls"][0]
+    assert call["source"] == "signatures"
+    assert call["function"] == "safeTransferFrom(address,address,uint256)"
+
+
 # ---- K2: custom selectors unknown, never invented ----
 
 def test_k2_unknown_selector_gives_unknown_raw_params_and_one_decision(client, db):
@@ -110,6 +174,29 @@ def test_k2_unknown_selector_gives_unknown_raw_params_and_one_decision(client, d
     assert unknown[0]["scope"] == "0xa91864d4"
     assert unknown[0]["details"]["count"] == 2
     assert unknown[0]["details"]["hashes"] == ["0x1", "0x2"]
+
+
+# ---- R3-004 (review-cddac27874c93070): a NULL/empty stored input is not a call, never a 500 ----
+
+def test_null_input_row_is_skipped_not_a_500(client, db):
+    tx_with_null_input(db, "0xnullinput", CENTRAL, UNKNOWN_CONTRACT)
+    tx(db, "0xok", CENTRAL, UNKNOWN_CONTRACT, calldata("a91864d4", word(1)))
+
+    response = client.get("/calls", params={"address": CENTRAL})
+
+    assert response.status_code == 200
+    hashes = [c["hash"] for c in response.json()["calls"]]
+    assert "0xnullinput" not in hashes
+    assert "0xok" in hashes
+
+
+def test_empty_input_row_is_skipped_not_a_500(client, db):
+    tx(db, "0xemptyinput", CENTRAL, UNKNOWN_CONTRACT, "")
+
+    response = client.get("/calls", params={"address": CENTRAL})
+
+    assert response.status_code == 200
+    assert response.json()["calls"] == []
 
 
 # ---- K3: creation and message kinds, not decoded ----
@@ -208,17 +295,65 @@ def test_k6_getabi_failure_keeps_resolved_results_and_adds_upstream_error(client
     assert "SECRETKEY" not in json.dumps(result)
 
 
-# ---- K7 (refined): shape filter resolves the real call despite colliding signatures ----
+# ---- R1-002/K6 (review-cddac27874c93070): getabi transport failure, never a 500, key never leaked ----
 
-def test_k7_real_transfer_resolves_despite_six_colliding_signatures(client, db):
+def test_r1_002_getabi_transport_exception_keeps_results_and_redacts_key(client, db, monkeypatch):
+    tx(db, "0x1", CENTRAL, USDC, TRANSFER_CALLDATA)
+    tx(db, "0x2", UNKNOWN_CONTRACT, CENTRAL, "0x385ad0a4", method_id="0x385ad0a4", function_name="unwrapWETH()")
+
+    def broken(url):
+        raise ConnectionError("https://api.etherscan.io/v2/api?apikey=SECRETKEY down")
+
+    monkeypatch.setattr(api_client, "api_get", broken)
+
+    response = client.get("/calls", params={"address": CENTRAL})
+
+    assert response.status_code == 200
+    body = response.json()
+    by_hash = {c["hash"]: c for c in body["calls"]}
+    assert by_hash["0x2"]["function"] == "unwrapWETH()"  # kept despite the other failure
+    upstream = [d for d in body["decisions"] if d["code"] == "upstream_error"]
+    assert len(upstream) == 1
+    assert "SECRETKEY" not in response.text
+    assert "SECRETKEY" not in upstream[0]["reason"]
+
+
+def test_r1_002_getabi_non_json_body_keeps_results_and_adds_upstream_error(client, db, monkeypatch):
+    tx(db, "0x1", CENTRAL, USDC, TRANSFER_CALLDATA)
+
+    class FakeResponse:
+        def json(self):
+            raise ValueError("not JSON")
+
+    monkeypatch.setattr(api_client, "api_get", lambda url: FakeResponse())
+
+    response = client.get("/calls", params={"address": CENTRAL})
+
+    assert response.status_code == 200
+    assert "upstream_error" in [d["code"] for d in response.json()["decisions"]]
+
+
+# ---- K7 (refined), R2-specificity (review-cddac27874c93070): shape alone, no preference tie-break ----
+#
+# The real transfer(address,uint256) -> 0xa9059cbb collides in data/functionSignatures.json with
+# workMyDirefulOwner(uint256,uint256): an address is a valid uint256 by construction (it is just the
+# low 160 bits), so any calldata that fits transfer(address,uint256) also fits two unconstrained
+# uint256 params. No strengthening of shape_fits (which only inspects the calldata bytes, never
+# the selector's real intent) can tell these two apart; the old specificity tie-break silently chose
+# transfer anyway, contradicting K7's "none chosen" rule for true shape ties. Per K7, this case is now
+# honestly selector_ambiguous (see odd/tasks/backend-backlog-c.md L43-L44, T14 report).
+
+def test_k7_usdc_transfer_six_colliding_signatures_is_honestly_ambiguous(client, db):
     tx(db, "0x1", CENTRAL, USDC, TRANSFER_CALLDATA)  # no functionName/ABI: forces the signatures table
 
     body = client.get("/calls", params={"address": CENTRAL}).json()
 
     call = body["calls"][0]
-    assert call["function"] == "transfer(address,uint256)"
-    assert call["source"] == "signatures"
-    assert "selector_ambiguous" not in [d["code"] for d in body["decisions"]]
+    assert call["source"] is None
+    assert sorted(call["candidates"]) == ["transfer(address,uint256)", "workMyDirefulOwner(uint256,uint256)"]
+    ambiguous = [d for d in body["decisions"] if d["code"] == "selector_ambiguous"]
+    assert len(ambiguous) == 1
+    assert ambiguous[0]["details"]["count"] == 1
 
 
 def test_k7_true_ambiguity_lists_every_fitting_candidate(client, db):
@@ -249,6 +384,35 @@ def test_k7_discards_candidates_whose_shape_does_not_fit(client, db):
     call = result["calls"][0]
     assert call["function"] == "onearg(uint256)"
     assert call["source"] == "signatures"
+
+
+# ---- R2-discarded (review-cddac27874c93070): details report the real discarded count ----
+
+def test_r2_discarded_count_in_ambiguous_decision_is_real(client, db):
+    # 3 candidates share the selector; one is discarded by shape (3-arg, too long), 2 remain tied
+    signatures = {"0xdeadbeef": ["a(uint256,uint256)", "b(uint256,uint256)", "c(uint256,uint256,uint256)"]}
+    data = calldata("deadbeef", word(1), word(2))
+    tx(db, "0x1", CENTRAL, UNKNOWN_CONTRACT, data)
+
+    result = calls.get_calls(str(db), "eth", chainid=api_client.ETH_CHAIN_ID, key="K", address=CENTRAL,
+                             signatures=signatures)
+
+    ambiguous = [d for d in result["decisions"] if d["code"] == "selector_ambiguous"]
+    assert len(ambiguous) == 1
+    assert ambiguous[0]["details"]["discarded"] == 1
+    assert sorted(ambiguous[0]["details"]["candidates"]) == ["a(uint256,uint256)", "b(uint256,uint256)"]
+
+
+def test_r2_discarded_count_is_zero_when_every_candidate_fits(client, db):
+    signatures = {"0xdeadbeef": ["a(uint256,uint256)", "b(uint256,uint256)"]}
+    data = calldata("deadbeef", word(1), word(2))
+    tx(db, "0x1", CENTRAL, UNKNOWN_CONTRACT, data)
+
+    result = calls.get_calls(str(db), "eth", chainid=api_client.ETH_CHAIN_ID, key="K", address=CENTRAL,
+                             signatures=signatures)
+
+    ambiguous = [d for d in result["decisions"] if d["code"] == "selector_ambiguous"]
+    assert ambiguous[0]["details"]["discarded"] == 0
 
 
 # ---- K8: no writes to investigation tables, only ABI cache + decisions ----

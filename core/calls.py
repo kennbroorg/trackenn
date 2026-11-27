@@ -147,11 +147,31 @@ def _split_top_level(text):
     return parts
 
 
+def _type_only(param_text):
+    """Strip a parameter's name (and any leading qualifier such as `indexed`/`memory`), keeping
+    only its type: Etherscan's stored functionName carries parameter names, e.g.
+    "transfer(address _to, uint256 _value)" (R3-001). The type is always the first whitespace-
+    separated token at depth 0 (a tuple or array type never contains a top-level space)."""
+    depth = 0
+    for index, char in enumerate(param_text):
+        if char in "([":
+            depth += 1
+        elif char in ")]":
+            depth -= 1
+        elif char.isspace() and depth == 0:
+            return param_text[:index]
+    return param_text
+
+
 def parse_signature(signature_text):
-    """"name(type1,type2)" -> (name, [type1, type2]), nested parens/brackets kept intact."""
+    """"name(type1,type2)" -> (name, [type1, type2]), nested parens/brackets kept intact, parameter
+    names stripped (R3-001). Raises ValueError on text with no "(" or no closing ")", so callers can
+    fall back to the next source instead of crashing on a malformed stored functionName."""
+    if "(" not in signature_text or not signature_text.endswith(")"):
+        raise ValueError(f"not a function signature: {signature_text!r}")
     name, rest = signature_text.split("(", 1)
     inner = rest[:-1]
-    types = [t.strip() for t in _split_top_level(inner)] if inner else []
+    types = [_type_only(t.strip()) for t in _split_top_level(inner)] if inner else []
     return name, types
 
 
@@ -184,6 +204,12 @@ def decode_static(param_type, word):
         length = int(param_type[len("bytes"):]) if len(param_type) > len("bytes") else 32
         return "0x" + word[:length].hex()
     return "0x" + word.hex()
+
+
+def raw_words(data):
+    """data as a list of {type: "raw", value} 32-byte words (R2-raw-params): the fallback shape
+    used whenever no signature resolves a selector's params (unknown or ambiguous)."""
+    return [{"type": "raw", "value": "0x" + data[i:i + 32].hex()} for i in range(0, len(data), 32)]
 
 
 def decode_params(data, types):
@@ -245,28 +271,16 @@ def shape_fits(data, types):
     return True
 
 
-def _specificity(types):
-    """How much a candidate's static types actually constrain the calldata: address/bool words
-    must look like an address/bool, so a fit is real evidence; plain uintN/intN/bytesN never fail
-    this check, so a function made only of those is weaker evidence of a true match."""
-    return sum(1 for t in types if t in ("address", "bool"))
-
-
 def resolve_signature_candidates(candidates, data):
     """candidates: text signatures sharing one selector. Returns (chosen_or_None, fitting,
-    discarded_count). `fitting` is the shortlist actually used for a decision (either the single
-    chosen one wrapped in a list, or every tied/ambiguous candidate)."""
+    discarded_count): `fitting` is the shortlist actually used for a decision (either the single
+    chosen one wrapped in a list, or every candidate tied by shape). Per K7, no preference is
+    applied among several fitting candidates (R2-specificity): if more than one fits, none is
+    chosen and every fitting one is reported (odd/tasks/backend-backlog-c.md T14)."""
     fitting = [sig for sig in candidates if shape_fits(data, parse_signature(sig)[1])]
     discarded = len(candidates) - len(fitting)
-    if not fitting:
-        return None, [], discarded
     if len(fitting) == 1:
         return fitting[0], fitting, discarded
-    scored = [(sig, _specificity(parse_signature(sig)[1])) for sig in fitting]
-    best_score = max(score for _, score in scored)
-    best = [sig for sig, score in scored if score == best_score]
-    if len(best) == 1:
-        return best[0], fitting, len(candidates) - 1
     return None, fitting, discarded
 
 
@@ -325,10 +339,15 @@ def match_abi_function(abi, method_id):
 
 
 def fetch_abi(chainid, key, contract):
-    """(verified, abi_or_None). Raises UpstreamError on anything other than "not verified"."""
+    """(verified, abi_or_None). Raises UpstreamError on anything other than "not verified" (R1-002/K6:
+    network/transport exceptions from requests and a non-JSON body are caught here too, redacted so the
+    API key never reaches a decision reason, same pattern as core/balances.py's on-chain comparison)."""
     url = api_client.explorer_url(chainid, module="contract", action="getabi", address=contract, apikey=key)
-    response = api_client.api_get(url)
-    payload = response.json()
+    try:
+        response = api_client.api_get(url)
+        payload = response.json()
+    except Exception as error:
+        raise UpstreamError(api_client.redact(error)) from None
     if payload.get("status") == "1":
         try:
             return True, json.loads(payload["result"])
@@ -477,16 +496,20 @@ def get_calls(dbname, blockchain="eth", chainid=None, key=None, address=None, tx
     undecoded_tracker = {}
     found_decisions = []
 
-    def track(tracker, method_id, tx_hash_value, extra=None):
-        entry = tracker.setdefault(method_id, {"count": 0, "hashes": [], "extra": extra})
+    def track(tracker, method_id, tx_hash_value, extra=None, discarded=0):
+        entry = tracker.setdefault(method_id, {"count": 0, "hashes": [], "extra": extra, "discarded": discarded})
         entry["count"] += 1
         if len(entry["hashes"]) < EXAMPLE_HASHES:
             entry["hashes"].append(tx_hash_value)
         if extra is not None:
             entry["extra"] = extra
+            entry["discarded"] = discarded
 
     results = []
     for row in rows:
+        if not row["input"]:  # R3-004: a NULL/empty stored input is not a call, skip it
+            continue
+
         kind = _classify(row)
         entry = {"hash": row["hash"], "to": row["to"], "kind": kind, "methodId": None,
                  "function": None, "candidates": None, "source": None, "params": None}
@@ -506,12 +529,18 @@ def get_calls(dbname, blockchain="eth", chainid=None, key=None, address=None, tx
         entry["methodId"] = method_id
 
         if row["functionName"]:
-            signature_text = row["functionName"]
-            entry["function"], entry["source"] = signature_text, "etherscan"
-            _, types = parse_signature(signature_text)
-            entry["params"] = decode_params(data, types)
-            results.append(entry)
-            continue
+            # R3-001: a malformed stored functionName (no "(", no closing ")") falls back to the
+            # next source instead of crashing; parse_signature raises ValueError for it.
+            try:
+                signature_text = row["functionName"]
+                _, types = parse_signature(signature_text)
+            except ValueError:
+                pass
+            else:
+                entry["function"], entry["source"] = signature_text, "etherscan"
+                entry["params"] = decode_params(data, types)
+                results.append(entry)
+                continue
 
         contract = str(row["to"]).lower()
         if contract not in contract_abi and contract not in contract_unresolved:
@@ -542,23 +571,20 @@ def get_calls(dbname, blockchain="eth", chainid=None, key=None, address=None, tx
             candidates = signatures.get(method_id, [])
             if not candidates:
                 track(unknown_tracker, method_id, row["hash"])
-                entry["params"] = [{"type": "raw", "value": "0x" + word.hex()}
-                                    for word in (data[i:i + 32] for i in range(0, len(data), 32))]
+                entry["params"] = raw_words(data)
             else:
-                chosen, fitting, _discarded = resolve_signature_candidates(candidates, data)
+                chosen, fitting, discarded = resolve_signature_candidates(candidates, data)
                 if chosen:
                     _, types = parse_signature(chosen)
                     entry["function"], entry["source"] = chosen, "signatures"
                     entry["params"] = decode_params(data, types)
                 elif fitting:
-                    track(ambiguous_tracker, method_id, row["hash"], extra=sorted(fitting))
+                    track(ambiguous_tracker, method_id, row["hash"], extra=sorted(fitting), discarded=discarded)
                     entry["candidates"] = sorted(fitting)
-                    entry["params"] = [{"type": "raw", "value": "0x" + word.hex()}
-                                        for word in (data[i:i + 32] for i in range(0, len(data), 32))]
+                    entry["params"] = raw_words(data)
                 else:
                     track(unknown_tracker, method_id, row["hash"])
-                    entry["params"] = [{"type": "raw", "value": "0x" + word.hex()}
-                                        for word in (data[i:i + 32] for i in range(0, len(data), 32))]
+                    entry["params"] = raw_words(data)
 
         if entry["params"] and any(param.get("value_undecoded") for param in entry["params"]):
             track(undecoded_tracker, method_id, row["hash"],
@@ -583,7 +609,8 @@ def get_calls(dbname, blockchain="eth", chainid=None, key=None, address=None, tx
         found_decisions.append(decisions.make(
             "selector_ambiguous", method_id, "several pinned signatures fit the calldata shape",
             "More than one signature could be the real function; none was chosen",
-            {"candidates": info["extra"], "count": info["count"], "hashes": info["hashes"]}))
+            {"candidates": info["extra"], "discarded": info["discarded"],
+             "count": info["count"], "hashes": info["hashes"]}))
     for method_id, info in undecoded_tracker.items():
         found_decisions.append(decisions.make(
             "value_undecoded", method_id, "dynamic parameter type (string, bytes, array or tuple)",
