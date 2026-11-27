@@ -337,13 +337,18 @@ def get_created_contracts(request: Request):
     return JSONResponse({'address': params['address'], **result})
 
 
+def parse_network(params):
+    network = params.get('network', 'eth')
+    if network not in ('eth', 'bsc'):
+        raise HTTPException(status_code=400, detail="Invalid 'network' value: use eth or bsc")
+    return network
+
+
 @app.get('/balances')
 def get_balances(request: Request):
     params = query_params(request)
     require_params(params, ('address',))
-    network = params.get('network', 'eth')
-    if network not in ('eth', 'bsc'):
-        raise HTTPException(status_code=400, detail="Invalid 'network' value: use eth or bsc")
+    network = parse_network(params)
     config = get_config(request)
     onchain = params.get('onchain', 'false').lower() == 'true'
     max_calls = balances.DEFAULT_MAX_CALLS
@@ -363,9 +368,7 @@ def get_balances(request: Request):
 def get_risk_flows(request: Request):
     params = query_params(request)
     require_params(params, ('address',))
-    network = params.get('network', 'eth')
-    if network not in ('eth', 'bsc'):
-        raise HTTPException(status_code=400, detail="Invalid 'network' value: use eth or bsc")
+    network = parse_network(params)
     config = get_config(request)
     try:
         result = risk_flows.get_risk_flows(config['dbname'], params['address'], network)

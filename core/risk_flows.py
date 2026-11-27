@@ -9,11 +9,12 @@ import json
 import logging
 import re
 import sqlite3
+import typing
 from collections.abc import Iterator
 from contextlib import closing
 
 from core import decisions
-from core.balances import _int, _track_unreadable, _units
+from core.balances import to_int, to_units, track_unreadable
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,6 @@ TORNADO_LABEL = "tornado-cash"
 TORNADO_MIXER_NAME = re.compile(
     r"^Tornado\.Cash: (?:[\d.,]+ [A-Za-z]+(?: \d+)?|Router|Proxy|Old Proxy|Mixer \d+)$")
 EXAMPLE_HASHES = 5
-
 
 
 def kinds_for(name, labels):
@@ -92,12 +92,19 @@ def _risky_index(label_rows):
             for address, entry in merged.items() if entry["kinds"]}
 
 
-Movement = tuple[dict, str, str, str, object, int, str, tuple[str, ...]]
+class Movement(typing.NamedTuple):
+    row: dict
+    counterparty: str
+    direction: str
+    contract: str
+    symbol: object
+    decimals: int
+    scope: str
+    fields: tuple[str, ...]
 
 
 def _movements(data, address, blockchain) -> Iterator[Movement]:
-    """(row, counterparty, direction, contract, symbol, decimals, unreadable scope, numeric fields).
-    Unreadable numbers are scoped like /balances: the queried address for the native coin,
+    """Unreadable numbers are scoped like /balances: the queried address for the native coin,
     the token contract for ERC-20."""
     native = NATIVE_SYMBOL[blockchain]
     for table in ("t_transactions", "t_internals"):
@@ -105,12 +112,12 @@ def _movements(data, address, blockchain) -> Iterator[Movement]:
             if str(row["isError"]) == "1":
                 continue
             for counterparty, direction in _sides(row, address):
-                yield (row, counterparty, direction, "eth", native, NATIVE_DECIMALS, address, ("value",))
+                yield Movement(row, counterparty, direction, "eth", native, NATIVE_DECIMALS, address, ("value",))
     for row in data["t_transfers"]:
         contract = str(row["contractAddress"]).lower()
         for counterparty, direction in _sides(row, address):
-            yield (row, counterparty, direction, contract, row["tokenSymbol"], _int(row["tokenDecimal"]),
-                   contract, ("value", "tokenDecimal"))
+            yield Movement(row, counterparty, direction, contract, row["tokenSymbol"], to_int(row["tokenDecimal"]),
+                           contract, ("value", "tokenDecimal"))
 
 
 def _sides(row, address) -> Iterator[tuple[str, str]]:
@@ -127,8 +134,8 @@ def _group(data, address, blockchain, risky, unreadable):
             data, address, blockchain):
         if counterparty not in risky:
             continue
-        _track_unreadable(unreadable, scope, row, fields)
-        value, tx_hash, ts = _int(row["value"]), str(row["hash"]), _int(row["timeStamp"])
+        track_unreadable(unreadable, scope, row, fields)
+        value, tx_hash, ts = to_int(row["value"]), str(row["hash"]), to_int(row["timeStamp"])
         info = risky[counterparty]
         entry = groups.setdefault((counterparty, direction), {
             "counterparty": counterparty, "name": info["name"], "kinds": info["kinds"],
@@ -146,7 +153,7 @@ def _group(data, address, blockchain, risky, unreadable):
 
 def _public(entry):
     per_token = [{"contract": contract, "symbol": token["symbol"],
-                  "amount": _units(token["raw"], token["decimals"]), "count": token["count"]}
+                  "amount": to_units(token["raw"], token["decimals"]), "count": token["count"]}
                  for contract, token in sorted(entry["tokens"].items())]
     public = {key: value for key, value in entry.items() if key != "tokens"}
     public["per_token"] = per_token

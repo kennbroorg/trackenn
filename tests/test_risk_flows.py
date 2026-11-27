@@ -193,3 +193,43 @@ def test_unreadable_database_answers_503(client, db):
     response = client.get("/risk-flows", params={"address": CENTRAL})
     assert response.status_code == 503
     assert response.json()["detail"] == "Investigation database could not be read"
+
+
+def test_two_transfers_in_one_tx_to_a_mixer_are_grouped_as_one_hash(client, db):
+    labels_fixture(db)
+    insert(db, "t_transfers", contractAddress=USDC, **{"from": CENTRAL, "to": POOL}, value="1000000",
+           tokenSymbol="USDC", tokenDecimal="6", hash="0xtwo", timeStamp="1")
+    insert(db, "t_transfers", contractAddress=USDC, **{"from": CENTRAL, "to": POOL}, value="2000000",
+           tokenSymbol="USDC", tokenDecimal="6", hash="0xtwo", timeStamp="1")
+    body = client.get("/risk-flows", params={"address": CENTRAL}).json()
+    entry = by_key(body)[(POOL, "out")]
+    assert entry["per_token"] == [{"contract": USDC, "symbol": "USDC", "amount": "3", "count": 2}]
+    assert entry["hashes"] == ["0xtwo"]
+    flow = [d for d in body["decisions"] if d["code"] == "flow_risky"]
+    assert len(flow) == 1 and flow[0]["details"]["count"] == 2
+
+
+def test_unreadable_token_decimal_in_a_risky_flow_leaves_value_unreadable_scoped_to_contract(client, db):
+    labels_fixture(db)
+    insert(db, "t_transfers", contractAddress=USDC, **{"from": CENTRAL, "to": POOL}, value="1000000",
+           tokenSymbol="USDC", tokenDecimal="abc", hash="0xbaddecimal", timeStamp="1")
+    body = client.get("/risk-flows", params={"address": CENTRAL}).json()
+    bad = [d for d in body["decisions"] if d["code"] == "value_unreadable"]
+    assert len(bad) == 1
+    assert bad[0]["scope"] == USDC
+    assert bad[0]["details"]["fields"] == ["tokenDecimal"]
+
+
+def test_ethereum_only_label_does_not_apply_on_a_bsc_query(client, db):
+    label(db, SDN, "AMNOKGANG", ["ofac-sdn"], chain="ethereum")
+    insert(db, "t_transactions", blockChain="bsc", **{"from": CENTRAL, "to": SDN}, value=str(10**18),
+           hash="0xbscnorisk", timeStamp="1", isError="0")
+    body = client.get("/risk-flows", params={"address": CENTRAL, "network": "bsc"}).json()
+    assert body == {"address": CENTRAL, "counterparties": [], "decisions": []}
+
+
+def test_binance_only_label_does_not_apply_on_an_eth_query(client, db):
+    label(db, SDN, "AMNOKGANG", ["ofac-sdn"], chain="binance")
+    tx(db, CENTRAL, SDN, 10**18, "0xethnorisk")
+    body = client.get("/risk-flows", params={"address": CENTRAL, "network": "eth"}).json()
+    assert body == {"address": CENTRAL, "counterparties": [], "decisions": []}
