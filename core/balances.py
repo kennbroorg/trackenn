@@ -22,7 +22,7 @@ ETH_DECIMALS = 18
 SPAM_PREFIX = "spam-"
 
 
-def _int(value):
+def to_int(value):
     try:
         return int(Decimal(str(value or 0)))
     except (InvalidOperation, ValueError, OverflowError):  # INFO: Infinity overflows int()
@@ -38,12 +38,12 @@ def _is_unreadable(value):
     if text == "":
         return False
     try:
-        return not Decimal(text).is_finite()  # INFO: NaN/Infinity parse but _int counts them as 0
+        return not Decimal(text).is_finite()  # INFO: NaN/Infinity parse but to_int counts them as 0
     except InvalidOperation:
         return True
 
 
-def _track_unreadable(tracker, scope, row, fields):
+def track_unreadable(tracker, scope, row, fields):
     hit = [field for field in fields if _is_unreadable(row.get(field))]
     if not hit:
         return
@@ -54,7 +54,7 @@ def _track_unreadable(tracker, scope, row, fields):
         entry["hashes"].append(str(row.get("hash")))
 
 
-def _units(raw, decimals):
+def to_units(raw, decimals):
     value = Decimal(raw).scaleb(-decimals)
     text = format(value.normalize(), "f")
     return "0" if text in ("-0", "") else text
@@ -102,24 +102,24 @@ def _action(details):
 def _eth(data, address, unreadable):
     inflow = outflow = fees = 0
     for row in data["t_transactions"]:
-        _track_unreadable(unreadable, address, row, ("value", "gasUsed", "gasPrice"))
+        track_unreadable(unreadable, address, row, ("value", "gasUsed", "gasPrice"))
         sender = str(row["from"]).lower() == address
         if sender:
-            fees += _int(row["gasUsed"]) * _int(row["gasPrice"])
+            fees += to_int(row["gasUsed"]) * to_int(row["gasPrice"])
         if str(row["isError"]) == "1":
             continue
         if sender:
-            outflow += _int(row["value"])
+            outflow += to_int(row["value"])
         if str(row["to"]).lower() == address:
-            inflow += _int(row["value"])
+            inflow += to_int(row["value"])
     for row in data["t_internals"]:
-        _track_unreadable(unreadable, address, row, ("value",))
+        track_unreadable(unreadable, address, row, ("value",))
         if str(row["isError"]) == "1":
             continue
         if str(row["from"]).lower() == address:
-            outflow += _int(row["value"])
+            outflow += to_int(row["value"])
         if str(row["to"]).lower() == address:
-            inflow += _int(row["value"])
+            inflow += to_int(row["value"])
     net = inflow - outflow - fees
     return {"inflow": inflow, "outflow": outflow, "fees": fees, "net": net}
 
@@ -128,15 +128,15 @@ def _tokens(data, address, unreadable):
     totals = {}
     for row in data["t_transfers"]:
         contract = str(row["contractAddress"]).lower()
-        _track_unreadable(unreadable, contract, row, ("value", "tokenDecimal"))
+        track_unreadable(unreadable, contract, row, ("value", "tokenDecimal"))
         entry = totals.setdefault(contract, {
-            "contract": contract, "symbol": row["tokenSymbol"], "decimals": _int(row["tokenDecimal"]),
+            "contract": contract, "symbol": row["tokenSymbol"], "decimals": to_int(row["tokenDecimal"]),
             "inflow": 0, "outflow": 0, "transfers_in": 0, "transfers_out": 0})
         if str(row["to"]).lower() == address:
-            entry["inflow"] += _int(row["value"])
+            entry["inflow"] += to_int(row["value"])
             entry["transfers_in"] += 1
         if str(row["from"]).lower() == address:
-            entry["outflow"] += _int(row["value"])
+            entry["outflow"] += to_int(row["value"])
             entry["transfers_out"] += 1
     for entry in totals.values():
         entry["net"] = entry["inflow"] - entry["outflow"]
@@ -145,11 +145,11 @@ def _tokens(data, address, unreadable):
 
 def _nfts(data, address, unreadable):
     counts = {}
-    sources = (("t_nfts", "erc721", lambda row: 1), ("t_multitoken", "erc1155", lambda row: _int(row["tokenValue"])))
+    sources = (("t_nfts", "erc721", lambda row: 1), ("t_multitoken", "erc1155", lambda row: to_int(row["tokenValue"])))
     for table, standard, units in sources:
         for row in data[table]:
             if table == "t_multitoken":
-                _track_unreadable(unreadable, str(row["contractAddress"]).lower(), row, ("tokenValue",))
+                track_unreadable(unreadable, str(row["contractAddress"]).lower(), row, ("tokenValue",))
             key = (str(row["contractAddress"]).lower(), str(row["tokenID"]))
             entry = counts.setdefault(key, {"contract": key[0], "token_id": key[1], "symbol": row["tokenSymbol"],
                                             "standard": standard, "units_in": 0, "units_out": 0})
@@ -165,8 +165,8 @@ def _nfts(data, address, unreadable):
 def _public_token(entry, tags):
     decimals = entry["decimals"]
     return {"contract": entry["contract"], "symbol": entry["symbol"], "decimals": decimals,
-            "inflow": _units(entry["inflow"], decimals), "outflow": _units(entry["outflow"], decimals),
-            "net": _units(entry["net"], decimals), "transfers_in": entry["transfers_in"],
+            "inflow": to_units(entry["inflow"], decimals), "outflow": to_units(entry["outflow"], decimals),
+            "net": to_units(entry["net"], decimals), "transfers_in": entry["transfers_in"],
             "transfers_out": entry["transfers_out"], "flagged_tags": tags}
 
 
@@ -177,7 +177,7 @@ def _chain_value(chainid, key, address, contract):
     else:
         params = {"module": "account", "action": "balance", **params}
     response = api_client.api_get(api_client.explorer_url(chainid, **params))
-    return _int(api_client.extract_result(response))
+    return to_int(api_client.extract_result(response))
 
 
 def _compare(address, computed_eth, real_tokens, chainid, key, max_calls):
@@ -202,8 +202,8 @@ def _compare(address, computed_eth, real_tokens, chainid, key, max_calls):
                 "upstream_error", contract or address, "on-chain balance comparison", message,
                 {"uncompared": sorted(c or "eth" for c, _, _ in targets[index:])}))
             break
-        comparison = {"computed": _units(computed, decimals), "chain": _units(chain, decimals),
-                      "difference": _units(chain - computed, decimals)}
+        comparison = {"computed": to_units(computed, decimals), "chain": to_units(chain, decimals),
+                      "difference": to_units(chain - computed, decimals)}
         if contract:
             onchain["tokens"][contract] = comparison
         else:
@@ -243,7 +243,7 @@ def get_balances(dbname, address, blockchain="eth", onchain=False, chainid=None,
         found.append(decisions.make(
             "balance_negative", scope, "outflow > inflow",
             "More left than entered: history is missing or the token behaves unusually",
-            {"net": _units(net, decimals)}))
+            {"net": to_units(net, decimals)}))
 
     nfts = _nfts(data, address, unreadable)
     for scope in sorted(unreadable):
@@ -256,7 +256,7 @@ def get_balances(dbname, address, blockchain="eth", onchain=False, chainid=None,
 
     result = {
         "address": address,
-        "eth": {name: _units(value, ETH_DECIMALS) for name, value in eth.items()},
+        "eth": {name: to_units(value, ETH_DECIMALS) for name, value in eth.items()},
         "tokens": [_public_token(entry, []) for entry in real],
         "spam": [_public_token(entry, sorted(spam_tags[entry["contract"]])) for entry in spam],
         "nfts": nfts,

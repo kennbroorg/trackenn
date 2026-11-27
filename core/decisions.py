@@ -39,6 +39,8 @@ CODES = {
     "balance_mismatch": "The computed balance differs from the live chain balance",
     "non_message_skipped": "Some transactions were not shown because their input is not readable text",
     "value_unreadable": "A stored numeric field was not a number and was counted as 0",
+    "flow_risky": "Funds moved directly between the address and a mixer or a sanctioned address",
+    "mixer_trail_lost": "Funds came out of a mixer; the trail cannot be followed back from there",
 }
 
 

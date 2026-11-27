@@ -40,6 +40,7 @@ from core import created_contracts
 from core import decisions
 from core import decision_log
 from core import balances
+from core import risk_flows
 
 DEFAULT_FRONT_ORIGINS = ["http://127.0.0.1:4200"]
 
@@ -336,13 +337,18 @@ def get_created_contracts(request: Request):
     return JSONResponse({'address': params['address'], **result})
 
 
+def parse_network(params):
+    network = params.get('network', 'eth')
+    if network not in ('eth', 'bsc'):
+        raise HTTPException(status_code=400, detail="Invalid 'network' value: use eth or bsc")
+    return network
+
+
 @app.get('/balances')
 def get_balances(request: Request):
     params = query_params(request)
     require_params(params, ('address',))
-    network = params.get('network', 'eth')
-    if network not in ('eth', 'bsc'):
-        raise HTTPException(status_code=400, detail="Invalid 'network' value: use eth or bsc")
+    network = parse_network(params)
     config = get_config(request)
     onchain = params.get('onchain', 'false').lower() == 'true'
     max_calls = balances.DEFAULT_MAX_CALLS
@@ -353,6 +359,19 @@ def get_balances(request: Request):
     try:
         result = balances.get_balances(config['dbname'], params['address'], network, onchain=onchain,
                                        chainid=chainid, key=key, max_calls=max_calls)
+    except decisions.DatabaseUnreadable:
+        raise HTTPException(status_code=503, detail="Investigation database could not be read") from None
+    return JSONResponse(result)
+
+
+@app.get('/risk-flows')
+def get_risk_flows(request: Request):
+    params = query_params(request)
+    require_params(params, ('address',))
+    network = parse_network(params)
+    config = get_config(request)
+    try:
+        result = risk_flows.get_risk_flows(config['dbname'], params['address'], network)
     except decisions.DatabaseUnreadable:
         raise HTTPException(status_code=503, detail="Investigation database could not be read") from None
     return JSONResponse(result)
