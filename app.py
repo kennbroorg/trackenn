@@ -41,6 +41,7 @@ from core import decisions
 from core import decision_log
 from core import balances
 from core import risk_flows
+from core import calls
 
 DEFAULT_FRONT_ORIGINS = ["http://127.0.0.1:4200"]
 
@@ -375,6 +376,29 @@ def get_risk_flows(request: Request):
     except decisions.DatabaseUnreadable:
         raise HTTPException(status_code=503, detail="Investigation database could not be read") from None
     return JSONResponse(result)
+
+
+@app.get('/calls')
+def get_calls(request: Request):
+    params = query_params(request)
+    address, tx_hash = params.get('address'), params.get('hash')
+    if not address and not tx_hash:
+        raise HTTPException(status_code=400, detail="Missing required parameter(s): address or hash")
+    network = parse_network(params)
+    config = get_config(request)
+    max_calls = calls.DEFAULT_MAX_CALLS
+    if params.get('max_calls'):
+        max_calls = _parse_positive_int(params['max_calls'], 'max_calls', minimum=1)
+    chainid = api_client.BSC_CHAIN_ID if network == 'bsc' else api_client.ETH_CHAIN_ID
+    key = config['bscscan'] if network == 'bsc' else config['ethscan']
+    try:
+        result = calls.get_calls(config['dbname'], network, chainid=chainid, key=key, address=address,
+                                 tx_hash=tx_hash, max_calls=max_calls)
+    except decisions.DatabaseUnreadable:
+        raise HTTPException(status_code=503, detail="Investigation database could not be read") from None
+    scope = address or tx_hash
+    decisions.persist(config['dbname'], '/calls', scope, network, result['decisions'])
+    return JSONResponse({'address': address, 'hash': tx_hash, **result})
 
 
 @app.get('/download_db')
