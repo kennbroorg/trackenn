@@ -1,0 +1,107 @@
+{
+  "generated_at": "2026-11-27",
+  "signatures": {
+    "0x095ea7b3": [
+      "_SIMONdotBLACK_(int8[],int224[],int256,int64,uint248[])",
+      "approve(address,uint256)",
+      "sign_szabo_bytecode(bytes16,uint128)",
+      "watch_tg_invmru_2f69f1b(address,address)"
+    ],
+    "0x0bd868e1": [
+      "ethToDeployer()"
+    ],
+    "0x18cbafe5": [
+      "join_tg_invmru_haha_617eab6(address,uint256,bool)",
+      "swapExactTokensForETH(uint256,uint256,address[],address,uint256)"
+    ],
+    "0x23b872dd": [
+      "func_chVsN(address,address,uint256,address,uint256,uint256,uint256,bytes)",
+      "func_nZHTch(address,address,uint256,((address,uint256),uint256,uint256),bytes)",
+      "gasprice_bit_ether(int128)",
+      "transferFrom(address,address,uint256)",
+      "watch_tg_invmru_faebe36(bool,bool,bool)"
+    ],
+    "0x2e1a7d4d": [
+      "OwnerTransferV7b711143(uint256)",
+      "withdraw(uint256)"
+    ],
+    "0x385ad0a4": [
+      "unwrapWETH()"
+    ],
+    "0x38ed1739": [
+      "swapExactTokensForTokens(uint256,uint256,address[],address,uint256)"
+    ],
+    "0x3ccfd60b": [
+      "withdraw()"
+    ],
+    "0x414bf389": [
+      "exactInputSingle((address,address,uint24,address,uint256,uint256,uint256,uint160))"
+    ],
+    "0x42842e0e": [
+      "safeTransferFrom(address,address,uint256)"
+    ],
+    "0x439370b1": [
+      "depositEth()"
+    ],
+    "0x5ae401dc": [
+      "multicall(uint256,bytes[])"
+    ],
+    "0x60806040": [
+      "_SIMONdotBLACK_(int16,uint80,bytes19[],uint56[],bytes29[])",
+      "_SIMONdotBLACK_(int8,uint192,int8[],uint72[],uint96)",
+      "atInversebrah(bytes28,(int56),int200,(bytes23),(int160,bytes29),uint208,uint240,int168,(bytes18,bytes30[]))",
+      "atInversebrah(int248,uint48[],uint32,bytes20[],bytes30[])",
+      "sanleo(bytes3,bytes30,bytes26,uint8[],uint48[])",
+      "slappychuck_emorxmvrbf(uint256)"
+    ],
+    "0x7ff36ab5": [
+      "join_tg_invmru_haha_9d69f3f(bool,address)",
+      "swapExactETHForTokens(uint256,address[],address,uint256)"
+    ],
+    "0x8803dbee": [
+      "swapTokensForExactTokens(uint256,uint256,address[],address,uint256)"
+    ],
+    "0xa22cb465": [
+      "niceFunctionHerePlzClick943230089(address,bool)",
+      "setApprovalForAll(address,bool)"
+    ],
+    "0xa9059cbb": [
+      "func_2093253501(bytes)",
+      "join_tg_invmru_haha_fd06787(address,bool)",
+      "many_msg_babbage(bytes1)",
+      "transfer(address,uint256)",
+      "transfer(bytes4[9],bytes5[6],int48[11])",
+      "workMyDirefulOwner(uint256,uint256)"
+    ],
+    "0xac9650d8": [
+      "multicall(bytes[])"
+    ],
+    "0xb88d4fde": [
+      "safeTransferFrom(address,address,uint256,bytes)"
+    ],
+    "0xc04b8d59": [
+      "exactInput((bytes,address,uint256,uint256,uint256))"
+    ],
+    "0xcb7baedc": [
+      "swapUSDC()"
+    ],
+    "0xd0e30db0": [
+      "deposit()"
+    ],
+    "0xd505accf": [
+      "permit(address,address,uint256,uint256,uint8,bytes32,bytes32)",
+      "watch_tg_invmru_168a06(bool,address,bool)"
+    ],
+    "0xdb3e2198": [
+      "exactOutputSingle((address,address,uint24,address,uint256,uint256,uint256,uint160))"
+    ],
+    "0xf28c0498": [
+      "exactOutput((bytes,address,uint256,uint256,uint256))"
+    ],
+    "0xfb3bdb41": [
+      "swapETHForExactTokens(uint256,address[],address,uint256)",
+      "transfer_attention_tg_invmru_589df09(bool,bool,uint256)"
+    ]
+  },
+  "source": "https://www.4byte.directory/api/v1/signatures/"
+}
