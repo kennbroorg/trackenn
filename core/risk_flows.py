@@ -146,7 +146,8 @@ def _group(data, address, blockchain, risky, unreadable, contract_decimals):
             continue
         track_unreadable(unreadable, scope, row, fields)
         value, tx_hash, ts = to_int(row["value"]), str(row["hash"]), to_int(row["timeStamp"])
-        if "tokenDecimal" in fields:
+        # INFO: only readable decimals count; an unreadable one is already value_unreadable evidence
+        if "tokenDecimal" in fields and str(row["tokenDecimal"] or "").strip().isdigit():
             seen = contract_decimals.setdefault(contract, {"decimals": set(), "hashes": []})
             seen["decimals"].add(decimals)
             if tx_hash not in seen["hashes"] and len(seen["hashes"]) < EXAMPLE_HASHES:

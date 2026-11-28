@@ -277,3 +277,15 @@ def test_s13e_consistent_tokenDecimal_never_flags_decimals_inconsistent(client, 
     body = client.get("/risk-flows", params={"address": CENTRAL}).json()
 
     assert "decimals_inconsistent" not in [d["code"] for d in body["decisions"]]
+
+
+def test_unreadable_tokenDecimal_does_not_flag_decimals_inconsistent(client, db):
+    # INFO: review-107d9825601ae37a R3-002: an unreadable decimals value is value_unreadable, not a second decimals
+    labels_fixture(db)
+    insert(db, "t_transfers", contractAddress=USDC, **{"from": CENTRAL, "to": POOL}, value="1000000",
+           tokenSymbol="USDC", tokenDecimal="6", hash="0xok", timeStamp="1")
+    insert(db, "t_transfers", contractAddress=USDC, **{"from": CENTRAL, "to": POOL}, value="2000000",
+           tokenSymbol="USDC", tokenDecimal="abc", hash="0xbaddec", timeStamp="2")
+    codes = [d["code"] for d in client.get("/risk-flows", params={"address": CENTRAL}).json()["decisions"]]
+    assert "decimals_inconsistent" not in codes
+    assert "value_unreadable" in codes
