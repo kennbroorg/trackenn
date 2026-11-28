@@ -33,6 +33,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_CALLS = 20
 MAX_CALLS_CEILING = 200
 EXAMPLE_HASHES = 5
+UNVERIFIED_ABI_TTL_SECONDS = 7 * 24 * 3600  # S13(a): an unverified contract may be verified later
+FAILED_ABI_TTL_SECONDS = 10 * 60  # S13(b): do not spend budget retrying a rate limit immediately
 
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 SIGNATURES_PATH = os.path.join(_DATA_DIR, "functionSignatures.json")
@@ -292,6 +294,11 @@ class UpstreamError(Exception):
     """getabi failed for a reason other than "not verified" (rate limit, bad key, network)."""
 
 
+class RecentFailure(UpstreamError):
+    """S13(b): a getabi failure for this contract is still cached as failed (within
+    FAILED_ABI_TTL_SECONDS); no call is made and no budget is spent retrying it."""
+
+
 class BudgetExhausted(Exception):
     """The per-query getabi call budget ran out."""
 
@@ -362,19 +369,46 @@ def fetch_abi(chainid, key, contract):
 class AbiCache:
     """Per blockchain+contract ABI cache (t_abi_cache), created idempotently like the other
     caches. A contract is fetched through Etherscan's getabi at most once per run and at most
-    once ever when the DB cache already has it (K4)."""
+    once ever when the DB cache already has it (K4).
 
-    def __init__(self, dbname):
+    S13(a)/(b): a `status` column distinguishes a resolved entry ("verified"/"unverified") from
+    a cached getabi failure ("failed", `abi` holds the redacted error text). "unverified" expires
+    after UNVERIFIED_ABI_TTL_SECONDS (a contract may be verified later); "verified" never expires
+    (immutable once verified); "failed" expires after FAILED_ABI_TTL_SECONDS (S13(b): long enough
+    to absorb a rate limit without burning the call budget on every query, short enough that a
+    fixed key or restored service is retried soon). An existing t_abi_cache from before this
+    column existed is migrated idempotently: the column is added once, and its NULL rows (always
+    "verified"/"unverified", since "failed" entries did not exist yet) are backfilled from
+    `verified` so old never-expiring verified rows and old unverified rows (treated as past their
+    TTL, since their real fetch time predates this cache design) behave correctly."""
+
+    def __init__(self, dbname, now=None):
         self.dbname = dbname
+        self.now = now or time.time
         self.cache_error = None
         self.served = []
+        self.skipped_recent_failures = []
 
     def _connect(self):
         connection = sqlite3.connect(f"file:{self.dbname}?mode=rw", uri=True)
         connection.execute(
             "CREATE TABLE IF NOT EXISTS t_abi_cache (blockChain text, address text, verified integer, "
             "abi text, fetched_at integer, UNIQUE(blockChain, address))")
+        try:
+            connection.execute("ALTER TABLE t_abi_cache ADD COLUMN status text")
+            connection.execute(
+                "UPDATE t_abi_cache SET status = CASE WHEN verified THEN 'verified' ELSE 'unverified' END "
+                "WHERE status IS NULL")
+        except sqlite3.OperationalError as error:
+            if "duplicate column name" not in str(error):
+                raise
         return connection
+
+    def _expired(self, status, fetched_at):
+        if status == "verified":
+            return False
+        ttl = FAILED_ABI_TTL_SECONDS if status == "failed" else UNVERIFIED_ABI_TTL_SECONDS
+        return fetched_at is None or self.now() - fetched_at >= ttl
 
     def read(self, blockchain, contract):
         if self.dbname is None or self.cache_error:
@@ -382,43 +416,56 @@ class AbiCache:
         try:
             with closing(self._connect()) as connection:
                 return connection.execute(
-                    "SELECT verified, abi, fetched_at FROM t_abi_cache WHERE blockChain = ? AND address = ?",
-                    (blockchain, contract)).fetchone()
+                    "SELECT verified, abi, fetched_at, status FROM t_abi_cache "
+                    "WHERE blockChain = ? AND address = ?", (blockchain, contract)).fetchone()
         except sqlite3.Error as error:
             self.cache_error = str(error)
             return None
 
-    def write(self, blockchain, contract, verified, abi):
+    def write(self, blockchain, contract, status, verified, abi):
         if self.dbname is None or self.cache_error:
             return
         try:
             with closing(self._connect()) as connection:
                 connection.execute(
-                    "INSERT OR REPLACE INTO t_abi_cache VALUES (?, ?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO t_abi_cache (blockChain, address, verified, abi, fetched_at, status) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
                     (blockchain, contract, int(verified), json.dumps(abi) if abi is not None else None,
-                     int(time.time())))
+                     int(self.now()), status))
                 connection.commit()
         except sqlite3.Error as error:
             self.cache_error = str(error)
 
     def resolve(self, blockchain, contract, chainid, key, budget, fetcher=None):
         """(verified, abi) for contract, from cache or a fresh getabi call. Raises BudgetExhausted
-        or UpstreamError (both leave the contract unresolved; callers fall back to signatures)."""
+        or UpstreamError (both leave the contract unresolved; callers fall back to signatures).
+        A cached "failed" entry still within its TTL raises RecentFailure without spending budget
+        or calling the fetcher (S13(b))."""
         fetcher = fetcher or fetch_abi
         cached = self.read(blockchain, contract)
         if cached:
-            verified, abi_json, fetched_at = cached
-            self.served.append({"address": contract, "fetched_at": fetched_at})
-            try:
-                return bool(verified), json.loads(abi_json) if abi_json else None
-            except ValueError:
-                self.cache_error = f"corrupt ABI cache entry for {contract}"
-                return bool(verified), None
+            verified, abi_json, fetched_at, status = cached
+            status = status or ("verified" if verified else "unverified")
+            if not self._expired(status, fetched_at):
+                if status == "failed":
+                    self.skipped_recent_failures.append(contract)
+                    raise RecentFailure(abi_json or "getabi failed")
+                self.served.append({"address": contract, "fetched_at": fetched_at})
+                try:
+                    return bool(verified), json.loads(abi_json) if abi_json else None
+                except ValueError:
+                    self.cache_error = f"corrupt ABI cache entry for {contract}"
+                    return bool(verified), None
         if not budget.available():
             raise BudgetExhausted(contract)
-        verified, abi = fetcher(chainid, key, contract)
+        try:
+            verified, abi = fetcher(chainid, key, contract)
+        except UpstreamError as error:
+            budget.spend()
+            self.write(blockchain, contract, "failed", False, str(error))
+            raise
         budget.spend()
-        self.write(blockchain, contract, verified, abi)
+        self.write(blockchain, contract, "verified" if verified else "unverified", verified, abi)
         return verified, abi
 
     def decisions(self):
@@ -430,6 +477,13 @@ class AbiCache:
                 "served_from_cache", None, "ABI already cached",
                 f"{len(self.served)} contracts answered from the ABI cache; no getabi call made",
                 {"addresses": self.served}))
+        if self.skipped_recent_failures:
+            # S13(b): a previous getabi failure is still cached for these contracts; no call spent
+            # retrying them within FAILED_ABI_TTL_SECONDS of the failure.
+            found.append(decisions.make(
+                "upstream_error", None, "getabi",
+                "A recent getabi failure is still cached for some contracts; not retried yet",
+                {"skipped_recent_failure": sorted(set(self.skipped_recent_failures))}))
         return found
 
 
@@ -481,12 +535,12 @@ def _classify(row):
 # ---------------------------------------------------------------------------
 
 def get_calls(dbname, blockchain="eth", chainid=None, key=None, address=None, tx_hash=None,
-              max_calls=DEFAULT_MAX_CALLS, fetch_abi_fn=None, signatures=None):
+              max_calls=DEFAULT_MAX_CALLS, fetch_abi_fn=None, signatures=None, now=None):
     applied_max_calls = max(1, min(max_calls, MAX_CALLS_CEILING))
     signatures = _load_signatures() if signatures is None else signatures
     rows = _read_transactions(dbname, blockchain, address=address, tx_hash=tx_hash)
 
-    abi_cache = AbiCache(dbname)
+    abi_cache = AbiCache(dbname, now=now)
     budget = CallBudget(applied_max_calls)
     contract_abi = {}  # contract -> (verified, abi) once resolved this run
     contract_unresolved = {}  # contract -> "budget" | "upstream"
@@ -550,6 +604,9 @@ def get_calls(dbname, blockchain="eth", chainid=None, key=None, address=None, tx
             except BudgetExhausted:
                 contract_unresolved[contract] = "budget"
                 pending_contracts.append(contract)
+            except RecentFailure:
+                # S13(b): still within the failed-getabi TTL; no call spent, reported once below.
+                contract_unresolved[contract] = "upstream"
             except UpstreamError as error:
                 contract_unresolved[contract] = "upstream"
                 found_decisions.append(decisions.make(

@@ -233,3 +233,47 @@ def test_binance_only_label_does_not_apply_on_an_eth_query(client, db):
     tx(db, CENTRAL, SDN, 10**18, "0xethnorisk")
     body = client.get("/risk-flows", params={"address": CENTRAL, "network": "eth"}).json()
     assert body == {"address": CENTRAL, "counterparties": [], "decisions": []}
+
+
+# ---- S13(e): amounts scaled per row's own tokenDecimal; inconsistent decimals flagged ----
+
+def test_s13e_amounts_are_scaled_per_row_tokenDecimal_not_the_first_rows(client, db):
+    labels_fixture(db)
+    # same contract, two rows disagreeing on tokenDecimal (e.g. a stored value changed upstream)
+    insert(db, "t_transfers", contractAddress=USDC, **{"from": CENTRAL, "to": POOL}, value="1000000",
+           tokenSymbol="USDC", tokenDecimal="6", hash="0xsix", timeStamp="1")
+    insert(db, "t_transfers", contractAddress=USDC, **{"from": CENTRAL, "to": POOL}, value="1000000000000000000",
+           tokenSymbol="USDC", tokenDecimal="18", hash="0xeighteen", timeStamp="2")
+
+    body = client.get("/risk-flows", params={"address": CENTRAL}).json()
+
+    entry = by_key(body)[(POOL, "out")]
+    # 1000000 / 1e6 = 1, plus 1e18 / 1e18 = 1: each row scaled by its own decimals, not the first row's 6
+    assert entry["per_token"] == [{"contract": USDC, "symbol": "USDC", "amount": "2", "count": 2}]
+
+
+def test_s13e_inconsistent_tokenDecimal_across_rows_of_one_contract_is_flagged(client, db):
+    labels_fixture(db)
+    insert(db, "t_transfers", contractAddress=USDC, **{"from": CENTRAL, "to": POOL}, value="1000000",
+           tokenSymbol="USDC", tokenDecimal="6", hash="0xsix", timeStamp="1")
+    insert(db, "t_transfers", contractAddress=USDC, **{"from": CENTRAL, "to": POOL}, value="1000000000000000000",
+           tokenSymbol="USDC", tokenDecimal="18", hash="0xeighteen", timeStamp="2")
+
+    body = client.get("/risk-flows", params={"address": CENTRAL}).json()
+
+    inconsistent = [d for d in body["decisions"] if d["code"] == "decimals_inconsistent"]
+    assert len(inconsistent) == 1
+    assert inconsistent[0]["scope"] == USDC
+    assert inconsistent[0]["details"] == {"decimals": [6, 18], "hashes": ["0xsix", "0xeighteen"]}
+
+
+def test_s13e_consistent_tokenDecimal_never_flags_decimals_inconsistent(client, db):
+    labels_fixture(db)
+    insert(db, "t_transfers", contractAddress=USDC, **{"from": CENTRAL, "to": POOL}, value="1000000",
+           tokenSymbol="USDC", tokenDecimal="6", hash="0xa", timeStamp="1")
+    insert(db, "t_transfers", contractAddress=USDC, **{"from": CENTRAL, "to": POOL}, value="2000000",
+           tokenSymbol="USDC", tokenDecimal="6", hash="0xb", timeStamp="2")
+
+    body = client.get("/risk-flows", params={"address": CENTRAL}).json()
+
+    assert "decimals_inconsistent" not in [d["code"] for d in body["decisions"]]

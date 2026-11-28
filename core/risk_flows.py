@@ -13,8 +13,10 @@ import typing
 from collections.abc import Iterator
 from contextlib import closing
 
+from decimal import Decimal
+
 from core import decisions
-from core.balances import to_int, to_units, track_unreadable
+from core.balances import to_int, track_unreadable
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +130,15 @@ def _sides(row, address) -> Iterator[tuple[str, str]]:
         yield (sender, "in")
 
 
-def _group(data, address, blockchain, risky, unreadable):
+def _format_amount(value):
+    """Same text shape as core.balances.to_units, for a Decimal already scaled per row (S13(e):
+    each row is scaled by its own tokenDecimal, so a single contract's amount can no longer be
+    summed as raw integer units and scaled once at the end with one shared decimals value)."""
+    text = format(value.normalize(), "f")
+    return "0" if text in ("-0", "") else text
+
+
+def _group(data, address, blockchain, risky, unreadable, contract_decimals):
     groups = {}
     for row, counterparty, direction, contract, symbol, decimals, scope, fields in _movements(
             data, address, blockchain):
@@ -136,13 +146,18 @@ def _group(data, address, blockchain, risky, unreadable):
             continue
         track_unreadable(unreadable, scope, row, fields)
         value, tx_hash, ts = to_int(row["value"]), str(row["hash"]), to_int(row["timeStamp"])
+        if "tokenDecimal" in fields:
+            seen = contract_decimals.setdefault(contract, {"decimals": set(), "hashes": []})
+            seen["decimals"].add(decimals)
+            if tx_hash not in seen["hashes"] and len(seen["hashes"]) < EXAMPLE_HASHES:
+                seen["hashes"].append(tx_hash)
         info = risky[counterparty]
         entry = groups.setdefault((counterparty, direction), {
             "counterparty": counterparty, "name": info["name"], "kinds": info["kinds"],
             "labels": info["labels"], "direction": direction, "tokens": {},
             "first_timeStamp": ts, "last_timeStamp": ts, "hashes": []})
-        token = entry["tokens"].setdefault(contract, {"symbol": symbol, "decimals": decimals, "raw": 0, "count": 0})
-        token["raw"] += value
+        token = entry["tokens"].setdefault(contract, {"symbol": symbol, "amount": Decimal(0), "count": 0})
+        token["amount"] += Decimal(value).scaleb(-decimals)  # S13(e): scaled by this row's own decimals
         token["count"] += 1
         entry["first_timeStamp"] = min(entry["first_timeStamp"], ts)
         entry["last_timeStamp"] = max(entry["last_timeStamp"], ts)
@@ -153,7 +168,7 @@ def _group(data, address, blockchain, risky, unreadable):
 
 def _public(entry):
     per_token = [{"contract": contract, "symbol": token["symbol"],
-                  "amount": to_units(token["raw"], token["decimals"]), "count": token["count"]}
+                  "amount": _format_amount(token["amount"]), "count": token["count"]}
                  for contract, token in sorted(entry["tokens"].items())]
     public = {key: value for key, value in entry.items() if key != "tokens"}
     public["per_token"] = per_token
@@ -191,7 +206,8 @@ def get_risk_flows(dbname, address, blockchain="eth"):
     address = address.lower()
     data = _read(dbname, address, blockchain)
     unreadable = {}
-    groups = _group(data, address, blockchain, _risky_index(data["labels"]), unreadable)
+    contract_decimals = {}
+    groups = _group(data, address, blockchain, _risky_index(data["labels"]), unreadable, contract_decimals)
     ordered = sorted(groups.values(), key=lambda e: (e["first_timeStamp"], e["counterparty"], e["direction"]))
     found = [decision for entry in ordered for decision in _decisions(entry)]
     for scope in sorted(unreadable):
@@ -201,5 +217,12 @@ def get_risk_flows(dbname, address, blockchain="eth"):
         found.append(decisions.make(
             "value_unreadable", scope, "non-numeric stored value counted as 0",
             "A stored numeric field was not a number and was counted as 0", details))
+    for contract in sorted(contract_decimals):
+        seen = contract_decimals[contract]
+        if len(seen["decimals"]) > 1:  # S13(e): the same contract disagrees on tokenDecimal across rows
+            found.append(decisions.make(
+                "decimals_inconsistent", contract, "stored tokenDecimal differs across rows of one contract",
+                "Amounts were scaled per row with its own tokenDecimal, not a single shared value",
+                {"decimals": sorted(seen["decimals"]), "hashes": seen["hashes"][:EXAMPLE_HASHES]}))
     _persist(dbname, address, blockchain, found)
     return {"address": address, "counterparties": [_public(entry) for entry in ordered], "decisions": found}
