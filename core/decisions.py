@@ -41,6 +41,7 @@ CODES = {
     "value_unreadable": "A stored numeric field was not a number and was counted as 0",
     "flow_risky": "Funds moved directly between the address and a mixer or a sanctioned address",
     "mixer_trail_lost": "Funds came out of a mixer; the trail cannot be followed back from there",
+    "decimals_inconsistent": "One contract's stored tokenDecimal is not the same on every row",
     "selector_unknown": "A call selector could not be named by any available source",
     "selector_ambiguous": "Several pinned signatures fit a selector's calldata; none was chosen",
     "value_undecoded": "Some call parameters are dynamic types the decoder does not resolve",

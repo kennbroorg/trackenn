@@ -1,6 +1,7 @@
 """odd/tasks/backend-backlog-c.md, T13 S12 (R12): GET /calls decodes stored transaction
 `input` into named calls (K1-K8), with a fake Etherscan for getabi (no network)."""
 import json
+import os
 import sqlite3
 from contextlib import closing
 
@@ -249,6 +250,137 @@ def test_k4_unverified_contract_is_cached_as_such(client, db):
                     fetch_abi_fn=second_fetch)
 
     assert second_fetch.calls == []  # unverified status itself is cached
+
+
+# ---- S13(a): unverified ABI cache entries expire after 7 days; verified never expires ----
+
+DAY = 24 * 3600
+
+
+def test_s13a_unverified_cache_entry_older_than_7_days_is_refetched(client, db):
+    tx(db, "0x1", CENTRAL, UNKNOWN_CONTRACT, calldata("a91864d4", word(1)))
+    t0 = [1_700_000_000]
+    fetch = FakeAbiFetch({UNKNOWN_CONTRACT: ("unverified", None)})
+
+    calls.get_calls(str(db), "eth", chainid=api_client.ETH_CHAIN_ID, key="K", address=CENTRAL,
+                    fetch_abi_fn=fetch, now=lambda: t0[0])
+    assert fetch.calls == [UNKNOWN_CONTRACT]
+
+    # within the 7-day window: still cached, no call
+    t0[0] += 6 * DAY
+    still_fresh = FakeAbiFetch({UNKNOWN_CONTRACT: ("unverified", None)})
+    calls.get_calls(str(db), "eth", chainid=api_client.ETH_CHAIN_ID, key="K", address=CENTRAL,
+                    fetch_abi_fn=still_fresh, now=lambda: t0[0])
+    assert still_fresh.calls == []
+
+    # past 7 days: re-fetched, now reporting verified (the contract was verified later)
+    t0[0] += 2 * DAY
+    now_verified = FakeAbiFetch({UNKNOWN_CONTRACT: ("verified", USDC_ABI)})
+    result = calls.get_calls(str(db), "eth", chainid=api_client.ETH_CHAIN_ID, key="K", address=CENTRAL,
+                             fetch_abi_fn=now_verified, now=lambda: t0[0])
+    assert now_verified.calls == [UNKNOWN_CONTRACT]
+    assert result["calls"][0]["source"] is None  # calldata doesn't match transfer, stays unresolved by name
+
+
+def test_s13a_verified_cache_entry_never_expires(client, db):
+    tx(db, "0x1", CENTRAL, USDC, TRANSFER_CALLDATA)
+    t0 = [1_700_000_000]
+    fetch = FakeAbiFetch({USDC: ("verified", USDC_ABI)})
+
+    calls.get_calls(str(db), "eth", chainid=api_client.ETH_CHAIN_ID, key="K", address=CENTRAL,
+                    fetch_abi_fn=fetch, now=lambda: t0[0])
+    assert fetch.calls == [USDC]
+
+    t0[0] += 3650 * DAY  # far beyond any TTL
+    much_later = FakeAbiFetch({USDC: ("verified", USDC_ABI)})
+    result = calls.get_calls(str(db), "eth", chainid=api_client.ETH_CHAIN_ID, key="K", address=CENTRAL,
+                             fetch_abi_fn=much_later, now=lambda: t0[0])
+    assert much_later.calls == []  # never expires once verified
+    assert result["calls"][0]["source"] == "abi"
+
+
+def test_s13a_migrates_an_existing_cache_table_without_the_status_column(client, db):
+    # An ABI cache table created before S13(a) added `status`: no column, old rows are
+    # either verified (never expire) or unverified (treated as already past their TTL).
+    with closing(sqlite3.connect(db)) as conn:
+        conn.execute(
+            "CREATE TABLE t_abi_cache (blockChain text, address text, verified integer, "
+            "abi text, fetched_at integer, UNIQUE(blockChain, address))")
+        conn.execute("INSERT INTO t_abi_cache VALUES ('eth', ?, 1, ?, 1)",
+                     (USDC, json.dumps(USDC_ABI)))
+        conn.execute("INSERT INTO t_abi_cache VALUES ('eth', ?, 0, NULL, 1)",
+                     (UNKNOWN_CONTRACT,))
+        conn.commit()
+    tx(db, "0x1", CENTRAL, USDC, TRANSFER_CALLDATA)
+    tx(db, "0x2", CENTRAL, UNKNOWN_CONTRACT, calldata("a91864d4", word(1)))
+    fetch = FakeAbiFetch({UNKNOWN_CONTRACT: ("unverified", None)})
+
+    result = calls.get_calls(str(db), "eth", chainid=api_client.ETH_CHAIN_ID, key="K", address=CENTRAL,
+                             fetch_abi_fn=fetch)
+
+    by_hash = {c["hash"]: c for c in result["calls"]}
+    assert by_hash["0x1"]["source"] == "abi"  # old verified row still served from cache
+    assert fetch.calls == [UNKNOWN_CONTRACT]  # old unverified row, no fetched_at, treated as expired
+
+
+# ---- S13(b): a failed getabi is cached as "failed" for 10 minutes ----
+
+def test_s13b_failed_getabi_is_cached_for_ten_minutes_then_retried(client, db):
+    tx(db, "0x1", CENTRAL, USDC, TRANSFER_CALLDATA)
+    t0 = [1_700_000_000]
+    failing = FakeAbiFetch({USDC: ("error", "Max rate limit reached")})
+
+    first = calls.get_calls(str(db), "eth", chainid=api_client.ETH_CHAIN_ID, key="K", address=CENTRAL,
+                            fetch_abi_fn=failing, now=lambda: t0[0])
+    assert failing.calls == [USDC]
+    assert "upstream_error" in [d["code"] for d in first["decisions"]]
+
+    # within 10 minutes: served from the failed cache, no call spent
+    t0[0] += 5 * 60
+    still_failing = FakeAbiFetch({USDC: ("error", "Max rate limit reached")})
+    second = calls.get_calls(str(db), "eth", chainid=api_client.ETH_CHAIN_ID, key="K", address=CENTRAL,
+                             fetch_abi_fn=still_failing, now=lambda: t0[0])
+    assert still_failing.calls == []
+    upstream = [d for d in second["decisions"] if d["code"] == "upstream_error"]
+    assert len(upstream) == 1
+    assert upstream[0]["details"]["skipped_recent_failure"] == [USDC]
+
+    # past 10 minutes: retried
+    t0[0] += 6 * 60
+    recovered = FakeAbiFetch({USDC: ("verified", USDC_ABI)})
+    third = calls.get_calls(str(db), "eth", chainid=api_client.ETH_CHAIN_ID, key="K", address=CENTRAL,
+                            fetch_abi_fn=recovered, now=lambda: t0[0])
+    assert recovered.calls == [USDC]
+    assert third["calls"][0]["source"] == "abi"
+
+
+# ---- S13(c): cache_unavailable on /calls (read-only / corrupt t_abi_cache) ----
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file permissions")
+def test_s13c_read_only_db_file_gives_cache_unavailable_and_still_200(client, db):
+    tx(db, "0x1", CENTRAL, UNKNOWN_CONTRACT, calldata("a91864d4", word(1)))
+    os.chmod(db, 0o444)
+    try:
+        response = client.get("/calls", params={"address": CENTRAL})
+    finally:
+        os.chmod(db, 0o644)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "cache_unavailable" in [d["code"] for d in body["decisions"]]
+
+
+def test_s13c_corrupt_abi_cache_table_gives_cache_unavailable_and_still_200(client, db):
+    with closing(sqlite3.connect(db)) as conn:
+        conn.execute("CREATE TABLE t_abi_cache (just_one_column text)")
+        conn.commit()
+    tx(db, "0x1", CENTRAL, UNKNOWN_CONTRACT, calldata("a91864d4", word(1)))
+
+    response = client.get("/calls", params={"address": CENTRAL})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "cache_unavailable" in [d["code"] for d in body["decisions"]]
 
 
 # ---- K5: max_calls budget and ceiling ----
